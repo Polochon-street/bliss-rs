@@ -3,8 +3,14 @@ name = "bliss-rs"
 version = "0.1.0"
 authors = ["Polochon-street <polochonstreet@gmx.fr>"]
 edition = "2018"
+license = "GNU GPLv3"
+description = "A song analysis library for making playlists"
+homepage = "https://lelele.io/bliss.html"
+repository = "https://github.com/Polochon-street/bliss-rs"
+readme = "README.md"
 
 [features]
+default = ["aubio-rs/static"]
 build-ffmpeg = ["ffmpeg-next/build"]
 bench = []
 
@@ -21,10 +27,11 @@ crossbeam = "0.8.0"
 noisy_float = "0.2.0"
 # Until either https://github.com/zmwangx/rust-ffmpeg/pull/60
 # or https://github.com/zmwangx/rust-ffmpeg/pull/62 is in
-ffmpeg-next = {git = "https://github.com/Polochon-street/rust-ffmpeg", branch = "stop-failing-unimplemented-arms"}
+ffmpeg-next = "4.4.0-dev"
 log = "0.4.14"
 env_logger = "0.8.3"
 thiserror = "1.0.24"
+aubio-rs = "0.2.0"
 
 [dev-dependencies]
 mpd = "0.0.12"
@@ -34,11 +41,6 @@ tempdir = "0.3.7"
 clap = "2.33.3"
 anyhow = "1.0.40"
 
-[dependencies.aubio-rs]
-git = "https://github.com/Polochon-street/aubio-rs"
-
-# Like this until https://github.com/aubio/aubio/issues/336 is solved one way
-# or the other
-[dependencies.aubio-lib]
-git = "https://github.com/Polochon-street/aubio-rs"
-branch = "aubio-tweaks"
+[patch.crates-io]
+aubio-rs = { git = "https://github.com/Polochon-street/aubio-rs", branch = "aubio-tweaks" }
+ffmpeg-next = { git = "https://github.com/Polochon-street/rust-ffmpeg", branch = "stop-failing-unimplemented-arms"}

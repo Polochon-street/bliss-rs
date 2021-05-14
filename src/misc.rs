@@ -2,7 +2,6 @@
 //!
 //! Contains various descriptors that don't fit in one of the
 //! existing categories.
-extern crate aubio_lib;
 
 use aubio_rs::level_lin;
 use ndarray::{arr1, Axis};

@@ -3,7 +3,6 @@
 //! Use decoding, and features-extraction functions from other modules
 //! e.g. tempo features, spectral features, etc to build a Song and its
 //! corresponding Analysis.
-extern crate aubio_lib;
 
 extern crate crossbeam;
 extern crate ffmpeg_next as ffmpeg;
