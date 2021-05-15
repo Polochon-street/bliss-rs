@@ -9,9 +9,8 @@ Like Bliss, it ease the creation of « intelligent » playlists and/or continuou
 play, à la Spotify/Grooveshark Radio.
 
 ## Usage
-Currently not usable.
-
-It's missing a binary / example to actually use the computed features.
+For simple analysis / distance computing, a look at `examples/distance.rs` and
+`examples/analyse.rs`.
 
 ## Acknowledgements
 
