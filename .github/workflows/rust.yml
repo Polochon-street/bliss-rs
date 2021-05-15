@@ -16,6 +16,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+      with:
+        submodules: recursive
     - uses: actions-rs/toolchain@v1
       with:
         toolchain: nightly-2021-04-01

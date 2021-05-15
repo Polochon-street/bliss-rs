@@ -55,7 +55,6 @@ dependencies = [
 [[package]]
 name = "aubio-rs"
 version = "0.2.0"
-source = "git+https://github.com/Polochon-street/aubio-rs?branch=aubio-tweaks#6ddd5495d2cbab5fc085fbd7aab4ad5f66580c08"
 dependencies = [
  "aubio-sys",
 ]
@@ -63,7 +62,6 @@ dependencies = [
 [[package]]
 name = "aubio-sys"
 version = "0.2.0"
-source = "git+https://github.com/Polochon-street/aubio-rs?branch=aubio-tweaks#6ddd5495d2cbab5fc085fbd7aab4ad5f66580c08"
 dependencies = [
  "cc",
 ]
@@ -387,7 +385,8 @@ checksum = "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
 [[package]]
 name = "ffmpeg-next"
 version = "4.3.8"
-source = "git+https://github.com/Polochon-street/rust-ffmpeg?branch=fix-cargo-version#0e56d833b7d1b7294c5d5029638659ece24e5291"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3186d58788057973c658e1fa13a26ea1340718a8a131d5e1996d06e2b08befc"
 dependencies = [
  "bitflags",
  "ffmpeg-sys-next",
