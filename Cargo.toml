@@ -33,7 +33,7 @@ log = "0.4.14"
 env_logger = "0.8.3"
 thiserror = "1.0.24"
 # Until https://github.com/aubio/aubio/issues/336 is somehow solved
-aubio-rs = {version = "0.2.0", path = "./aubio-rs/aubio-rs"}
+aubio-rs = {path = "./aubio-rs/aubio-rs"}
 
 [dev-dependencies]
 mpd = "0.0.12"
