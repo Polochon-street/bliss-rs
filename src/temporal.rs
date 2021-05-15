@@ -2,7 +2,6 @@
 //!
 //! Contains functions to extract & summarize the temporal aspects
 //! of a given Song.
-extern crate aubio_lib;
 
 use crate::utils::Normalize;
 use crate::BlissError;
