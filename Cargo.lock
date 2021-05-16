@@ -53,20 +53,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "aubio-rs"
-version = "0.2.0"
-dependencies = [
- "aubio-sys",
-]
-
-[[package]]
-name = "aubio-sys"
-version = "0.2.0"
-dependencies = [
- "cc",
-]
-
-[[package]]
 name = "autocfg"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -99,11 +85,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
+name = "bliss-audio-aubio-rs"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe01698d293ee91e334339d6436f17eac30d94bebaa668c5799c8206384dfeb1"
+dependencies = [
+ "bliss-audio-aubio-sys",
+]
+
+[[package]]
+name = "bliss-audio-aubio-sys"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ef9fab7b922bdd057bb06fa2a2fa79d2a93bec3dd576320511cb3dfe21e78a9"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "bliss-rs"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "aubio-rs",
+ "bliss-audio-aubio-rs",
  "clap",
  "crossbeam",
  "dirs",

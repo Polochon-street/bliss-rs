@@ -4,8 +4,8 @@
 //! spectral centroid, spectral flatness and spectral roll-off of
 //! a given Song.
 
-use aubio_rs::vec::CVec;
-use aubio_rs::{bin_to_freq, PVoc, SpecDesc, SpecShape};
+use bliss_audio_aubio_rs::vec::CVec;
+use bliss_audio_aubio_rs::{bin_to_freq, PVoc, SpecDesc, SpecShape};
 use ndarray::{arr1, Axis};
 
 use super::utils::{geometric_mean, mean, number_crossings, Normalize};
