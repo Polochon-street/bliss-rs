@@ -5,7 +5,7 @@
 
 use crate::utils::Normalize;
 use crate::BlissError;
-use aubio_rs::{OnsetMode, Tempo};
+use bliss_audio_aubio_rs::{OnsetMode, Tempo};
 use log::warn;
 use ndarray::arr1;
 use ndarray_stats::interpolate::Midpoint;

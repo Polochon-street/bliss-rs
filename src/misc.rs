@@ -3,7 +3,7 @@
 //! Contains various descriptors that don't fit in one of the
 //! existing categories.
 
-use aubio_rs::level_lin;
+use bliss_audio_aubio_rs::level_lin;
 use ndarray::{arr1, Axis};
 
 use super::utils::{mean, Normalize};

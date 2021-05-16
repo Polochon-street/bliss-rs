@@ -13,7 +13,7 @@ readme = "README.md"
 # Building ffmpeg until either
 # https://github.com/zmwangx/rust-ffmpeg/pull/60
 # or https://github.com/zmwangx/rust-ffmpeg/pull/62 is in
-default = ["aubio-rs/static", "build-ffmpeg"]
+default = ["bliss-audio-aubio-rs/static", "build-ffmpeg"]
 build-ffmpeg = ["ffmpeg-next/build"]
 bench = []
 
@@ -33,7 +33,8 @@ log = "0.4.14"
 env_logger = "0.8.3"
 thiserror = "1.0.24"
 # Until https://github.com/aubio/aubio/issues/336 is somehow solved
-aubio-rs = {path = "./aubio-rs/aubio-rs"}
+# Hopefully we'll be able to use the official aubio-rs at some point.
+bliss-audio-aubio-rs = "0.2.0"
 
 [dev-dependencies]
 mpd = "0.0.12"
