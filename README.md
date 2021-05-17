@@ -1,4 +1,5 @@
 ![build](https://github.com/Polochon-street/bliss-rs/workflows/Rust/badge.svg)
+![doc](https://docs.rs/bliss-rs/badge.svg)
 
 # Bliss music analyser - Rust version
 Bliss-rs is the Rust improvement of [Bliss](https://github.com/Polochon-street/bliss). The data it

@@ -1,6 +1,6 @@
 [package]
 name = "bliss-rs"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Polochon-street <polochonstreet@gmx.fr>"]
 edition = "2018"
 license = "GPL-3.0-only"
@@ -8,6 +8,10 @@ description = "A song analysis library for making playlists"
 homepage = "https://lelele.io/bliss.html"
 repository = "https://github.com/Polochon-street/bliss-rs"
 readme = "README.md"
+
+[package.metadata.docs.rs]
+features = ["bliss-audio-aubio-rs/rustdoc"]
+no-default-features = true
 
 [features]
 # Building ffmpeg until either
