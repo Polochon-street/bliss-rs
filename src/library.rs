@@ -68,6 +68,7 @@ pub trait Library {
         }
         let num_cpus = num_cpus::get();
 
+        #[allow(clippy::type_complexity)]
         let (tx, rx): (
             Sender<(String, Result<Song, BlissError>)>,
             Receiver<(String, Result<Song, BlissError>)>,
@@ -98,8 +99,8 @@ pub trait Library {
             match song {
                 Ok(song) => {
                     self.store_song(&song)
-                        .unwrap_or_else(|_| error!("Error while storing song '{}'", (&song).path));
-                    info!("Analyzed and stored song '{}' successfully.", (&song).path)
+                        .unwrap_or_else(|_| error!("Error while storing song '{}'", song.path));
+                    info!("Analyzed and stored song '{}' successfully.", song.path)
                 }
                 Err(e) => {
                     self.store_error_song(path.to_string(), e)
@@ -114,7 +115,7 @@ pub trait Library {
         for child in handles {
             child
                 .join()
-                .map_err(|_| BlissError::AnalysisError(format!("in analysis")))?;
+                .map_err(|_| BlissError::AnalysisError("in analysis".to_string()))?;
         }
         Ok(())
     }
@@ -236,7 +237,7 @@ mod test {
         assert_eq!(
             test_library.analyze_library(),
             Err(BlissError::ProviderError(String::from(
-                "Error happened with the music library provider - Could not get songs path"
+                "error happened with the music library provider - Could not get songs path"
             ))),
         );
     }

@@ -1,6 +1,27 @@
+//! bliss is a library for making "smart" audio playlists.
+//!
+//! The core of the library is the `Song` object, which relates to a
+//! specific analyzed song and contains its path, title, analysis, and
+//! other metadata fields (album, genre...).
+//! Analyzing a song is as simple as running `Song::new("/path/to/song")`.
+//!
+//! The [analysis](Song::analysis) field of each song is an array of f32, which makes the
+//! comparison between songs easy, by just using euclidean distance (see
+//! [distance](Song::distance) for instance).
+//!
+//! Once several songs have been analyzed, making a playlist from one Song
+//! is as easy as computing distances between that song and the rest, and ordering
+//! the songs by distance, ascending.
+//!
+//! It is also convenient to make plug-ins for existing audio players.
+//! It should be as easy as implementing the necessary traits for [Library].
+//! A reference implementation for the MPD player is available
+//! [here](https://github.com/Polochon-street/blissify-rs)
 #![cfg_attr(feature = "bench", feature(test))]
+#![warn(missing_docs)]
+#![warn(missing_doc_code_examples)]
 mod chroma;
-pub mod library;
+mod library;
 mod misc;
 mod song;
 mod temporal;
@@ -9,37 +30,29 @@ mod utils;
 
 extern crate crossbeam;
 extern crate num_cpus;
+#[cfg(feature = "serde")]
+#[macro_use]
+extern crate serde;
 use thiserror::Error;
+
+pub use song::Song;
+pub use library::Library;
 
 const CHANNELS: u16 = 1;
 const SAMPLE_RATE: u32 = 22050;
 
-#[derive(Default, Debug, PartialEq, Clone)]
-/// Simple object used to represent a Song, with its path, analysis, and
-/// other metadata (artist, genre...)
-pub struct Song {
-    pub path: String,
-    pub artist: String,
-    pub title: String,
-    pub album: String,
-    pub track_number: String,
-    pub genre: String,
-    /// Vec containing analysis, in order: tempo, zero-crossing rate,
-    /// mean spectral centroid, std deviation spectral centroid,
-    /// mean spectral rolloff, std deviation spectral rolloff
-    /// mean spectral_flatness, std deviation spectral flatness,
-    /// mean loudness, std deviation loudness
-    /// chroma interval feature 1 to 10
-    pub analysis: Vec<f32>,
-}
-
 #[derive(Error, Debug, PartialEq)]
+/// Umbrella type for bliss error types
 pub enum BlissError {
-    #[error("Error happened while decoding file – {0}")]
+    #[error("error happened while decoding file – {0}")]
+    /// An error happened while decoding an (audio) file
     DecodingError(String),
-    #[error("Error happened while analyzing file – {0}")]
+    #[error("error happened while analyzing file – {0}")]
+    /// An error happened during the analysis of the samples by bliss
     AnalysisError(String),
-    #[error("Error happened with the music library provider - {0}")]
+    #[error("error happened with the music library provider - {0}")]
+    /// An error happened with the music library provider.
+    /// Useful to report errors when you implement the [Library] trait.
     ProviderError(String),
 }
 
@@ -84,6 +97,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_send_song() {
+        fn assert_send<T: Send>() {}
+        assert_send::<Song>();
+    }
+
+    #[test]
+    fn test_sync_song() {
+        fn assert_sync<T: Send>() {}
+        assert_sync::<Song>();
+    }
+
+    #[test]
     fn test_bulk_analyse() {
         let results = bulk_analyse(vec![
             String::from("data/s16_mono_22_5kHz.flac"),
@@ -113,7 +138,7 @@ mod tests {
         assert_eq!(
             vec![
                 String::from(
-                    "Error happened while decoding file – while opening format: ffmpeg::Error(2: No such file or directory)."
+                    "error happened while decoding file – while opening format: ffmpeg::Error(2: No such file or directory)."
                 );
                 8
             ],
