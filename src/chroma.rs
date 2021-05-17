@@ -258,11 +258,11 @@ fn pip_track(
     let beginning = freq_mask
         .iter()
         .position(|&b| b)
-        .ok_or(BlissError::AnalysisError("in chroma".to_string()))?;
+        .ok_or_else(|| BlissError::AnalysisError("in chroma".to_string()))?;
     let end = freq_mask
         .iter()
         .rposition(|&b| b)
-        .ok_or(BlissError::AnalysisError("in chroma".to_string()))?;
+        .ok_or_else(|| BlissError::AnalysisError("in chroma".to_string()))?;
 
     let zipped = Zip::indexed(spectrum.slice(s![beginning..end - 3, ..]))
         .and(spectrum.slice(s![beginning + 1..end - 2, ..]))

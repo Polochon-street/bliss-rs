@@ -1,4 +1,4 @@
-use bliss_rs::Song;
+use bliss_audio::Song;
 use std::env;
 
 /**

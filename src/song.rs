@@ -3,6 +3,9 @@
 //! Use decoding, and features-extraction functions from other modules
 //! e.g. tempo features, spectral features, etc to build a Song and its
 //! corresponding Analysis.
+//!
+//! For implementation of plug-ins for already existing audio players,
+//! a look at Library is instead recommended.
 
 extern crate crossbeam;
 extern crate ffmpeg_next as ffmpeg;
@@ -14,7 +17,7 @@ use crate::chroma::ChromaDesc;
 use crate::misc::LoudnessDesc;
 use crate::temporal::BPMDesc;
 use crate::timbral::{SpectralDesc, ZeroCrossingRateDesc};
-use crate::{BlissError, Song, SAMPLE_RATE};
+use crate::{BlissError, SAMPLE_RATE};
 use ::log::warn;
 use crossbeam::thread;
 use ffmpeg_next::codec::threading::{Config, Type as ThreadingType};
@@ -32,73 +35,41 @@ use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
 use std::thread as std_thread;
 
-fn push_to_sample_array(frame: &ffmpeg::frame::Audio, sample_array: &mut Vec<f32>) {
-    if frame.samples() == 0 {
-        return;
-    }
-    // Account for the padding
-    let actual_size = util::format::sample::Buffer::size(
-        Sample::F32(Type::Packed),
-        CHANNELS,
-        frame.samples(),
-        false,
-    );
-    let f32_frame: Vec<f32> = frame.data(0)[..actual_size]
-        .chunks_exact(4)
-        .map(|x| {
-            let mut a: [u8; 4] = [0; 4];
-            a.copy_from_slice(x);
-            f32::from_le_bytes(a)
-        })
-        .collect();
-    sample_array.extend_from_slice(&f32_frame);
-}
-
-#[derive(Default, Debug)]
-pub(crate) struct InternalSong {
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Default, Debug, PartialEq, Clone)]
+/// Simple object used to represent a Song, with its path, analysis, and
+/// other metadata (artist, genre...)
+pub struct Song {
+    /// Song's provided file path
     pub path: String,
+    /// Song's artist, read from the metadata (`""` if empty)
     pub artist: String,
+    /// Song's title, read from the metadata (`""` if empty)
     pub title: String,
+    /// Song's album name, read from the metadata (`""` if empty)
     pub album: String,
+    /// Song's tracked number, read from the metadata (`""` if empty)
     pub track_number: String,
+    /// Song's genre, read from the metadata (`""` if empty)
     pub genre: String,
-    pub sample_array: Vec<f32>,
-}
-
-fn resample_frame(
-    rx: Receiver<Audio>,
-    mut resample_context: Context,
-    mut sample_array: Vec<f32>,
-) -> Result<Vec<f32>, BlissError> {
-    let mut resampled = ffmpeg::frame::Audio::empty();
-    for decoded in rx.iter() {
-        resample_context
-            .run(&decoded, &mut resampled)
-            .map_err(|e| {
-                BlissError::DecodingError(format!("while trying to resample song: {:?}", e))
-            })?;
-        push_to_sample_array(&resampled, &mut sample_array);
-    }
-    loop {
-        match resample_context.flush(&mut resampled).map_err(|e| {
-            BlissError::DecodingError(format!("while trying to resample song: {:?}", e))
-        })? {
-            Some(_) => {
-                push_to_sample_array(&resampled, &mut sample_array);
-            }
-            None => {
-                if resampled.samples() == 0 {
-                    break;
-                }
-                push_to_sample_array(&resampled, &mut sample_array);
-            }
-        };
-    }
-    Ok(sample_array)
+    /// Vec containing analysis, in order: tempo, zero-crossing rate,
+    /// mean spectral centroid, std deviation spectral centroid,
+    /// mean spectral rolloff, std deviation spectral rolloff
+    /// mean spectral_flatness, std deviation spectral flatness,
+    /// mean loudness, std deviation loudness, chroma interval feature 1 to 10.
+    ///
+    /// All the numbers are between -1 and 1.
+    pub analysis: Vec<f32>,
 }
 
 impl Song {
     #[allow(dead_code)]
+    /// Compute the distance between the current song and any given Song.
+    ///
+    /// The smaller the number, the closer the songs; usually more useful
+    /// if compared between several songs
+    /// (e.g. if song1.distance(song2) < song1.distance(song3), then song1 is
+    /// closer to song2 than it is to song3.
     pub fn distance(&self, other: &Self) -> f32 {
         let a1 = arr1(&self.analysis.to_vec());
         let a2 = arr1(&other.analysis.to_vec());
@@ -110,6 +81,22 @@ impl Song {
         (arr1(&self.analysis) - &a2).dot(&m).dot(&(&a1 - &a2))
     }
 
+    /// Returns a decoded Song given a file path, or an error if the song
+    /// could not be analyzed for some reason.
+    ///
+    /// # Arguments
+    /// 
+    /// * `path` - A string holding a valid file path to a valid audio file.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the file path is invalid, if
+    /// the file path points to a file containing no or corrupted audio stream,
+    /// or if the analysis could not be conducted to the end for some reason.
+    ///
+    /// The error type returned should give a hint as to whether it was a
+    /// decoding ([DecodingError](BlissError::DecodingError)) or an analysis
+    /// ([AnalysisError](BlissError::AnalysisError)) error.
     pub fn new(path: &str) -> Result<Self, BlissError> {
         let raw_song = Song::decode(&path)?;
 
@@ -172,6 +159,7 @@ impl Song {
                     Ok(chroma_desc.get_values())
                 });
 
+            #[allow(clippy::type_complexity)]
             let child_timbral: thread::ScopedJoinHandle<
                 '_,
                 Result<(Vec<f32>, Vec<f32>, Vec<f32>), BlissError>,
@@ -238,7 +226,7 @@ impl Song {
             let stream = format
                 .streams()
                 .find(|s| s.codec().medium() == ffmpeg::media::Type::Audio)
-                .ok_or(BlissError::DecodingError(String::from(
+                .ok_or_else(|| BlissError::DecodingError(String::from(
                     "No audio stream found.",
                 )))?;
             stream.codec().set_threading(Config {
@@ -377,6 +365,71 @@ impl Song {
         song.sample_array = child.join().unwrap()?;
         Ok(song)
     }
+}
+
+#[derive(Default, Debug)]
+pub(crate) struct InternalSong {
+    pub path: String,
+    pub artist: String,
+    pub title: String,
+    pub album: String,
+    pub track_number: String,
+    pub genre: String,
+    pub sample_array: Vec<f32>,
+}
+
+fn resample_frame(
+    rx: Receiver<Audio>,
+    mut resample_context: Context,
+    mut sample_array: Vec<f32>,
+) -> Result<Vec<f32>, BlissError> {
+    let mut resampled = ffmpeg::frame::Audio::empty();
+    for decoded in rx.iter() {
+        resample_context
+            .run(&decoded, &mut resampled)
+            .map_err(|e| {
+                BlissError::DecodingError(format!("while trying to resample song: {:?}", e))
+            })?;
+        push_to_sample_array(&resampled, &mut sample_array);
+    }
+    loop {
+        match resample_context.flush(&mut resampled).map_err(|e| {
+            BlissError::DecodingError(format!("while trying to resample song: {:?}", e))
+        })? {
+            Some(_) => {
+                push_to_sample_array(&resampled, &mut sample_array);
+            }
+            None => {
+                if resampled.samples() == 0 {
+                    break;
+                }
+                push_to_sample_array(&resampled, &mut sample_array);
+            }
+        };
+    }
+    Ok(sample_array)
+}
+
+fn push_to_sample_array(frame: &ffmpeg::frame::Audio, sample_array: &mut Vec<f32>) {
+    if frame.samples() == 0 {
+        return;
+    }
+    // Account for the padding
+    let actual_size = util::format::sample::Buffer::size(
+        Sample::F32(Type::Packed),
+        CHANNELS,
+        frame.samples(),
+        false,
+    );
+    let f32_frame: Vec<f32> = frame.data(0)[..actual_size]
+        .chunks_exact(4)
+        .map(|x| {
+            let mut a: [u8; 4] = [0; 4];
+            a.copy_from_slice(x);
+            f32::from_le_bytes(a)
+        })
+        .collect();
+    sample_array.extend_from_slice(&f32_frame);
 }
 
 #[cfg(test)]
