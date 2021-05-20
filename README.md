@@ -14,6 +14,8 @@ For now (and if you're looking for an easy-to use smooth play experience),
 [blissify](https://crates.io/crates/blissify) implements bliss for
 [MPD](https://www.musicpd.org/).
 
+There are also [python](https://pypi.org/project/bliss-audio/) bindings.
+
 Note 1: the features bliss-rs outputs is not compatible with the ones
 used by C-bliss, since it uses
 different, more accurate values, based on
