@@ -21,6 +21,7 @@ no-default-features = true
 default = ["bliss-audio-aubio-rs/static", "build-ffmpeg"]
 build-ffmpeg = ["ffmpeg-next/build"]
 bench = []
+python-bindings = ["bliss-audio-aubio-rs/fftw3"]
 
 [dependencies]
 ripemd160 = "0.9.0"
