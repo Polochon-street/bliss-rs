@@ -1,3 +1,5 @@
+//! # bliss audio library
+//!
 //! bliss is a library for making "smart" audio playlists.
 //!
 //! The core of the library is the `Song` object, which relates to a
@@ -17,6 +19,49 @@
 //! It should be as easy as implementing the necessary traits for [Library].
 //! A reference implementation for the MPD player is available
 //! [here](https://github.com/Polochon-street/blissify-rs)
+//!
+//! # Examples
+//!
+//! ## Analyze & compute the distance between two songs
+//! ```no_run
+//! use bliss_audio::{BlissError, Song};
+//! 
+//! fn main() -> Result<(), BlissError> {
+//!     let song1 = Song::new("/path/to/song1")?;
+//!     let song2 = Song::new("/path/to/song2")?;
+//!
+//!     println!("Distance between song1 and song2 is {}", song1.distance(&song2));
+//!     Ok(())
+//! }
+//! ```
+//! 
+//! ### Make a playlist from a song
+//! ```no_run
+//! use bliss_audio::{BlissError, Song};
+//! use ndarray::{arr1, Array};
+//! use noisy_float::prelude::n32;
+//! 
+//! fn main() -> Result<(), BlissError> {
+//!     let paths = vec!["/path/to/song1", "/path/to/song2", "/path/to/song3"];
+//!     let mut songs: Vec<Song> = paths
+//!         .iter()
+//!         .map(|path| Song::new(path))
+//!         .collect::<Result<Vec<Song>, BlissError>>()?;
+//! 
+//!     // Assuming there is a first song
+//!     let first_song = songs.first().unwrap().to_owned();
+//!
+//!     songs.sort_by_cached_key(|song| n32(first_song.distance(&song)));
+//!     println!(
+//!         "Playlist is: {:?}",
+//!         songs
+//!             .iter()
+//!             .map(|song| &song.path)
+//!             .collect::<Vec<&String>>()
+//!     );
+//!     Ok(())
+//! }
+//! ```
 #![cfg_attr(feature = "bench", feature(test))]
 #![warn(missing_docs)]
 #![warn(missing_doc_code_examples)]
@@ -35,13 +80,13 @@ extern crate num_cpus;
 extern crate serde;
 use thiserror::Error;
 
-pub use song::Song;
 pub use library::Library;
+pub use song::{Analysis, AnalysisIndex, Song};
 
 const CHANNELS: u16 = 1;
 const SAMPLE_RATE: u32 = 22050;
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Clone, Debug, PartialEq)]
 /// Umbrella type for bliss error types
 pub enum BlissError {
     #[error("error happened while decoding file – {0}")]
