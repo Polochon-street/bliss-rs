@@ -1,8 +1,7 @@
 //! Module containing the Library trait, useful to get started to implement
 //! a plug-in for an audio player.
 use crate::{BlissError, Song};
-use log::{error, info, warn};
-use ndarray::{arr1, Array};
+use log::{debug, error, info};
 use noisy_float::prelude::*;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
@@ -43,18 +42,16 @@ pub trait Library {
         first_song: Song,
         playlist_length: usize,
     ) -> Result<Vec<Song>, BlissError> {
-        let analysis_current_song = arr1(&first_song.analysis.to_vec());
+        let analysis_current_song = first_song.analysis;
         let mut songs = self.get_stored_songs()?;
-        let m = Array::eye(first_song.analysis.len());
-        songs.sort_by_cached_key(|song| {
-            n32((arr1(&song.analysis) - &analysis_current_song)
-                .dot(&m)
-                .dot(&(arr1(&song.analysis) - &analysis_current_song)))
-        });
-        Ok(songs
+        songs.sort_by_cached_key(|song| n32(analysis_current_song.distance(&song.analysis)));
+
+        let playlist = songs
             .into_iter()
             .take(playlist_length)
-            .collect::<Vec<Song>>())
+            .collect::<Vec<Song>>();
+        debug!("Playlist created: {:?}", playlist);
+        Ok(playlist)
     }
 
     /// Analyze and store songs in `paths`, using `store_song` and
@@ -103,11 +100,14 @@ pub trait Library {
                     info!("Analyzed and stored song '{}' successfully.", song.path)
                 }
                 Err(e) => {
-                    self.store_error_song(path.to_string(), e)
+                    self.store_error_song(path.to_string(), e.to_owned())
                         .unwrap_or_else(|e| {
                             error!("Error while storing errored song '{}': {}", path, e)
                         });
-                    warn!("Analysis of song '{}' failed. Storing error.", path)
+                    error!(
+                        "Analysis of song '{}': {} failed. Error has been stored.",
+                        path, e
+                    )
                 }
             }
         }
@@ -134,6 +134,7 @@ pub trait Library {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::song::Analysis;
 
     #[derive(Default)]
     struct TestLibrary {
@@ -247,7 +248,7 @@ mod test {
         let test_library = FailingLibrary {};
         let song = Song {
             path: String::from("path-to-first"),
-            analysis: vec![0., 0., 0.],
+            analysis: Analysis::new([0.; 20]),
             ..Default::default()
         };
 
@@ -304,11 +305,6 @@ mod test {
                 String::from("./data/white_noise.flac"),
             ],
         );
-
-        test_library
-            .internal_storage
-            .iter()
-            .for_each(|x| assert!(x.analysis.len() > 0));
     }
 
     #[test]
@@ -316,25 +312,25 @@ mod test {
         let mut test_library = TestLibrary::default();
         let first_song = Song {
             path: String::from("path-to-first"),
-            analysis: vec![0., 0., 0.],
+            analysis: Analysis::new([0.; 20]),
             ..Default::default()
         };
 
         let second_song = Song {
             path: String::from("path-to-second"),
-            analysis: vec![0.1, 0., 0.],
+            analysis: Analysis::new([0.1; 20]),
             ..Default::default()
         };
 
         let third_song = Song {
             path: String::from("path-to-third"),
-            analysis: vec![10., 11., 10.],
+            analysis: Analysis::new([10.; 20]),
             ..Default::default()
         };
 
         let fourth_song = Song {
             path: String::from("path-to-fourth"),
-            analysis: vec![20., 21., 20.],
+            analysis: Analysis::new([20.; 20]),
             ..Default::default()
         };
 
@@ -355,19 +351,19 @@ mod test {
         let mut test_library = TestLibrary::default();
         let first_song = Song {
             path: String::from("path-to-first"),
-            analysis: vec![0., 0., 0.],
+            analysis: Analysis::new([0.; 20]),
             ..Default::default()
         };
 
         let second_song = Song {
             path: String::from("path-to-second"),
-            analysis: vec![0.1, 0., 0.],
+            analysis: Analysis::new([0.1; 20]),
             ..Default::default()
         };
 
         let third_song = Song {
             path: String::from("path-to-third"),
-            analysis: vec![10., 11., 10.],
+            analysis: Analysis::new([10.; 20]),
             ..Default::default()
         };
 
