@@ -1,3 +1,7 @@
-Change Log
+# Changelog
 
-All user visible changes to this project will be documented in this file. This project adheres to Semantic Versioning, as described for Rust libraries in RFC #1105
+## bliss 0.2.1
+
+* Added an `Analysis` struct to `Song`, as well as an `AnalysisIndex` to
+  index it easily.
+* Changed some logging parameters for the Library trait.
