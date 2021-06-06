@@ -81,7 +81,7 @@ extern crate serde;
 use thiserror::Error;
 
 pub use library::Library;
-pub use song::{Analysis, AnalysisIndex, Song};
+pub use song::{Analysis, AnalysisIndex, NUMBER_FEATURES, Song};
 
 const CHANNELS: u16 = 1;
 const SAMPLE_RATE: u32 = 22050;
