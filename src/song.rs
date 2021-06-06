@@ -156,15 +156,18 @@ impl Analysis {
         }
     }
 
-    /// Return an ndarray `arr1`.
+    /// Return an ndarray `Array1` representing the analysis' features.
     ///
     /// Particularly useful if you want to make a custom distance metric.
     pub fn to_arr1(&self) -> Array1<f32> {
         arr1(&self.internal_analysis)
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn to_vec(&self) -> Vec<f32> {
+    /// Return a Vec<f32> representing the analysis' features.
+    ///
+    /// Particularly useful if you want iterate through the values to store
+    /// them somewhere.
+    pub fn to_vec(&self) -> Vec<f32> {
         self.internal_analysis.to_vec()
     }
 
