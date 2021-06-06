@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.2.4
+* Make `Analysis::to_vec()` public.
+
 ## bliss 0.2.3
 
 * Made `NUMBER_FEATURES` public.
