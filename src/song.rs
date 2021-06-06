@@ -104,6 +104,7 @@ pub enum AnalysisIndex {
 }
 const NUMBER_FEATURES: usize = AnalysisIndex::COUNT;
 
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Default, PartialEq, Clone, Copy)]
 /// Object holding the results of the song's analysis.
 ///
@@ -143,7 +144,12 @@ impl fmt::Debug for Analysis {
 }
 
 impl Analysis {
-    pub(crate) fn new(analysis: [f32; NUMBER_FEATURES]) -> Analysis {
+    /// Create a new Analysis object.
+    ///
+    /// Usually not needed, unless you have already computed and stored
+    /// features somewhere, and need to recreate a Song with an already
+    /// existing Analysis yourself.
+    pub fn new(analysis: [f32; NUMBER_FEATURES]) -> Analysis {
         Analysis {
             internal_analysis: analysis,
         }
