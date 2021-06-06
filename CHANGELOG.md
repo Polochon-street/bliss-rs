@@ -1,5 +1,9 @@
 # Changelog
 
+## bliss 0.2.2
+
+* Made `NUMBER_FEATURES` public.
+
 ## bliss 0.2.1
 
 * Made `Analysis::new` public.

@@ -102,7 +102,8 @@ pub enum AnalysisIndex {
     Chroma9,
     Chroma10,
 }
-const NUMBER_FEATURES: usize = AnalysisIndex::COUNT;
+/// The number of features used in `Analysis`
+pub const NUMBER_FEATURES: usize = AnalysisIndex::COUNT;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Default, PartialEq, Clone, Copy)]
