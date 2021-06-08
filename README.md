@@ -21,9 +21,6 @@ used by C-bliss, since it uses
 different, more accurate values, based on
 [actual literature](https://lelele.io/thesis.pdf). It is also faster.
 
-Note 2: The `bliss-rs` crate is outdated. You should use `bliss-audio`
-(this crate) instead.
-
 ## Examples
 For simple analysis / distance computing, a look at `examples/distance.rs` and
 `examples/analyse.rs`.
@@ -32,20 +29,20 @@ Ready to use examples:
 
 ### Compute the distance between two songs
 ```
-use bliss_audio::Song;
+use bliss_audio::{BlissError, Song};
 
-fn main() {
-        let song1 = Song::new("/path/to/song1");
-        let song2 = Song::new("/path/to/song2");
-
-        println!("Distance between song1 and song2 is {}", song1.distance(song2));
+fn main() -> Result<(), BlissError> {
+    let song1 = Song::new("/path/to/song1")?;
+    let song2 = Song::new("/path/to/song2")?;
+        
+    println!("Distance between song1 and song2 is {}", song1.distance(&song2));
+    Ok(())
 }
 ```
 
 ### Make a playlist from a song
 ```
-use bliss_rs::{BlissError, Song};
-use ndarray::{arr1, Array};
+use bliss_audio::{BlissError, Song};
 use noisy_float::prelude::n32;
 
 fn main() -> Result<(), BlissError> {
@@ -56,18 +53,9 @@ fn main() -> Result<(), BlissError> {
         .collect::<Result<Vec<Song>, BlissError>>()?;
 
     // Assuming there is a first song
-    let analysis_first_song = arr1(&songs[0].analysis);
+    let first_song = songs.first().unwrap().to_owned();
 
-    // Identity matrix used to compute the distance.
-    // Note that it can be changed to alter feature ponderation, which
-    // may yield to better playlists (subjectively).
-    let m = Array::eye(analysis_first_song.len());
-
-    songs.sort_by_cached_key(|song| {
-        n32((arr1(&song.analysis) - &analysis_first_song)
-            .dot(&m)
-            .dot(&(arr1(&song.analysis) - &analysis_first_song)))
-    });
+    songs.sort_by_cached_key(|song| n32(first_song.distance(&song)));
     println!(
         "Playlist is: {:?}",
         songs
