@@ -38,7 +38,6 @@
 //! ### Make a playlist from a song
 //! ```no_run
 //! use bliss_audio::{BlissError, Song};
-//! use ndarray::{arr1, Array};
 //! use noisy_float::prelude::n32;
 //! 
 //! fn main() -> Result<(), BlissError> {

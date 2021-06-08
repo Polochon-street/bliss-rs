@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.2.5
+* Updates to docs
+
 ## bliss 0.2.4
 * Make `Analysis::to_vec()` public.
 
