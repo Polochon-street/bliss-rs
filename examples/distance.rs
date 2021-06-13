@@ -17,7 +17,7 @@ fn main() -> Result<(), String> {
     let song2 = Song::new(&second_path).map_err(|x| x.to_string())?;
 
     println!(
-        "d({}, {}) = {}",
+        "d({:?}, {:?}) = {}",
         song1.path,
         song2.path,
         song1.distance(&song2)

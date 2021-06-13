@@ -64,10 +64,11 @@ impl Normalize for LoudnessDesc {
 mod tests {
     use super::*;
     use crate::Song;
+    use std::path::Path;
 
     #[test]
     fn test_loudness() {
-        let song = Song::decode("data/s16_mono_22_5kHz.flac").unwrap();
+        let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut loudness_desc = LoudnessDesc::default();
         for chunk in song.sample_array.chunks_exact(LoudnessDesc::WINDOW_SIZE) {
             loudness_desc.do_(&chunk);

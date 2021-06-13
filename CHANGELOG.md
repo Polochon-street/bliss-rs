@@ -1,5 +1,10 @@
 # Changelog
 
+## bliss 0.3.0
+* Changed `Song.path` from `String` to `PathBuf`.
+* Made `Song` metadata (artist, album, etc) `Option`s.
+* Added a `BlissResult` error type.
+
 ## bliss 0.2.6
 * Fixed an allocation bug in Song::decode that potentially caused segfaults.
 

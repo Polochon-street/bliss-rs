@@ -9,7 +9,7 @@ use bliss_audio_aubio_rs::{bin_to_freq, PVoc, SpecDesc, SpecShape};
 use ndarray::{arr1, Axis};
 
 use super::utils::{geometric_mean, mean, number_crossings, Normalize};
-use crate::{BlissError, SAMPLE_RATE};
+use crate::{BlissError, BlissResult, SAMPLE_RATE};
 
 /**
  * General object holding all the spectral descriptor.
@@ -120,7 +120,7 @@ impl SpectralDesc {
         ]
     }
 
-    pub fn new(sample_rate: u32) -> Result<Self, BlissError> {
+    pub fn new(sample_rate: u32) -> BlissResult<Self> {
         Ok(SpectralDesc {
             centroid_aubio_desc: SpecDesc::new(SpecShape::Centroid, SpectralDesc::WINDOW_SIZE)
                 .map_err(|e| {
@@ -158,7 +158,7 @@ impl SpectralDesc {
      * `get_centroid`, `get_flatness` and `get_rolloff` to get the respective
      * descriptors' values.
      */
-    pub fn do_(&mut self, chunk: &[f32]) -> Result<(), BlissError> {
+    pub fn do_(&mut self, chunk: &[f32]) -> BlissResult<()> {
         let mut fftgrain: Vec<f32> = vec![0.0; SpectralDesc::WINDOW_SIZE];
         self.phase_vocoder
             .do_(chunk, fftgrain.as_mut_slice())
@@ -266,6 +266,7 @@ impl Normalize for ZeroCrossingRateDesc {
 mod tests {
     use super::*;
     use crate::Song;
+    use std::path::Path;
 
     #[test]
     fn test_zcr_boundaries() {
@@ -287,7 +288,7 @@ mod tests {
 
     #[test]
     fn test_zcr() {
-        let song = Song::decode("data/s16_mono_22_5kHz.flac").unwrap();
+        let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut zcr_desc = ZeroCrossingRateDesc::default();
         for chunk in song.sample_array.chunks_exact(SpectralDesc::HOP_SIZE) {
             zcr_desc.do_(&chunk);
@@ -309,7 +310,7 @@ mod tests {
             assert!(0.0000001 > (expected - actual).abs());
         }
 
-        let song = Song::decode("data/white_noise.flac").unwrap();
+        let song = Song::decode(Path::new("data/white_noise.flac")).unwrap();
         let mut spectral_desc = SpectralDesc::new(22050).unwrap();
         for chunk in song.sample_array.chunks_exact(SpectralDesc::HOP_SIZE) {
             spectral_desc.do_(&chunk).unwrap();
@@ -326,7 +327,7 @@ mod tests {
 
     #[test]
     fn test_spectral_flatness() {
-        let song = Song::decode("data/s16_mono_22_5kHz.flac").unwrap();
+        let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut spectral_desc = SpectralDesc::new(SAMPLE_RATE).unwrap();
         for chunk in song.sample_array.chunks_exact(SpectralDesc::HOP_SIZE) {
             spectral_desc.do_(&chunk).unwrap();
@@ -356,7 +357,7 @@ mod tests {
             assert!(0.0000001 > (expected - actual).abs());
         }
 
-        let song = Song::decode("data/tone_11080Hz.flac").unwrap();
+        let song = Song::decode(Path::new("data/tone_11080Hz.flac")).unwrap();
         let mut spectral_desc = SpectralDesc::new(SAMPLE_RATE).unwrap();
         for chunk in song.sample_array.chunks_exact(SpectralDesc::HOP_SIZE) {
             spectral_desc.do_(&chunk).unwrap();
@@ -372,7 +373,7 @@ mod tests {
 
     #[test]
     fn test_spectral_roll_off() {
-        let song = Song::decode("data/s16_mono_22_5kHz.flac").unwrap();
+        let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut spectral_desc = SpectralDesc::new(SAMPLE_RATE).unwrap();
         for chunk in song.sample_array.chunks_exact(SpectralDesc::HOP_SIZE) {
             spectral_desc.do_(&chunk).unwrap();
@@ -390,7 +391,7 @@ mod tests {
 
     #[test]
     fn test_spectral_centroid() {
-        let song = Song::decode("data/s16_mono_22_5kHz.flac").unwrap();
+        let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut spectral_desc = SpectralDesc::new(SAMPLE_RATE).unwrap();
         for chunk in song.sample_array.chunks_exact(SpectralDesc::HOP_SIZE) {
             spectral_desc.do_(&chunk).unwrap();
@@ -419,7 +420,7 @@ mod tests {
         {
             assert!(0.0000001 > (expected - actual).abs());
         }
-        let song = Song::decode("data/tone_11080Hz.flac").unwrap();
+        let song = Song::decode(Path::new("data/tone_11080Hz.flac")).unwrap();
         let mut spectral_desc = SpectralDesc::new(SAMPLE_RATE).unwrap();
         for chunk in song.sample_array.chunks_exact(SpectralDesc::HOP_SIZE) {
             spectral_desc.do_(&chunk).unwrap();

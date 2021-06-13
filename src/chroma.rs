@@ -7,7 +7,7 @@ extern crate noisy_float;
 
 use crate::utils::stft;
 use crate::utils::{hz_to_octs_inplace, Normalize};
-use crate::BlissError;
+use crate::{BlissError, BlissResult};
 use ndarray::{arr1, arr2, concatenate, s, Array, Array1, Array2, Axis, Zip};
 use ndarray_stats::interpolate::Midpoint;
 use ndarray_stats::QuantileExt;
@@ -51,7 +51,7 @@ impl ChromaDesc {
      * Passing a full song here once instead of streaming smaller parts of the
      * song will greatly improve accuracy.
      */
-    pub fn do_(&mut self, signal: &[f32]) -> Result<(), BlissError> {
+    pub fn do_(&mut self, signal: &[f32]) -> BlissResult<()> {
         let mut stft = stft(signal, ChromaDesc::WINDOW_SIZE, 2205);
         let tuning = estimate_tuning(
             self.sample_rate as u32,
@@ -155,7 +155,7 @@ fn chroma_filter(
     n_fft: usize,
     n_chroma: u32,
     tuning: f64,
-) -> Result<Array2<f64>, BlissError> {
+) -> BlissResult<Array2<f64>> {
     let ctroct = 5.0;
     let octwidth = 2.;
     let n_chroma_float = f64::from(n_chroma);
@@ -226,7 +226,7 @@ fn pip_track(
     sample_rate: u32,
     spectrum: &Array2<f64>,
     n_fft: usize,
-) -> Result<(Vec<f64>, Vec<f64>), BlissError> {
+) -> BlissResult<(Vec<f64>, Vec<f64>)> {
     let sample_rate_float = f64::from(sample_rate);
     let fmin = 150.0_f64;
     let fmax = 4000.0_f64.min(sample_rate_float / 2.0);
@@ -291,7 +291,7 @@ fn pitch_tuning(
     frequencies: &mut Array1<f64>,
     resolution: f64,
     bins_per_octave: u32,
-) -> Result<f64, BlissError> {
+) -> BlissResult<f64> {
     if frequencies.is_empty() {
         return Ok(0.0);
     }
@@ -320,7 +320,7 @@ fn estimate_tuning(
     n_fft: usize,
     resolution: f64,
     bins_per_octave: u32,
-) -> Result<f64, BlissError> {
+) -> BlissResult<f64> {
     let (pitch, mag) = pip_track(sample_rate, &spectrum, n_fft)?;
 
     let (filtered_pitch, filtered_mag): (Vec<N64>, Vec<N64>) = pitch
@@ -372,6 +372,7 @@ mod test {
     use ndarray::{arr1, arr2, Array2};
     use ndarray_npy::ReadNpyExt;
     use std::fs::File;
+    use std::path::Path;
 
     #[test]
     fn test_chroma_interval_features() {
@@ -437,7 +438,7 @@ mod test {
 
     #[test]
     fn test_chroma_desc() {
-        let song = Song::decode("data/s16_mono_22_5kHz.flac").unwrap();
+        let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
         chroma_desc.do_(&song.sample_array).unwrap();
         let expected_values = vec![
@@ -459,7 +460,7 @@ mod test {
 
     #[test]
     fn test_chroma_stft_decode() {
-        let signal = Song::decode("data/s16_mono_22_5kHz.flac")
+        let signal = Song::decode(Path::new("data/s16_mono_22_5kHz.flac"))
             .unwrap()
             .sample_array;
         let mut stft = stft(&signal, 8192, 2205);
@@ -487,7 +488,7 @@ mod test {
 
     #[test]
     fn test_estimate_tuning_decode() {
-        let signal = Song::decode("data/s16_mono_22_5kHz.flac")
+        let signal = Song::decode(Path::new("data/s16_mono_22_5kHz.flac"))
             .unwrap()
             .sample_array;
         let stft = stft(&signal, 8192, 2205);
@@ -556,6 +557,7 @@ mod bench {
     use ndarray_npy::ReadNpyExt;
     use std::fs::File;
     use test::Bencher;
+    use std::path::Path;
 
     #[bench]
     fn bench_estimate_tuning(b: &mut Bencher) {
@@ -603,7 +605,7 @@ mod bench {
 
     #[bench]
     fn bench_chroma_desc(b: &mut Bencher) {
-        let song = Song::decode("data/s16_mono_22_5kHz.flac").unwrap();
+        let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
         let signal = song.sample_array;
         b.iter(|| {
@@ -614,7 +616,7 @@ mod bench {
 
     #[bench]
     fn bench_chroma_stft(b: &mut Bencher) {
-        let song = Song::decode("data/s16_mono_22_5kHz.flac").unwrap();
+        let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
         let signal = song.sample_array;
         b.iter(|| {
@@ -625,7 +627,7 @@ mod bench {
 
     #[bench]
     fn bench_chroma_stft_decode(b: &mut Bencher) {
-        let signal = Song::decode("data/s16_mono_22_5kHz.flac")
+        let signal = Song::decode(Path::new("data/s16_mono_22_5kHz.flac"))
             .unwrap()
             .sample_array;
         let mut stft = stft(&signal, 8192, 2205);

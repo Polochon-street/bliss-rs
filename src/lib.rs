@@ -24,9 +24,9 @@
 //!
 //! ## Analyze & compute the distance between two songs
 //! ```no_run
-//! use bliss_audio::{BlissError, Song};
+//! use bliss_audio::{BlissResult, Song};
 //! 
-//! fn main() -> Result<(), BlissError> {
+//! fn main() -> BlissResult<()> {
 //!     let song1 = Song::new("/path/to/song1")?;
 //!     let song2 = Song::new("/path/to/song2")?;
 //!
@@ -37,15 +37,15 @@
 //! 
 //! ### Make a playlist from a song
 //! ```no_run
-//! use bliss_audio::{BlissError, Song};
+//! use bliss_audio::{BlissResult, Song};
 //! use noisy_float::prelude::n32;
 //! 
-//! fn main() -> Result<(), BlissError> {
+//! fn main() -> BlissResult<()> {
 //!     let paths = vec!["/path/to/song1", "/path/to/song2", "/path/to/song3"];
 //!     let mut songs: Vec<Song> = paths
 //!         .iter()
 //!         .map(|path| Song::new(path))
-//!         .collect::<Result<Vec<Song>, BlissError>>()?;
+//!         .collect::<BlissResult<Vec<Song>>>()?;
 //! 
 //!     // Assuming there is a first song
 //!     let first_song = songs.first().unwrap().to_owned();
@@ -55,8 +55,8 @@
 //!         "Playlist is: {:?}",
 //!         songs
 //!             .iter()
-//!             .map(|song| &song.path)
-//!             .collect::<Vec<&String>>()
+//!             .map(|song| song.path.to_string_lossy().to_string())
+//!             .collect::<Vec<String>>()
 //!     );
 //!     Ok(())
 //! }
@@ -100,13 +100,16 @@ pub enum BlissError {
     ProviderError(String),
 }
 
+/// bliss error type
+pub type BlissResult<T> = Result<T, BlissError>;
+
 /// Simple function to bulk analyze a set of songs represented by their
 /// absolute paths.
 ///
 /// When making an extension for an audio player, prefer
 /// implementing the `Library` trait.
 #[doc(hidden)]
-pub fn bulk_analyse(paths: Vec<String>) -> Vec<Result<Song, BlissError>> {
+pub fn bulk_analyse(paths: Vec<String>) -> Vec<BlissResult<Song>> {
     let mut songs = Vec::with_capacity(paths.len());
     let num_cpus = num_cpus::get();
 
@@ -175,7 +178,7 @@ mod tests {
 
         let mut analysed_songs: Vec<String> = results
             .iter()
-            .filter_map(|x| x.as_ref().ok().map(|x| x.path.to_string()))
+            .filter_map(|x| x.as_ref().ok().map(|x| x.path.to_str().unwrap().to_string()))
             .collect();
         analysed_songs.sort_by(|a, b| a.cmp(b));
 
