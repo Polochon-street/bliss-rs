@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.2.6
+* Fixed an allocation bug in Song::decode that potentially caused segfaults.
+
 ## bliss 0.2.5
 * Updates to docs
 
