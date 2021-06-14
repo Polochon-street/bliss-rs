@@ -510,6 +510,7 @@ fn resample_frame(
 ) -> Result<Vec<f32>, BlissError> {
     let mut resampled = ffmpeg::frame::Audio::empty();
     for decoded in rx.iter() {
+        resampled = ffmpeg::frame::Audio::empty();
         resample_context
             .run(&decoded, &mut resampled)
             .map_err(|e| {
@@ -517,6 +518,8 @@ fn resample_frame(
             })?;
         push_to_sample_array(&resampled, &mut sample_array);
     }
+    // TODO when ffmpeg-next will be active again: shouldn't we allocate
+    // `resampled` again?
     loop {
         match resample_context.flush(&mut resampled).map_err(|e| {
             BlissError::DecodingError(format!("while trying to resample song: {:?}", e))
