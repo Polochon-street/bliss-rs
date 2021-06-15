@@ -1,6 +1,6 @@
 //! Module containing the Library trait, useful to get started to implement
 //! a plug-in for an audio player.
-use crate::{BlissError, Song};
+use crate::{BlissError, BlissResult, Song};
 use log::{debug, error, info};
 use noisy_float::prelude::*;
 use std::sync::mpsc;
@@ -11,18 +11,18 @@ use std::thread;
 pub trait Library {
     /// Return the absolute path of all the songs in an
     /// audio player's music library.
-    fn get_songs_paths(&self) -> Result<Vec<String>, BlissError>;
+    fn get_songs_paths(&self) -> BlissResult<Vec<String>>;
     /// Store an analyzed Song object in some (cold) storage, e.g.
     /// a database, a file...
-    fn store_song(&mut self, song: &Song) -> Result<(), BlissError>;
+    fn store_song(&mut self, song: &Song) -> BlissResult<()>;
     /// Log and / or store that an error happened while trying to decode and
     /// analyze a song.
-    fn store_error_song(&mut self, song_path: String, error: BlissError) -> Result<(), BlissError>;
+    fn store_error_song(&mut self, song_path: String, error: BlissError) -> BlissResult<()>;
     /// Retrieve a list of all the stored Songs.
     ///
     /// This should work only after having run `analyze_library` at least
     /// once.
-    fn get_stored_songs(&self) -> Result<Vec<Song>, BlissError>;
+    fn get_stored_songs(&self) -> BlissResult<Vec<Song>>;
 
     /// Return a list of songs that are similar to ``first_song``.
     ///
@@ -41,7 +41,7 @@ pub trait Library {
         &self,
         first_song: Song,
         playlist_length: usize,
-    ) -> Result<Vec<Song>, BlissError> {
+    ) -> BlissResult<Vec<Song>> {
         let analysis_current_song = first_song.analysis;
         let mut songs = self.get_stored_songs()?;
         songs.sort_by_cached_key(|song| n32(analysis_current_song.distance(&song.analysis)));
@@ -59,7 +59,7 @@ pub trait Library {
     ///
     /// Note: this is mostly useful for updating a song library. For the first
     /// run, you probably want to use `analyze_library`.
-    fn analyze_paths(&mut self, paths: Vec<String>) -> Result<(), BlissError> {
+    fn analyze_paths(&mut self, paths: Vec<String>) -> BlissResult<()> {
         if paths.is_empty() {
             return Ok(());
         }
@@ -67,8 +67,8 @@ pub trait Library {
 
         #[allow(clippy::type_complexity)]
         let (tx, rx): (
-            Sender<(String, Result<Song, BlissError>)>,
-            Receiver<(String, Result<Song, BlissError>)>,
+            Sender<(String, BlissResult<Song>)>,
+            Receiver<(String, BlissResult<Song>)>,
         ) = mpsc::channel();
         let mut handles = Vec::new();
         let mut chunk_length = paths.len() / num_cpus;
@@ -96,8 +96,8 @@ pub trait Library {
             match song {
                 Ok(song) => {
                     self.store_song(&song)
-                        .unwrap_or_else(|_| error!("Error while storing song '{}'", song.path));
-                    info!("Analyzed and stored song '{}' successfully.", song.path)
+                        .unwrap_or_else(|_| error!("Error while storing song '{}'", song.path.display()));
+                    info!("Analyzed and stored song '{}' successfully.", song.path.display())
                 }
                 Err(e) => {
                     self.store_error_song(path.to_string(), e.to_owned())
@@ -122,7 +122,7 @@ pub trait Library {
 
     /// Analyzes a song library, using `get_songs_paths`, `store_song` and
     /// `store_error_song` implementations.
-    fn analyze_library(&mut self) -> Result<(), BlissError> {
+    fn analyze_library(&mut self) -> BlissResult<()> {
         let paths = self
             .get_songs_paths()
             .map_err(|e| BlissError::ProviderError(e.to_string()))?;
@@ -135,6 +135,7 @@ pub trait Library {
 mod test {
     use super::*;
     use crate::song::Analysis;
+    use std::path::Path;
 
     #[derive(Default)]
     struct TestLibrary {
@@ -143,7 +144,7 @@ mod test {
     }
 
     impl Library for TestLibrary {
-        fn get_songs_paths(&self) -> Result<Vec<String>, BlissError> {
+        fn get_songs_paths(&self) -> BlissResult<Vec<String>> {
             Ok(vec![
                 String::from("./data/white_noise.flac"),
                 String::from("./data/s16_mono_22_5kHz.flac"),
@@ -152,7 +153,7 @@ mod test {
             ])
         }
 
-        fn store_song(&mut self, song: &Song) -> Result<(), BlissError> {
+        fn store_song(&mut self, song: &Song) -> BlissResult<()> {
             self.internal_storage.push(song.to_owned());
             Ok(())
         }
@@ -161,12 +162,12 @@ mod test {
             &mut self,
             song_path: String,
             error: BlissError,
-        ) -> Result<(), BlissError> {
+        ) -> BlissResult<()> {
             self.failed_files.push((song_path, error.to_string()));
             Ok(())
         }
 
-        fn get_stored_songs(&self) -> Result<Vec<Song>, BlissError> {
+        fn get_stored_songs(&self) -> BlissResult<Vec<Song>> {
             Ok(self.internal_storage.to_owned())
         }
     }
@@ -175,23 +176,23 @@ mod test {
     struct FailingLibrary;
 
     impl Library for FailingLibrary {
-        fn get_songs_paths(&self) -> Result<Vec<String>, BlissError> {
+        fn get_songs_paths(&self) -> BlissResult<Vec<String>> {
             Err(BlissError::ProviderError(String::from(
                 "Could not get songs path",
             )))
         }
 
-        fn store_song(&mut self, _: &Song) -> Result<(), BlissError> {
+        fn store_song(&mut self, _: &Song) -> BlissResult<()> {
             Ok(())
         }
 
-        fn get_stored_songs(&self) -> Result<Vec<Song>, BlissError> {
+        fn get_stored_songs(&self) -> BlissResult<Vec<Song>> {
             Err(BlissError::ProviderError(String::from(
                 "Could not get stored songs",
             )))
         }
 
-        fn store_error_song(&mut self, _: String, _: BlissError) -> Result<(), BlissError> {
+        fn store_error_song(&mut self, _: String, _: BlissError) -> BlissResult<()> {
             Ok(())
         }
     }
@@ -200,7 +201,7 @@ mod test {
     struct FailingStorage;
 
     impl Library for FailingStorage {
-        fn get_songs_paths(&self) -> Result<Vec<String>, BlissError> {
+        fn get_songs_paths(&self) -> BlissResult<Vec<String>> {
             Ok(vec![
                 String::from("./data/white_noise.flac"),
                 String::from("./data/s16_mono_22_5kHz.flac"),
@@ -209,14 +210,14 @@ mod test {
             ])
         }
 
-        fn store_song(&mut self, song: &Song) -> Result<(), BlissError> {
+        fn store_song(&mut self, song: &Song) -> BlissResult<()> {
             Err(BlissError::ProviderError(format!(
                 "Could not store song {}",
-                song.path
+                song.path.display()
             )))
         }
 
-        fn get_stored_songs(&self) -> Result<Vec<Song>, BlissError> {
+        fn get_stored_songs(&self) -> BlissResult<Vec<Song>> {
             Ok(vec![])
         }
 
@@ -224,7 +225,7 @@ mod test {
             &mut self,
             song_path: String,
             error: BlissError,
-        ) -> Result<(), BlissError> {
+        ) -> BlissResult<()> {
             Err(BlissError::ProviderError(format!(
                 "Could not store errored song: {}, with error: {}",
                 song_path, error
@@ -247,7 +248,7 @@ mod test {
     fn test_playlist_from_song_fail() {
         let test_library = FailingLibrary {};
         let song = Song {
-            path: String::from("path-to-first"),
+            path: Path::new("path-to-first").to_path_buf(),
             analysis: Analysis::new([0.; 20]),
             ..Default::default()
         };
@@ -294,7 +295,7 @@ mod test {
         let mut songs = test_library
             .internal_storage
             .iter()
-            .map(|x| x.path.to_owned())
+            .map(|x| x.path.to_str().unwrap().to_string())
             .collect::<Vec<String>>();
         songs.sort();
 
@@ -311,25 +312,25 @@ mod test {
     fn test_playlist_from_song() {
         let mut test_library = TestLibrary::default();
         let first_song = Song {
-            path: String::from("path-to-first"),
+            path: Path::new("path-to-first").to_path_buf(),
             analysis: Analysis::new([0.; 20]),
             ..Default::default()
         };
 
         let second_song = Song {
-            path: String::from("path-to-second"),
+            path: Path::new("path-to-second").to_path_buf(),
             analysis: Analysis::new([0.1; 20]),
             ..Default::default()
         };
 
         let third_song = Song {
-            path: String::from("path-to-third"),
+            path: Path::new("path-to-third").to_path_buf(),
             analysis: Analysis::new([10.; 20]),
             ..Default::default()
         };
 
         let fourth_song = Song {
-            path: String::from("path-to-fourth"),
+            path: Path::new("path-to-fourth").to_path_buf(),
             analysis: Analysis::new([20.; 20]),
             ..Default::default()
         };
@@ -350,19 +351,19 @@ mod test {
     fn test_playlist_from_song_too_little_songs() {
         let mut test_library = TestLibrary::default();
         let first_song = Song {
-            path: String::from("path-to-first"),
+            path: Path::new("path-to-first").to_path_buf(),
             analysis: Analysis::new([0.; 20]),
             ..Default::default()
         };
 
         let second_song = Song {
-            path: String::from("path-to-second"),
+            path: Path::new("path-to-second").to_path_buf(),
             analysis: Analysis::new([0.1; 20]),
             ..Default::default()
         };
 
         let third_song = Song {
-            path: String::from("path-to-third"),
+            path: Path::new("path-to-third").to_path_buf(),
             analysis: Analysis::new([10.; 20]),
             ..Default::default()
         };

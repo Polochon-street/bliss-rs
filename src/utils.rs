@@ -172,6 +172,7 @@ mod tests {
     use ndarray::{arr1, Array};
     use ndarray_npy::ReadNpyExt;
     use std::fs::File;
+    use std::path::Path;
 
     #[test]
     fn test_convolve() {
@@ -497,7 +498,7 @@ mod tests {
         let file = File::open("data/librosa-stft.npy").unwrap();
         let expected_stft = Array2::<f32>::read_npy(file).unwrap().mapv(|x| x as f64);
 
-        let song = Song::decode("data/piano.flac").unwrap();
+        let song = Song::decode(Path::new("data/piano.flac")).unwrap();
 
         let stft = stft(&song.sample_array, 2048, 512);
 
@@ -525,6 +526,7 @@ mod bench {
     use crate::Song;
     use ndarray::Array;
     use test::Bencher;
+    use std::path::Path;
 
     #[bench]
     fn bench_convolve(b: &mut Bencher) {
@@ -538,7 +540,7 @@ mod bench {
 
     #[bench]
     fn bench_compute_stft(b: &mut Bencher) {
-        let signal = Song::decode("data/piano.flac").unwrap().sample_array;
+        let signal = Song::decode(Path::new("data/piano.flac")).unwrap().sample_array;
 
         b.iter(|| {
             stft(&signal, 2048, 512);

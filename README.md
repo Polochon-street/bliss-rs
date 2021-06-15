@@ -8,7 +8,8 @@ library used to make playlists by analyzing songs, and computing distance betwee
 
 Like bliss, it eases the creation of « intelligent » playlists and/or continuous
 play, à la Spotify/Grooveshark Radio, as well as easing creating plug-ins for
-existing audio players.
+existing audio players. For instance, you can use it to make calm playlists
+to help you sleeping, fast playlists to get you started during the day, etc.
 
 For now (and if you're looking for an easy-to use smooth play experience),
 [blissify](https://crates.io/crates/blissify) implements bliss for

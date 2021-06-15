@@ -17,7 +17,7 @@ use crate::chroma::ChromaDesc;
 use crate::misc::LoudnessDesc;
 use crate::temporal::BPMDesc;
 use crate::timbral::{SpectralDesc, ZeroCrossingRateDesc};
-use crate::{BlissError, SAMPLE_RATE};
+use crate::{BlissError, BlissResult, SAMPLE_RATE};
 use ::log::warn;
 use core::ops::Index;
 use crossbeam::thread;
@@ -36,6 +36,8 @@ use std::convert::TryInto;
 use std::fmt;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
+use std::path::Path;
+use std::path::PathBuf;
 use std::thread as std_thread;
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::{EnumCount, EnumIter};
@@ -46,17 +48,17 @@ use strum_macros::{EnumCount, EnumIter};
 /// other metadata (artist, genre...)
 pub struct Song {
     /// Song's provided file path
-    pub path: String,
-    /// Song's artist, read from the metadata (`""` if empty)
-    pub artist: String,
-    /// Song's title, read from the metadata (`""` if empty)
-    pub title: String,
-    /// Song's album name, read from the metadata (`""` if empty)
-    pub album: String,
-    /// Song's tracked number, read from the metadata (`""` if empty)
-    pub track_number: String,
+    pub path: PathBuf,
+    /// Song's artist, read from the metadata
+    pub artist: Option<String>,
+    /// Song's title, read from the metadata
+    pub title: Option<String>,
+    /// Song's album name, read from the metadata
+    pub album: Option<String>,
+    /// Song's tracked number, read from the metadata
+    pub track_number: Option<String>,
     /// Song's genre, read from the metadata (`""` if empty)
-    pub genre: String,
+    pub genre: Option<String>,
     /// bliss analysis results
     pub analysis: Analysis,
 }
@@ -66,9 +68,9 @@ pub struct Song {
 ///
 /// * Example:
 /// ```no_run
-/// use bliss_audio::{AnalysisIndex, BlissError, Song};
+/// use bliss_audio::{AnalysisIndex, BlissResult, Song};
 ///
-/// fn main() -> Result<(), BlissError> {
+/// fn main() -> BlissResult<()> {
 ///     let song = Song::new("path/to/song")?;
 ///     println!("{}", song.analysis[AnalysisIndex::Tempo]);
 ///     Ok(())
@@ -217,8 +219,8 @@ impl Song {
     /// The error type returned should give a hint as to whether it was a
     /// decoding ([DecodingError](BlissError::DecodingError)) or an analysis
     /// ([AnalysisError](BlissError::AnalysisError)) error.
-    pub fn new(path: &str) -> Result<Self, BlissError> {
-        let raw_song = Song::decode(&path)?;
+    pub fn new<P: AsRef<Path>>(path: P) -> BlissResult<Self> {
+        let raw_song = Song::decode(path.as_ref())?;
 
         Ok(Song {
             path: raw_song.path,
@@ -242,7 +244,7 @@ impl Song {
      * Useful in the rare cases where the full song is not
      * completely available.
      **/
-    fn analyse(sample_array: Vec<f32>) -> Result<Analysis, BlissError> {
+    fn analyse(sample_array: Vec<f32>) -> BlissResult<Analysis> {
         let largest_window = vec![
             BPMDesc::WINDOW_SIZE,
             ChromaDesc::WINDOW_SIZE,
@@ -259,7 +261,7 @@ impl Song {
         }
 
         thread::scope(|s| {
-            let child_tempo: thread::ScopedJoinHandle<'_, Result<f32, BlissError>> =
+            let child_tempo: thread::ScopedJoinHandle<'_, BlissResult<f32>> =
                 s.spawn(|_| {
                     let mut tempo_desc = BPMDesc::new(SAMPLE_RATE)?;
                     let windows = sample_array
@@ -272,7 +274,7 @@ impl Song {
                     Ok(tempo_desc.get_value())
                 });
 
-            let child_chroma: thread::ScopedJoinHandle<'_, Result<Vec<f32>, BlissError>> =
+            let child_chroma: thread::ScopedJoinHandle<'_, BlissResult<Vec<f32>>> =
                 s.spawn(|_| {
                     let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
                     chroma_desc.do_(&sample_array)?;
@@ -282,7 +284,7 @@ impl Song {
             #[allow(clippy::type_complexity)]
             let child_timbral: thread::ScopedJoinHandle<
                 '_,
-                Result<(Vec<f32>, Vec<f32>, Vec<f32>), BlissError>,
+                BlissResult<(Vec<f32>, Vec<f32>, Vec<f32>)>,
             > = s.spawn(|_| {
                 let mut spectral_desc = SpectralDesc::new(SAMPLE_RATE)?;
                 let windows = sample_array
@@ -297,13 +299,13 @@ impl Song {
                 Ok((centroid, rolloff, flatness))
             });
 
-            let child_zcr: thread::ScopedJoinHandle<'_, Result<f32, BlissError>> = s.spawn(|_| {
+            let child_zcr: thread::ScopedJoinHandle<'_, BlissResult<f32>> = s.spawn(|_| {
                 let mut zcr_desc = ZeroCrossingRateDesc::default();
                 zcr_desc.do_(&sample_array);
                 Ok(zcr_desc.get_value())
             });
 
-            let child_loudness: thread::ScopedJoinHandle<'_, Result<Vec<f32>, BlissError>> = s
+            let child_loudness: thread::ScopedJoinHandle<'_, BlissResult<Vec<f32>>> = s
                 .spawn(|_| {
                     let mut loudness_desc = LoudnessDesc::default();
                     let windows = sample_array.chunks(LoudnessDesc::WINDOW_SIZE);
@@ -339,12 +341,12 @@ impl Song {
         .unwrap()
     }
 
-    pub(crate) fn decode(path: &str) -> Result<InternalSong, BlissError> {
+    pub(crate) fn decode(path: &Path) -> BlissResult<InternalSong> {
         ffmpeg::init()
             .map_err(|e| BlissError::DecodingError(format!("ffmpeg init error: {:?}.", e)))?;
         log::set_level(Level::Quiet);
         let mut song = InternalSong {
-            path: path.to_string(),
+            path: path.into(),
             ..Default::default()
         };
         let mut format = ffmpeg::format::input(&path)
@@ -378,19 +380,35 @@ impl Song {
         };
         let sample_array: Vec<f32> = Vec::with_capacity(expected_sample_number as usize);
         if let Some(title) = format.metadata().get("title") {
-            song.title = title.to_string();
+            song.title = match title {
+                "" => None,
+                t => Some(t.to_string()),
+            };
         };
         if let Some(artist) = format.metadata().get("artist") {
-            song.artist = artist.to_string();
+            song.artist = match artist {
+                "" => None,
+                a => Some(a.to_string()),
+            };
+
         };
         if let Some(album) = format.metadata().get("album") {
-            song.album = album.to_string();
+            song.album = match album {
+                "" => None,
+                a => Some(a.to_string()),
+            };
         };
         if let Some(genre) = format.metadata().get("genre") {
-            song.genre = genre.to_string();
+            song.genre = match genre {
+                "" => None,
+                g => Some(g.to_string()),
+            };
         };
         if let Some(track_number) = format.metadata().get("track") {
-            song.track_number = track_number.to_string();
+            song.track_number = match track_number {
+                "" => None,
+                t => Some(t.to_string()),
+            };
         };
         let in_channel_layout = {
             if codec.channel_layout() == ChannelLayout::empty() {
@@ -494,12 +512,12 @@ impl Song {
 
 #[derive(Default, Debug)]
 pub(crate) struct InternalSong {
-    pub path: String,
-    pub artist: String,
-    pub title: String,
-    pub album: String,
-    pub track_number: String,
-    pub genre: String,
+    pub path: PathBuf,
+    pub artist: Option<String>,
+    pub title: Option<String>,
+    pub album: Option<String>,
+    pub track_number: Option<String>,
+    pub genre: Option<String>,
     pub sample_array: Vec<f32>,
 }
 
@@ -507,7 +525,7 @@ fn resample_frame(
     rx: Receiver<Audio>,
     mut resample_context: Context,
     mut sample_array: Vec<f32>,
-) -> Result<Vec<f32>, BlissError> {
+) -> BlissResult<Vec<f32>> {
     let mut resampled = ffmpeg::frame::Audio::empty();
     for decoded in rx.iter() {
         resampled = ffmpeg::frame::Audio::empty();
@@ -564,6 +582,7 @@ fn push_to_sample_array(frame: &ffmpeg::frame::Audio, sample_array: &mut Vec<f32
 mod tests {
     use super::*;
     use ripemd160::{Digest, Ripemd160};
+    use std::path::Path;
 
     #[test]
     fn test_analysis_too_small() {
@@ -582,7 +601,7 @@ mod tests {
 
     #[test]
     fn test_analyse() {
-        let song = Song::new("data/s16_mono_22_5kHz.flac").unwrap();
+        let song = Song::new(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let expected_analysis = vec![
             0.3846389,
             -0.849141,
@@ -610,7 +629,7 @@ mod tests {
         }
     }
 
-    fn _test_decode(path: &str, expected_hash: &[u8]) {
+    fn _test_decode(path: &Path, expected_hash: &[u8]) {
         let song = Song::decode(path).unwrap();
         let mut hasher = Ripemd160::new();
         for sample in song.sample_array.iter() {
@@ -622,17 +641,27 @@ mod tests {
 
     #[test]
     fn test_tags() {
-        let song = Song::decode("data/s16_mono_22_5kHz.flac").unwrap();
-        assert_eq!(song.artist, "David TMX");
-        assert_eq!(song.title, "Renaissance");
-        assert_eq!(song.album, "Renaissance");
-        assert_eq!(song.track_number, "02");
-        assert_eq!(song.genre, "Pop");
+        let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
+        assert_eq!(song.artist, Some(String::from("David TMX")));
+        assert_eq!(song.title, Some(String::from("Renaissance")));
+        assert_eq!(song.album, Some(String::from("Renaissance")));
+        assert_eq!(song.track_number, Some(String::from("02")));
+        assert_eq!(song.genre, Some(String::from("Pop")));
+    }
+
+    #[test]
+    fn test_empty_tags() {
+        let song = Song::decode(Path::new("data/no_tags.flac")).unwrap();
+        assert_eq!(song.artist, None);
+        assert_eq!(song.title, None); 
+        assert_eq!(song.album, None);
+        assert_eq!(song.track_number, None);
+        assert_eq!(song.genre, None);
     }
 
     #[test]
     fn test_resample_multi() {
-        let path = String::from("data/s32_stereo_44_1_kHz.flac");
+        let path = Path::new("data/s32_stereo_44_1_kHz.flac");
         let expected_hash = [
             0xc5, 0xf8, 0x23, 0xce, 0x63, 0x2c, 0xf4, 0xa0, 0x72, 0x66, 0xbb, 0x49, 0xad, 0x84,
             0xb6, 0xea, 0x48, 0x48, 0x9c, 0x50,
@@ -642,7 +671,7 @@ mod tests {
 
     #[test]
     fn test_resample_stereo() {
-        let path = String::from("data/s16_stereo_22_5kHz.flac");
+        let path = Path::new("data/s16_stereo_22_5kHz.flac");
         let expected_hash = [
             0x24, 0xed, 0x45, 0x58, 0x06, 0xbf, 0xfb, 0x05, 0x57, 0x5f, 0xdc, 0x4d, 0xb4, 0x9b,
             0xa5, 0x2b, 0x05, 0x56, 0x10, 0x4f,
@@ -652,7 +681,7 @@ mod tests {
 
     #[test]
     fn test_decode_mono() {
-        let path = String::from("data/s16_mono_22_5kHz.flac");
+        let path = Path::new("data/s16_mono_22_5kHz.flac");
         // Obtained through
         // ffmpeg -i data/s16_mono_22_5kHz.flac -ar 22050 -ac 1 -c:a pcm_f32le
         // -f hash -hash ripemd160 -
@@ -665,7 +694,7 @@ mod tests {
 
     #[test]
     fn test_decode_mp3() {
-        let path = String::from("data/s32_stereo_44_1_kHz.mp3");
+        let path = Path::new("data/s32_stereo_44_1_kHz.mp3");
         // Obtained through
         // ffmpeg -i data/s16_mono_22_5kHz.mp3 -ar 22050 -ac 1 -c:a pcm_f32le
         // -f hash -hash ripemd160 -
@@ -678,13 +707,13 @@ mod tests {
 
     #[test]
     fn test_dont_panic_no_channel_layout() {
-        let path = String::from("data/no_channel.wav");
+        let path = Path::new("data/no_channel.wav");
         Song::decode(&path).unwrap();
     }
 
     #[test]
     fn test_decode_right_capacity_vec() {
-        let path = String::from("data/s16_mono_22_5kHz.flac");
+        let path = Path::new("data/s16_mono_22_5kHz.flac");
         let song = Song::decode(&path).unwrap();
         let sample_array = song.sample_array;
         assert_eq!(
@@ -692,7 +721,7 @@ mod tests {
             sample_array.capacity()
         );
 
-        let path = String::from("data/s32_stereo_44_1_kHz.flac");
+        let path = Path::new("data/s32_stereo_44_1_kHz.flac");
         let song = Song::decode(&path).unwrap();
         let sample_array = song.sample_array;
         assert_eq!(
@@ -700,7 +729,7 @@ mod tests {
             sample_array.capacity()
         );
 
-        let path = String::from("data/capacity_fix.ogg");
+        let path = Path::new("data/capacity_fix.ogg");
         let song = Song::decode(&path).unwrap();
         let sample_array = song.sample_array;
         assert!(sample_array.len() as f32 / sample_array.capacity() as f32 > 0.90);
@@ -738,13 +767,13 @@ mod tests {
     #[test]
     fn test_decode_errors() {
         assert_eq!(
-            Song::decode("nonexistent").unwrap_err(),
+            Song::decode(Path::new("nonexistent")).unwrap_err(),
             BlissError::DecodingError(String::from(
                 "while opening format: ffmpeg::Error(2: No such file or directory)."
             )),
         );
         assert_eq!(
-            Song::decode("data/picture.png").unwrap_err(),
+            Song::decode(Path::new("data/picture.png")).unwrap_err(),
             BlissError::DecodingError(String::from("No audio stream found.")),
         );
     }
@@ -782,10 +811,11 @@ mod bench {
     extern crate test;
     use crate::Song;
     use test::Bencher;
+    use std::path::Path;
 
     #[bench]
     fn bench_resample_multi(b: &mut Bencher) {
-        let path = String::from("./data/s32_stereo_44_1_kHz.flac");
+        let path = Path::new("./data/s32_stereo_44_1_kHz.flac");
         b.iter(|| {
             Song::decode(&path).unwrap();
         });

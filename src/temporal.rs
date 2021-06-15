@@ -4,7 +4,7 @@
 //! of a given Song.
 
 use crate::utils::Normalize;
-use crate::BlissError;
+use crate::{BlissError, BlissResult};
 use bliss_audio_aubio_rs::{OnsetMode, Tempo};
 use log::warn;
 use ndarray::arr1;
@@ -39,7 +39,7 @@ impl BPMDesc {
     pub const WINDOW_SIZE: usize = 512;
     pub const HOP_SIZE: usize = BPMDesc::WINDOW_SIZE / 2;
 
-    pub fn new(sample_rate: u32) -> Result<Self, BlissError> {
+    pub fn new(sample_rate: u32) -> BlissResult<Self> {
         Ok(BPMDesc {
             aubio_obj: Tempo::new(
                 OnsetMode::SpecFlux,
@@ -57,7 +57,7 @@ impl BPMDesc {
         })
     }
 
-    pub fn do_(&mut self, chunk: &[f32]) -> Result<(), BlissError> {
+    pub fn do_(&mut self, chunk: &[f32]) -> BlissResult<()> {
         let result = self.aubio_obj.do_result(chunk).map_err(|e| {
             BlissError::AnalysisError(format!(
                 "aubio error while computing tempo {}",
@@ -101,10 +101,11 @@ impl Normalize for BPMDesc {
 mod tests {
     use super::*;
     use crate::{Song, SAMPLE_RATE};
+    use std::path::Path;
 
     #[test]
     fn test_tempo_real() {
-        let song = Song::decode("data/s16_mono_22_5kHz.flac").unwrap();
+        let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut tempo_desc = BPMDesc::new(SAMPLE_RATE).unwrap();
         for chunk in song.sample_array.chunks_exact(BPMDesc::HOP_SIZE) {
             tempo_desc.do_(&chunk).unwrap();

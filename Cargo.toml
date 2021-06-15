@@ -1,6 +1,6 @@
 [package]
 name = "bliss-audio"
-version = "0.2.6"
+version = "0.3.0"
 authors = ["Polochon-street <polochonstreet@gmx.fr>"]
 edition = "2018"
 license = "GPL-3.0-only"
@@ -19,9 +19,12 @@ no-default-features = true
 # https://github.com/zmwangx/rust-ffmpeg/pull/60
 # or https://github.com/zmwangx/rust-ffmpeg/pull/62 is in
 default = ["bliss-audio-aubio-rs/static", "build-ffmpeg"]
+# Build ffmpeg instead of using the host's.
 build-ffmpeg = ["ffmpeg-next/build"]
-bench = []
+# Use if you want to build python bindings with maturin.
 python-bindings = ["bliss-audio-aubio-rs/fftw3"]
+# Enable the benchmarks with `cargo +nightly bench --features=bench`
+bench = []
 
 [dependencies]
 ripemd160 = "0.9.0"
