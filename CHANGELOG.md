@@ -1,5 +1,11 @@
 # Changelog
 
+## bliss 0.3.1
+* Show error message when song storage fails in the Library trait.
+* Added a `distance` module containing euclidean and cosine distance.
+* Added various custom_distance functions to avoid being limited to the
+  euclidean distance only.
+
 ## bliss 0.3.0
 * Changed `Song.path` from `String` to `PathBuf`.
 * Made `Song` metadata (artist, album, etc) `Option`s.

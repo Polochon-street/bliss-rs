@@ -556,8 +556,8 @@ mod bench {
     use ndarray::{arr2, Array1, Array2};
     use ndarray_npy::ReadNpyExt;
     use std::fs::File;
-    use test::Bencher;
     use std::path::Path;
+    use test::Bencher;
 
     #[bench]
     fn bench_estimate_tuning(b: &mut Bencher) {

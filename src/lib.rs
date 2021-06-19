@@ -25,7 +25,7 @@
 //! ## Analyze & compute the distance between two songs
 //! ```no_run
 //! use bliss_audio::{BlissResult, Song};
-//! 
+//!
 //! fn main() -> BlissResult<()> {
 //!     let song1 = Song::new("/path/to/song1")?;
 //!     let song2 = Song::new("/path/to/song2")?;
@@ -34,19 +34,19 @@
 //!     Ok(())
 //! }
 //! ```
-//! 
+//!
 //! ### Make a playlist from a song
 //! ```no_run
 //! use bliss_audio::{BlissResult, Song};
 //! use noisy_float::prelude::n32;
-//! 
+//!
 //! fn main() -> BlissResult<()> {
 //!     let paths = vec!["/path/to/song1", "/path/to/song2", "/path/to/song3"];
 //!     let mut songs: Vec<Song> = paths
 //!         .iter()
 //!         .map(|path| Song::new(path))
 //!         .collect::<BlissResult<Vec<Song>>>()?;
-//! 
+//!
 //!     // Assuming there is a first song
 //!     let first_song = songs.first().unwrap().to_owned();
 //!
@@ -65,6 +65,7 @@
 #![warn(missing_docs)]
 #![warn(missing_doc_code_examples)]
 mod chroma;
+pub mod distance;
 mod library;
 mod misc;
 mod song;
@@ -80,7 +81,7 @@ extern crate serde;
 use thiserror::Error;
 
 pub use library::Library;
-pub use song::{Analysis, AnalysisIndex, NUMBER_FEATURES, Song};
+pub use song::{Analysis, AnalysisIndex, Song, NUMBER_FEATURES};
 
 const CHANNELS: u16 = 1;
 const SAMPLE_RATE: u32 = 22050;
@@ -178,7 +179,11 @@ mod tests {
 
         let mut analysed_songs: Vec<String> = results
             .iter()
-            .filter_map(|x| x.as_ref().ok().map(|x| x.path.to_str().unwrap().to_string()))
+            .filter_map(|x| {
+                x.as_ref()
+                    .ok()
+                    .map(|x| x.path.to_str().unwrap().to_string())
+            })
             .collect();
         analysed_songs.sort_by(|a, b| a.cmp(b));
 

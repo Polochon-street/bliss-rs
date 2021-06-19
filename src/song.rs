@@ -14,6 +14,7 @@ extern crate ndarray_npy;
 
 use super::CHANNELS;
 use crate::chroma::ChromaDesc;
+use crate::distance::{euclidean_distance, DistanceMetric};
 use crate::misc::LoudnessDesc;
 use crate::temporal::BPMDesc;
 use crate::timbral::{SpectralDesc, ZeroCrossingRateDesc};
@@ -31,13 +32,13 @@ use ffmpeg_next::util::format::sample::{Sample, Type};
 use ffmpeg_next::util::frame::audio::Audio;
 use ffmpeg_next::util::log;
 use ffmpeg_next::util::log::level::Level;
-use ndarray::{arr1, Array, Array1};
+use ndarray::{arr1, Array1};
 use std::convert::TryInto;
 use std::fmt;
-use std::sync::mpsc;
-use std::sync::mpsc::Receiver;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::sync::mpsc::Receiver;
 use std::thread as std_thread;
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::{EnumCount, EnumIter};
@@ -173,34 +174,55 @@ impl Analysis {
         self.internal_analysis.to_vec()
     }
 
-    /// Return the [euclidean
-    /// distance](https://en.wikipedia.org/wiki/Euclidean_distance#Higher_dimensions)
-    /// between two analysis.
+    /// Compute distance between two analysis using a user-provided distance
+    /// metric. You most likely want to use `song.custom_distance` directly
+    /// rather than this function.
     ///
-    /// Note that it is usually easier to just use [`song.distance(song2)`](Song::distance)
-    /// (which calls this function in turn).
-    pub fn distance(&self, other: &Self) -> f32 {
-        let a1 = self.to_arr1();
-        let a2 = other.to_arr1();
-        // Could be any square symmetric positive semi-definite matrix;
-        // just no metric learning has been done yet.
-        // See https://lelele.io/thesis.pdf chapter 4.
-        let m = Array::eye(NUMBER_FEATURES);
-
-        (self.to_arr1() - &a2).dot(&m).dot(&(&a1 - &a2)).sqrt()
+    /// For this function to be integrated properly with the rest
+    /// of bliss' parts, it should be a valid distance metric, i.e.:
+    /// 1. For X, Y real vectors, d(X, Y) = 0 ⇔ X = Y
+    /// 2. For X, Y real vectors, d(X, Y) >= 0
+    /// 3. For X, Y real vectors, d(X, Y) = d(Y, X)
+    /// 4. For X, Y, Z real vectors d(X, Y) ≤ d(X + Z) + d(Z, Y)
+    ///
+    /// Note that almost all distance metrics you will find obey these
+    /// properties, so don't sweat it too much.
+    pub fn custom_distance(&self, other: &Self, distance: impl DistanceMetric) -> f32 {
+        distance(&self.to_arr1(), &other.to_arr1())
     }
 }
 
 impl Song {
     #[allow(dead_code)]
-    /// Compute the distance between the current song and any given Song.
+    /// Compute the distance between the current song and any given
+    /// Song.
     ///
     /// The smaller the number, the closer the songs; usually more useful
     /// if compared between several songs
     /// (e.g. if song1.distance(song2) < song1.distance(song3), then song1 is
     /// closer to song2 than it is to song3.
+    ///
+    /// Currently uses the euclidean distance, but this can change in an
+    /// upcoming release if another metric performs better.
     pub fn distance(&self, other: &Self) -> f32 {
-        self.analysis.distance(&other.analysis)
+        self.analysis
+            .custom_distance(&other.analysis, euclidean_distance)
+    }
+
+    /// Compute distance between two songs using a user-provided distance
+    /// metric.
+    ///
+    /// For this function to be integrated properly with the rest
+    /// of bliss' parts, it should be a valid distance metric, i.e.:
+    /// 1. For X, Y real vectors, d(X, Y) = 0 ⇔ X = Y
+    /// 2. For X, Y real vectors, d(X, Y) >= 0
+    /// 3. For X, Y real vectors, d(X, Y) = d(Y, X)
+    /// 4. For X, Y, Z real vectors d(X, Y) ≤ d(X + Z) + d(Z, Y)
+    ///
+    /// Note that almost all distance metrics you will find obey these
+    /// properties, so don't sweat it too much.
+    pub fn custom_distance(&self, other: &Self, distance: impl DistanceMetric) -> f32 {
+        self.analysis.custom_distance(&other.analysis, distance)
     }
 
     /// Returns a decoded Song given a file path, or an error if the song
@@ -261,25 +283,23 @@ impl Song {
         }
 
         thread::scope(|s| {
-            let child_tempo: thread::ScopedJoinHandle<'_, BlissResult<f32>> =
-                s.spawn(|_| {
-                    let mut tempo_desc = BPMDesc::new(SAMPLE_RATE)?;
-                    let windows = sample_array
-                        .windows(BPMDesc::WINDOW_SIZE)
-                        .step_by(BPMDesc::HOP_SIZE);
+            let child_tempo: thread::ScopedJoinHandle<'_, BlissResult<f32>> = s.spawn(|_| {
+                let mut tempo_desc = BPMDesc::new(SAMPLE_RATE)?;
+                let windows = sample_array
+                    .windows(BPMDesc::WINDOW_SIZE)
+                    .step_by(BPMDesc::HOP_SIZE);
 
-                    for window in windows {
-                        tempo_desc.do_(&window)?;
-                    }
-                    Ok(tempo_desc.get_value())
-                });
+                for window in windows {
+                    tempo_desc.do_(&window)?;
+                }
+                Ok(tempo_desc.get_value())
+            });
 
-            let child_chroma: thread::ScopedJoinHandle<'_, BlissResult<Vec<f32>>> =
-                s.spawn(|_| {
-                    let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
-                    chroma_desc.do_(&sample_array)?;
-                    Ok(chroma_desc.get_values())
-                });
+            let child_chroma: thread::ScopedJoinHandle<'_, BlissResult<Vec<f32>>> = s.spawn(|_| {
+                let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
+                chroma_desc.do_(&sample_array)?;
+                Ok(chroma_desc.get_values())
+            });
 
             #[allow(clippy::type_complexity)]
             let child_timbral: thread::ScopedJoinHandle<
@@ -305,8 +325,8 @@ impl Song {
                 Ok(zcr_desc.get_value())
             });
 
-            let child_loudness: thread::ScopedJoinHandle<'_, BlissResult<Vec<f32>>> = s
-                .spawn(|_| {
+            let child_loudness: thread::ScopedJoinHandle<'_, BlissResult<Vec<f32>>> =
+                s.spawn(|_| {
                     let mut loudness_desc = LoudnessDesc::default();
                     let windows = sample_array.chunks(LoudnessDesc::WINDOW_SIZE);
 
@@ -390,7 +410,6 @@ impl Song {
                 "" => None,
                 a => Some(a.to_string()),
             };
-
         };
         if let Some(album) = format.metadata().get("album") {
             song.album = match album {
@@ -653,7 +672,7 @@ mod tests {
     fn test_empty_tags() {
         let song = Song::decode(Path::new("data/no_tags.flac")).unwrap();
         assert_eq!(song.artist, None);
-        assert_eq!(song.title, None); 
+        assert_eq!(song.title, None);
         assert_eq!(song.album, None);
         assert_eq!(song.track_number, None);
         assert_eq!(song.genre, None);
@@ -804,14 +823,35 @@ mod tests {
             format!("{:?}", song.analysis),
         );
     }
+
+    fn dummy_distance(_: &Array1<f32>, _: &Array1<f32>) -> f32 {
+        0.
+    }
+    #[test]
+    fn test_custom_distance() {
+        let mut a = Song::default();
+        a.analysis = Analysis::new([
+            0.16391512, 0.11326739, 0.96868552, 0.8353934, 0.49867523, 0.76532606, 0.63448005,
+            0.82506196, 0.71457147, 0.62395476, 0.69680329, 0.9855766, 0.41369333, 0.13900452,
+            0.68001012, 0.11029723, 0.97192943, 0.57727861, 0.07994821, 0.88993185,
+        ]);
+
+        let mut b = Song::default();
+        b.analysis = Analysis::new([
+            0.5075758, 0.36440256, 0.28888011, 0.43032829, 0.62387977, 0.61894916, 0.99676086,
+            0.11913155, 0.00640396, 0.15943407, 0.33829514, 0.34947174, 0.82927523, 0.18987604,
+            0.54437275, 0.22076826, 0.91232151, 0.29233168, 0.32846024, 0.04522147,
+        ]);
+        assert_eq!(a.custom_distance(&b, dummy_distance), 0.);
+    }
 }
 
 #[cfg(all(feature = "bench", test))]
 mod bench {
     extern crate test;
     use crate::Song;
-    use test::Bencher;
     use std::path::Path;
+    use test::Bencher;
 
     #[bench]
     fn bench_resample_multi(b: &mut Bencher) {
