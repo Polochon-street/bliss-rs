@@ -525,8 +525,8 @@ mod bench {
     use super::*;
     use crate::Song;
     use ndarray::Array;
-    use test::Bencher;
     use std::path::Path;
+    use test::Bencher;
 
     #[bench]
     fn bench_convolve(b: &mut Bencher) {
@@ -540,7 +540,9 @@ mod bench {
 
     #[bench]
     fn bench_compute_stft(b: &mut Bencher) {
-        let signal = Song::decode(Path::new("data/piano.flac")).unwrap().sample_array;
+        let signal = Song::decode(Path::new("data/piano.flac"))
+            .unwrap()
+            .sample_array;
 
         b.iter(|| {
             stft(&signal, 2048, 512);
