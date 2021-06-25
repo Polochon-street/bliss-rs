@@ -122,35 +122,14 @@ pub trait Library {
         if paths.is_empty() {
             return Ok(());
         }
-        let num_cpus = num_cpus::get();
-
-        #[allow(clippy::type_complexity)]
-        let (tx, rx): (
-            Sender<(String, BlissResult<Song>)>,
-            Receiver<(String, BlissResult<Song>)>,
-        ) = mpsc::channel();
-        let mut handles = Vec::new();
-        let mut chunk_length = paths.len() / num_cpus;
-        if chunk_length == 0 {
-            chunk_length = paths.len();
+        let mut songs = Vec::new();
+        for path in paths {
+            info!("Analyzing file '{}'", path);
+            let song = Song::new(&path);
+            songs.push((path.to_string(), song));
         }
 
-        for chunk in paths.chunks(chunk_length) {
-            let tx_thread = tx.clone();
-            let owned_chunk = chunk.to_owned();
-            let child = thread::spawn(move || {
-                for path in owned_chunk {
-                    info!("Analyzing file '{}'", path);
-                    let song = Song::new(&path);
-                    tx_thread.send((path.to_string(), song)).unwrap();
-                }
-                drop(tx_thread);
-            });
-            handles.push(child);
-        }
-        drop(tx);
-
-        for (path, song) in rx.iter() {
+        for (path, song) in songs {
             // A storage fail should just warn the user, but not abort the whole process
             match song {
                 Ok(song) => {
@@ -173,12 +152,6 @@ pub trait Library {
                     )
                 }
             }
-        }
-
-        for child in handles {
-            child
-                .join()
-                .map_err(|_| BlissError::AnalysisError("in analysis".to_string()))?;
         }
         Ok(())
     }
