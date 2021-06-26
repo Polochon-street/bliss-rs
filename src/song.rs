@@ -23,7 +23,6 @@ use ::log::warn;
 use core::ops::Index;
 use crossbeam::thread;
 use ffmpeg_next::codec::threading::{Config, Type as ThreadingType};
-use ffmpeg_next::software::resampling::context::Context;
 use ffmpeg_next::util;
 use ffmpeg_next::util::channel_layout::ChannelLayout;
 use ffmpeg_next::util::error::Error;
@@ -437,23 +436,19 @@ impl Song {
             }
         };
         codec.set_channel_layout(in_channel_layout);
-        let resample_context = ffmpeg::software::resampling::context::Context::get(
-            codec.format(),
-            in_channel_layout,
-            codec.rate(),
-            Sample::F32(Type::Packed),
-            ffmpeg::util::channel_layout::ChannelLayout::MONO,
-            SAMPLE_RATE,
-        )
-        .map_err(|e| {
-            BlissError::DecodingError(format!(
-                "while trying to allocate resampling context: {:?}",
-                e
-            ))
-        })?;
 
         let (tx, rx) = mpsc::channel();
-        let child = std_thread::spawn(move || resample_frame(rx, resample_context, sample_array));
+        let in_codec_format = codec.format();
+        let in_codec_rate = codec.rate();
+        let child = std_thread::spawn(move || {
+            resample_frame(
+                rx,
+                in_codec_format,
+                in_channel_layout,
+                in_codec_rate,
+                sample_array,
+            )
+        });
         for (s, packet) in format.packets() {
             if s.index() != stream {
                 continue;
@@ -542,9 +537,25 @@ pub(crate) struct InternalSong {
 
 fn resample_frame(
     rx: Receiver<Audio>,
-    mut resample_context: Context,
+    in_codec_format: Sample,
+    in_channel_layout: ChannelLayout,
+    in_rate: u32,
     mut sample_array: Vec<f32>,
 ) -> BlissResult<Vec<f32>> {
+    let mut resample_context = ffmpeg::software::resampling::context::Context::get(
+        in_codec_format,
+        in_channel_layout,
+        in_rate,
+        Sample::F32(Type::Packed),
+        ffmpeg::util::channel_layout::ChannelLayout::MONO,
+        SAMPLE_RATE,
+    )
+    .map_err(|e| {
+        BlissError::DecodingError(format!(
+            "while trying to allocate resampling context: {:?}",
+            e
+        ))
+    })?;
     let mut resampled = ffmpeg::frame::Audio::empty();
     for decoded in rx.iter() {
         resampled = ffmpeg::frame::Audio::empty();
