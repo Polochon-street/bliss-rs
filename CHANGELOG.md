@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.3.2
+* Fixed a rare ffmpeg multithreading bug.
+
 ## bliss 0.3.1
 * Show error message when song storage fails in the Library trait.
 * Added a `distance` module containing euclidean and cosine distance.
