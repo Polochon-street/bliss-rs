@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.3.3
+* Add a streaming analysis function, to help libraries displaying progress.
+
 ## bliss 0.3.2
 * Fixed a rare ffmpeg multithreading bug.
 

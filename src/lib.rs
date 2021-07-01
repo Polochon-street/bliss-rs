@@ -66,7 +66,7 @@
 #![warn(missing_doc_code_examples)]
 mod chroma;
 pub mod distance;
-mod library;
+pub mod library;
 mod misc;
 mod song;
 mod temporal;

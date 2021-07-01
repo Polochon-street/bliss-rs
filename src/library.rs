@@ -1,5 +1,8 @@
 //! Module containing the Library trait, useful to get started to implement
 //! a plug-in for an audio player.
+//!
+//! Looking at the [reference implementation for
+//! MPD](https://github.com/Polochon-street/blissify-rs) could also be useful.
 #[cfg(doc)]
 use crate::distance;
 use crate::distance::DistanceMetric;
@@ -116,7 +119,7 @@ pub trait Library {
     /// Analyze and store songs in `paths`, using `store_song` and
     /// `store_error_song` implementations.
     ///
-    /// Note: this is mostly useful for updating a song library. For the first
+    /// note: this is mostly useful for updating a song library. for the first
     /// run, you probably want to use `analyze_library`.
     fn analyze_paths(&mut self, paths: Vec<String>) -> BlissResult<()> {
         if paths.is_empty() {
@@ -192,6 +195,82 @@ pub trait Library {
         self.analyze_paths(paths)?;
         Ok(())
     }
+
+    /// Analyze an entire library using `get_songs_paths`, but instead of
+    /// storing songs using [store_song](Library::store_song)
+    /// and [store_error_song](Library::store_error_song).
+    ///
+    /// Returns an iterable [Receiver], whose items are a tuple made of
+    /// the song path (to display to the user in case the analysis failed),
+    /// and a Result<Song>.
+    fn analyze_library_streaming(&mut self) -> BlissResult<Receiver<(String, BlissResult<Song>)>> {
+        let paths = self
+            .get_songs_paths()
+            .map_err(|e| BlissError::ProviderError(e.to_string()))?;
+        analyze_paths_streaming(paths)
+    }
+}
+
+/// Analyze songs in `paths`, and return the analyzed [Song] objects through a
+/// [Receiver].
+///
+/// Returns an iterable [Receiver], whose items are a tuple made of
+/// the song path (to display to the user in case the analysis failed),
+/// and a Result<Song>.
+///
+/// Note: this is mostly useful for updating a song library, while displaying
+/// status to the user (since you have access to each song object). For the
+/// first run, you probably want to use `analyze_library`.
+///
+/// * Example:
+/// ```no_run
+/// use bliss_audio::{library::analyze_paths_streaming, BlissResult};
+///
+/// fn main() -> BlissResult<()> {
+///     let paths = vec![String::from("/path/to/song1"), String::from("/path/to/song2")];
+///     let rx = analyze_paths_streaming(paths)?;
+///     for (path, result) in rx.iter() {
+///         match result {
+///             Ok(song) => println!("Do something with analyzed song {} with title {:?}", song.path.display(), song.title),
+///             Err(e) => println!("Song at {} could not be analyzed. Failed with: {}", path, e),
+///         }
+///     }
+///     Ok(())
+/// }
+/// ```
+pub fn analyze_paths_streaming(
+    paths: Vec<String>,
+) -> BlissResult<Receiver<(String, BlissResult<Song>)>> {
+    let num_cpus = num_cpus::get();
+
+    #[allow(clippy::type_complexity)]
+    let (tx, rx): (
+        Sender<(String, BlissResult<Song>)>,
+        Receiver<(String, BlissResult<Song>)>,
+    ) = mpsc::channel();
+    if paths.is_empty() {
+        return Ok(rx);
+    }
+    let mut handles = Vec::new();
+    let mut chunk_length = paths.len() / num_cpus;
+    if chunk_length == 0 {
+        chunk_length = paths.len();
+    }
+
+    for chunk in paths.chunks(chunk_length) {
+        let tx_thread = tx.clone();
+        let owned_chunk = chunk.to_owned();
+        let child = thread::spawn(move || {
+            for path in owned_chunk {
+                info!("Analyzing file '{}'", path);
+                let song = Song::new(&path);
+                tx_thread.send((path.to_string(), song)).unwrap();
+            }
+        });
+        handles.push(child);
+    }
+
+    Ok(rx)
 }
 
 #[cfg(test)]
@@ -323,6 +402,34 @@ mod test {
 
         // A storage fail should just warn the user, but not abort the whole process
         assert!(test_library.analyze_library().is_ok())
+    }
+
+    #[test]
+    fn test_analyze_library_streaming() {
+        let mut test_library = TestLibrary {
+            internal_storage: vec![],
+            failed_files: vec![],
+        };
+        let rx = test_library.analyze_library_streaming().unwrap();
+
+        let mut result = rx.iter().collect::<Vec<(String, BlissResult<Song>)>>();
+        result.sort_by_key(|k| k.0.to_owned());
+        let expected = result
+            .iter()
+            .map(|x| match &x.1 {
+                Ok(s) => (true, s.path.to_string_lossy().to_string()),
+                Err(_) => (false, x.0.to_owned()),
+            })
+            .collect::<Vec<(bool, String)>>();
+        assert_eq!(
+            vec![
+                (true, String::from("./data/s16_mono_22_5kHz.flac")),
+                (true, String::from("./data/white_noise.flac")),
+                (false, String::from("definitely-not-existing.foo")),
+                (false, String::from("not-existing.foo")),
+            ],
+            expected,
+        );
     }
 
     #[test]
