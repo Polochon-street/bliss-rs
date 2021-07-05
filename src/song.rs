@@ -466,7 +466,7 @@ impl Song {
                     song.sample_array = child.join().unwrap()?;
                     return Ok(song);
                 }
-                Err(e) => warn!("decoding error: {}", e),
+                Err(e) => warn!("error while decoding {}: {}", path.display(), e),
             };
 
             loop {
@@ -500,7 +500,7 @@ impl Song {
                 song.sample_array = child.join().unwrap()?;
                 return Ok(song);
             }
-            Err(e) => warn!("decoding error: {}", e),
+            Err(e) => warn!("error while decoding {}: {}", path.display(), e),
         };
 
         loop {
