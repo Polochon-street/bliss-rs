@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.3.4
+* Bump ffmpeg's version to avoid building ffmpeg when building bliss.
+
 ## bliss 0.3.3
 * Add a streaming analysis function, to help libraries displaying progress.
 
