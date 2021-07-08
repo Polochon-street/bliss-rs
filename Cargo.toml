@@ -1,6 +1,6 @@
 [package]
 name = "bliss-audio"
-version = "0.3.3"
+version = "0.3.4"
 authors = ["Polochon-street <polochonstreet@gmx.fr>"]
 edition = "2018"
 license = "GPL-3.0-only"
@@ -15,10 +15,7 @@ features = ["bliss-audio-aubio-rs/rustdoc"]
 no-default-features = true
 
 [features]
-# Building ffmpeg until either
-# https://github.com/zmwangx/rust-ffmpeg/pull/60
-# or https://github.com/zmwangx/rust-ffmpeg/pull/62 is in
-default = ["bliss-audio-aubio-rs/static", "build-ffmpeg"]
+default = ["bliss-audio-aubio-rs/static"]
 # Build ffmpeg instead of using the host's.
 build-ffmpeg = ["ffmpeg-next/build"]
 # Use if you want to build python bindings with maturin.
@@ -37,7 +34,7 @@ lazy_static = "1.4.0"
 rayon = "1.5.0"
 crossbeam = "0.8.0"
 noisy_float = "0.2.0"
-ffmpeg-next = "4.3.8"
+ffmpeg-next = "4.4.0"
 log = "0.4.14"
 env_logger = "0.8.3"
 thiserror = "1.0.24"

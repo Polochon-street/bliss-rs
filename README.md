@@ -1,6 +1,6 @@
 [![crate](https://img.shields.io/crates/v/bliss-audio.svg)](https://crates.io/crates/bliss-audio)
 [![build](https://github.com/Polochon-street/bliss-rs/workflows/Rust/badge.svg)](https://github.com/Polochon-street/bliss-rs/actions)
-[![doc](https://docs.rs/bliss-rs/badge.svg)](https://docs.rs/bliss-audio/)
+[![doc](https://docs.rs/bliss-audio/badge.svg)](https://docs.rs/bliss-audio/)
 
 # bliss music analyser - Rust version
 bliss-rs is the Rust improvement of [bliss](https://github.com/Polochon-street/bliss), a
