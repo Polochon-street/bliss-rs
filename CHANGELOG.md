@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.3.5
+* Add custom sorting methods for playlist-making.
+
 ## bliss 0.3.4
 * Bump ffmpeg's version to avoid building ffmpeg when building bliss.
 

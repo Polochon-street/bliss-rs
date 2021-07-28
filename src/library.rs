@@ -5,10 +5,9 @@
 //! MPD](https://github.com/Polochon-street/blissify-rs) could also be useful.
 #[cfg(doc)]
 use crate::distance;
-use crate::distance::DistanceMetric;
+use crate::distance::{closest_to_first_song, DistanceMetric, euclidean_distance};
 use crate::{BlissError, BlissResult, Song};
 use log::{debug, error, info};
-use noisy_float::prelude::*;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
@@ -30,7 +29,8 @@ pub trait Library {
     /// once.
     fn get_stored_songs(&self) -> BlissResult<Vec<Song>>;
 
-    /// Return a list of songs that are similar to ``first_song``.
+    /// Return a list of `playlist_length` songs that are similar
+    /// to ``first_song``, deduplicating identical songs.
     ///
     /// # Arguments
     ///
@@ -40,21 +40,22 @@ pub trait Library {
     ///
     /// # Returns
     ///
-    /// A vector of `playlist_length` Songs, including `first_song`, that you
+    /// A vector of `playlist_length` songs, including `first_song`, that you
     /// most likely want to plug in your audio player by using something like
     /// `ret.map(|song| song.path.to_owned()).collect::<Vec<String>>()`.
+    // TODO return an iterator and not a Vec
     fn playlist_from_song(
         &self,
         first_song: Song,
         playlist_length: usize,
     ) -> BlissResult<Vec<Song>> {
-        let mut songs = self.get_stored_songs()?;
-        songs.sort_by_cached_key(|song| n32(first_song.distance(&song)));
+        let playlist = self.playlist_from_song_custom(
+            first_song,
+            playlist_length,
+            euclidean_distance,
+            closest_to_first_song,
+        )?;
 
-        let playlist = songs
-            .into_iter()
-            .take(playlist_length)
-            .collect::<Vec<Song>>();
         debug!(
             "Playlist created: {}",
             playlist
@@ -67,7 +68,7 @@ pub trait Library {
     }
 
     /// Return a list of songs that are similar to ``first_song``, using a
-    /// custom distance metric.
+    /// custom distance metric and deduplicating indentical songs.
     ///
     /// # Arguments
     ///
@@ -98,13 +99,13 @@ pub trait Library {
         playlist_length: usize,
         distance: impl DistanceMetric,
     ) -> BlissResult<Vec<Song>> {
-        let mut songs = self.get_stored_songs()?;
-        songs.sort_by_cached_key(|song| n32(first_song.custom_distance(&song, &distance)));
+        let playlist = self.playlist_from_song_custom(
+            first_song,
+            playlist_length,
+            distance,
+            closest_to_first_song,
+        )?;
 
-        let playlist = songs
-            .into_iter()
-            .take(playlist_length)
-            .collect::<Vec<Song>>();
         debug!(
             "Playlist created: {}",
             playlist
@@ -114,6 +115,44 @@ pub trait Library {
                 .join("\n"),
         );
         Ok(playlist)
+    }
+
+    /// Return a playlist of songs, starting with `first_song`, sorted using
+    /// the custom `sort` function, and the custom `distance` metric.
+    ///
+    /// # Arguments
+    ///
+    /// * `first_song` - The song the playlist will be built from.
+    /// * `playlist_length` - The playlist length. If there are not enough
+    ///    songs in the library, it will be truncated to the size of the library.
+    /// * `distance` - a user-supplied valid distance metric, either taken
+    ///    from the [distance](distance) module, or made from scratch.
+    /// * `sort` - a user-supplied sorting function that uses the `distance`
+    ///    metric, either taken from the [distance](module), or made from
+    ///    scratch.
+    ///
+    /// # Returns
+    ///
+    /// A vector of `playlist_length` Songs, including `first_song`, that you
+    /// most likely want to plug in your audio player by using something like
+    /// `ret.map(|song| song.path.to_owned()).collect::<Vec<String>>()`.
+    fn playlist_from_song_custom<F, G>(
+        &self,
+        first_song: Song,
+        playlist_length: usize,
+        distance: G,
+        mut sort: F,
+    ) -> BlissResult<Vec<Song>>
+    where
+        F: FnMut(&Song, &mut Vec<Song>, G),
+        G: DistanceMetric,
+    {
+        let mut songs = self.get_stored_songs()?;
+        sort(&first_song, &mut songs, distance);
+        Ok(songs
+            .into_iter()
+            .take(playlist_length)
+            .collect::<Vec<Song>>())
     }
 
     /// Analyze and store songs in `paths`, using `store_song` and
@@ -592,6 +631,51 @@ mod test {
             vec![first_song.to_owned(), fourth_song, third_song],
             test_library
                 .playlist_from_song_custom_distance(first_song, 3, custom_distance)
+                .unwrap()
+        );
+    }
+
+    fn custom_sort(_: &Song, songs: &mut Vec<Song>, _: impl DistanceMetric) {
+        songs.sort_by_key(|song| song.path.to_owned());
+    }
+
+    #[test]
+    fn test_playlist_from_song_custom() {
+        let mut test_library = TestLibrary::default();
+        let first_song = Song {
+            path: Path::new("path-to-first").to_path_buf(),
+            analysis: Analysis::new([0.; 20]),
+            ..Default::default()
+        };
+
+        let second_song = Song {
+            path: Path::new("path-to-second").to_path_buf(),
+            analysis: Analysis::new([0.1; 20]),
+            ..Default::default()
+        };
+
+        let third_song = Song {
+            path: Path::new("path-to-third").to_path_buf(),
+            analysis: Analysis::new([10.; 20]),
+            ..Default::default()
+        };
+
+        let fourth_song = Song {
+            path: Path::new("path-to-fourth").to_path_buf(),
+            analysis: Analysis::new([20.; 20]),
+            ..Default::default()
+        };
+
+        test_library.internal_storage = vec![
+            first_song.to_owned(),
+            fourth_song.to_owned(),
+            third_song.to_owned(),
+            second_song.to_owned(),
+        ];
+        assert_eq!(
+            vec![first_song.to_owned(), fourth_song, second_song],
+            test_library
+                .playlist_from_song_custom(first_song, 3, custom_distance, custom_sort)
                 .unwrap()
         );
     }

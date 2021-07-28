@@ -7,10 +7,12 @@
 //! They will yield different styles of playlists, so don't hesitate to
 //! experiment with them if the default (euclidean distance for now) doesn't
 //! suit you.
-use crate::NUMBER_FEATURES;
 #[cfg(doc)]
-use crate::{Library, Song};
+use crate::Library;
+use crate::Song;
+use crate::NUMBER_FEATURES;
 use ndarray::{Array, Array1};
+use noisy_float::prelude::*;
 
 /// Convenience trait for user-defined distance metrics.
 pub trait DistanceMetric: Fn(&Array1<f32>, &Array1<f32>) -> f32 {}
@@ -36,10 +38,158 @@ pub fn cosine_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
     1. - similarity
 }
 
+/// Sort `songs` in place by putting songs close to `first_song` first
+/// using the `distance` metric. Deduplicate identical songs.
+pub fn closest_to_first_song(
+    first_song: &Song,
+    songs: &mut Vec<Song>,
+    distance: impl DistanceMetric,
+) {
+    songs.sort_by_cached_key(|song| n32(first_song.custom_distance(song, &distance)));
+    songs.dedup_by_key(|song| n32(first_song.custom_distance(song, &distance)));
+}
+
+/// Sort `songs` in place using the `distance` metric and ordering by
+/// the smallest distance between each song. Deduplicate identical songs.
+///
+/// If the generated playlist is `[song1, song2, song3, song4]`, it means
+/// song2 is closest to song1, song3 is closest to song2, and song4 is closest
+/// to song3.
+pub fn song_to_song(first_song: &Song, songs: &mut Vec<Song>, distance: impl DistanceMetric) {
+    let mut new_songs = vec![first_song.to_owned()];
+    let mut song = first_song.to_owned();
+    loop {
+        if songs.is_empty() {
+            break;
+        }
+        songs 
+            .retain(|s| n32(song.custom_distance(s, &distance)) != 0.);
+        songs.sort_by_key(|s| n32(song.custom_distance(s, &distance)));
+        song = songs.remove(0);
+        new_songs.push(song.to_owned());
+    }
+    *songs = new_songs;
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::Analysis;
     use ndarray::arr1;
+    use std::path::Path;
+
+    #[test]
+    fn test_song_to_song() {
+        let first_song = Song {
+            path: Path::new("path-to-first").to_path_buf(),
+            analysis: Analysis::new([
+                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let first_song_dupe = Song {
+            path: Path::new("path-to-dupe").to_path_buf(),
+            analysis: Analysis::new([
+                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+
+        let second_song = Song {
+            path: Path::new("path-to-second").to_path_buf(),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let third_song = Song {
+            path: Path::new("path-to-third").to_path_buf(),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let fourth_song = Song {
+            path: Path::new("path-to-fourth").to_path_buf(),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let mut songs = vec![
+            first_song.to_owned(),
+            first_song_dupe.to_owned(),
+            second_song.to_owned(),
+            third_song.to_owned(),
+            fourth_song.to_owned(),
+        ];
+        song_to_song(&first_song, &mut songs, euclidean_distance);
+        assert_eq!(
+            songs,
+            vec![first_song, second_song, third_song, fourth_song],
+        );
+    }
+
+    #[test]
+    fn test_sort_closest_to_first_song() {
+        let first_song = Song {
+            path: Path::new("path-to-first").to_path_buf(),
+            analysis: Analysis::new([
+                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let first_song_dupe = Song {
+            path: Path::new("path-to-dupe").to_path_buf(),
+            analysis: Analysis::new([
+                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+
+        let second_song = Song {
+            path: Path::new("path-to-second").to_path_buf(),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let third_song = Song {
+            path: Path::new("path-to-third").to_path_buf(),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let fourth_song = Song {
+            path: Path::new("path-to-fourth").to_path_buf(),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let fifth_song = Song {
+            path: Path::new("path-to-fifth").to_path_buf(),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+
+        let mut songs = vec![
+            first_song.to_owned(),
+            first_song_dupe.to_owned(),
+            second_song.to_owned(),
+            third_song.to_owned(),
+            fourth_song.to_owned(),
+            fifth_song.to_owned(),
+        ];
+        closest_to_first_song(&first_song, &mut songs, euclidean_distance);
+        assert_eq!(
+            songs,
+            vec![first_song, second_song, fourth_song, third_song],
+        );
+    }
 
     #[test]
     fn test_euclidean_distance() {
