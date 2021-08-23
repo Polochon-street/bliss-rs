@@ -12,6 +12,7 @@ use crate::Library;
 use crate::Song;
 use crate::NUMBER_FEATURES;
 use ndarray::{Array, Array1};
+use ndarray_stats::QuantileExt;
 use noisy_float::prelude::*;
 
 /// Convenience trait for user-defined distance metrics.
@@ -39,34 +40,35 @@ pub fn cosine_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
 }
 
 /// Sort `songs` in place by putting songs close to `first_song` first
-/// using the `distance` metric. Deduplicate identical songs.
+/// using the `distance` metric.
 pub fn closest_to_first_song(
     first_song: &Song,
     songs: &mut Vec<Song>,
     distance: impl DistanceMetric,
 ) {
     songs.sort_by_cached_key(|song| n32(first_song.custom_distance(song, &distance)));
-    songs.dedup_by_key(|song| n32(first_song.custom_distance(song, &distance)));
 }
 
 /// Sort `songs` in place using the `distance` metric and ordering by
-/// the smallest distance between each song. Deduplicate identical songs.
+/// the smallest distance between each song.
 ///
 /// If the generated playlist is `[song1, song2, song3, song4]`, it means
 /// song2 is closest to song1, song3 is closest to song2, and song4 is closest
 /// to song3.
+///
+/// Note that this has a tendency to go from one style to the other very fast,
+/// and it can be slow on big libraries.
 pub fn song_to_song(first_song: &Song, songs: &mut Vec<Song>, distance: impl DistanceMetric) {
-    let mut new_songs = vec![first_song.to_owned()];
+    let mut new_songs = Vec::with_capacity(songs.len());
     let mut song = first_song.to_owned();
-    loop {
-        if songs.is_empty() {
-            break;
-        }
-        songs 
-            .retain(|s| n32(song.custom_distance(s, &distance)) != 0.);
-        songs.sort_by_key(|s| n32(song.custom_distance(s, &distance)));
-        song = songs.remove(0);
+
+    while !songs.is_empty() {
+        let distances: Array1<f32> =
+            Array::from_shape_fn(songs.len(), |i| song.custom_distance(&songs[i], &distance));
+        let idx = distances.argmin().unwrap();
+        song = songs[idx].to_owned();
         new_songs.push(song.to_owned());
+        songs.retain(|s| s != &song);
     }
     *songs = new_songs;
 }
@@ -126,7 +128,13 @@ mod test {
         song_to_song(&first_song, &mut songs, euclidean_distance);
         assert_eq!(
             songs,
-            vec![first_song, second_song, third_song, fourth_song],
+            vec![
+                first_song,
+                first_song_dupe.to_owned(),
+                second_song,
+                third_song,
+                fourth_song
+            ],
         );
     }
 
@@ -187,7 +195,14 @@ mod test {
         closest_to_first_song(&first_song, &mut songs, euclidean_distance);
         assert_eq!(
             songs,
-            vec![first_song, second_song, fourth_song, third_song],
+            vec![
+                first_song,
+                first_song_dupe,
+                second_song,
+                fourth_song,
+                fifth_song,
+                third_song
+            ],
         );
     }
 

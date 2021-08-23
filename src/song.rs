@@ -142,7 +142,7 @@ impl fmt::Debug for Analysis {
             debug_struct.field(&format!("{:?}", feature), &self[feature]);
         }
         debug_struct.finish()?;
-        f.write_str(&format!(" /* {:?} */", &self.to_vec()))
+        f.write_str(&format!(" /* {:?} */", &self.as_vec()))
     }
 }
 
@@ -161,7 +161,7 @@ impl Analysis {
     /// Return an ndarray `Array1` representing the analysis' features.
     ///
     /// Particularly useful if you want to make a custom distance metric.
-    pub fn to_arr1(&self) -> Array1<f32> {
+    pub fn as_arr1(&self) -> Array1<f32> {
         arr1(&self.internal_analysis)
     }
 
@@ -169,7 +169,7 @@ impl Analysis {
     ///
     /// Particularly useful if you want iterate through the values to store
     /// them somewhere.
-    pub fn to_vec(&self) -> Vec<f32> {
+    pub fn as_vec(&self) -> Vec<f32> {
         self.internal_analysis.to_vec()
     }
 
@@ -187,7 +187,7 @@ impl Analysis {
     /// Note that almost all distance metrics you will find obey these
     /// properties, so don't sweat it too much.
     pub fn custom_distance(&self, other: &Self, distance: impl DistanceMetric) -> f32 {
-        distance(&self.to_arr1(), &other.to_arr1())
+        distance(&self.as_arr1(), &other.as_arr1())
     }
 }
 
@@ -654,7 +654,7 @@ mod tests {
             -0.9820945,
             -0.95968974,
         ];
-        for (x, y) in song.analysis.to_vec().iter().zip(expected_analysis) {
+        for (x, y) in song.analysis.as_vec().iter().zip(expected_analysis) {
             assert!(0.01 > (x - y).abs());
         }
     }

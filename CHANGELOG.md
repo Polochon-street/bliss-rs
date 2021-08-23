@@ -1,5 +1,10 @@
 # Changelog
 
+## bliss 0.4.0
+* Make the song-to-song custom sorting method faster.
+* Rename `to_vec` and `to_arr1` to `as_vec` and `as_arr1` .
+* Add a playlist_dedup function. 
+
 ## bliss 0.3.5
 * Add custom sorting methods for playlist-making.
 
