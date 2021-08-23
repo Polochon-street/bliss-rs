@@ -73,12 +73,164 @@ pub fn song_to_song(first_song: &Song, songs: &mut Vec<Song>, distance: impl Dis
     *songs = new_songs;
 }
 
+/// Remove duplicate songs from a playlist, in place.
+///
+/// Two songs are considered duplicates if they either have the same,
+/// non-empty title and artist name, or if they are close enough in terms
+/// of distance.
+///
+/// # Arguments
+///
+/// * `songs`: The playlist to remove duplicates from.
+/// * `distance_threshold`: The distance threshold under which two songs are
+///   considered identical. If `None`, a default value of 0.05 will be used.
+pub fn dedup_playlist(songs: &mut Vec<Song>, distance_threshold: Option<f32>) {
+    dedup_playlist_custom_distance(songs, distance_threshold, euclidean_distance);
+}
+
+/// Remove duplicate songs from a playlist, in place, using a custom distance
+/// metric.
+///
+/// Two songs are considered duplicates if they either have the same,
+/// non-empty title and artist name, or if they are close enough in terms
+/// of distance.
+///
+/// # Arguments
+///
+/// * `songs`: The playlist to remove duplicates from.
+/// * `distance_threshold`: The distance threshold under which two songs are
+///   considered identical. If `None`, a default value of 0.05 will be used.
+/// * `distance`: A custom distance metric.
+pub fn dedup_playlist_custom_distance(
+    songs: &mut Vec<Song>,
+    distance_threshold: Option<f32>,
+    distance: impl DistanceMetric,
+) {
+    songs.dedup_by(|s1, s2| {
+        n32(s1.custom_distance(&s2, &distance)) < distance_threshold.unwrap_or(0.05)
+            || (s1.title.is_some()
+                && s2.title.is_some()
+                && s1.artist.is_some()
+                && s2.artist.is_some()
+                && s1.title == s2.title
+                && s1.artist == s2.artist)
+    });
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::Analysis;
     use ndarray::arr1;
     use std::path::Path;
+
+    #[test]
+    fn test_dedup_playlist_custom_distance() {
+        let first_song = Song {
+            path: Path::new("path-to-first").to_path_buf(),
+            analysis: Analysis::new([
+                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let first_song_dupe = Song {
+            path: Path::new("path-to-dupe").to_path_buf(),
+            analysis: Analysis::new([
+                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+
+        let second_song = Song {
+            path: Path::new("path-to-second").to_path_buf(),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
+            ]),
+            title: Some(String::from("dupe-title")),
+            artist: Some(String::from("dupe-artist")),
+            ..Default::default()
+        };
+        let third_song = Song {
+            path: Path::new("path-to-third").to_path_buf(),
+            title: Some(String::from("dupe-title")),
+            artist: Some(String::from("dupe-artist")),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let fourth_song = Song {
+            path: Path::new("path-to-fourth").to_path_buf(),
+            artist: Some(String::from("no-dupe-artist")),
+            title: Some(String::from("dupe-title")),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let fifth_song = Song {
+            path: Path::new("path-to-fourth").to_path_buf(),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0.001, 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+
+        let mut playlist = vec![
+            first_song.to_owned(),
+            first_song_dupe.to_owned(),
+            second_song.to_owned(),
+            third_song.to_owned(),
+            fourth_song.to_owned(),
+            fifth_song.to_owned(),
+        ];
+        dedup_playlist_custom_distance(&mut playlist, None, euclidean_distance);
+        assert_eq!(
+            playlist,
+            vec![
+                first_song.to_owned(),
+                second_song.to_owned(),
+                fourth_song.to_owned(),
+            ],
+        );
+        let mut playlist = vec![
+            first_song.to_owned(),
+            first_song_dupe.to_owned(),
+            second_song.to_owned(),
+            third_song.to_owned(),
+            fourth_song.to_owned(),
+            fifth_song.to_owned(),
+        ];
+        dedup_playlist_custom_distance(&mut playlist, Some(20.), cosine_distance);
+        assert_eq!(playlist, vec![first_song.to_owned()]);
+        let mut playlist = vec![
+            first_song.to_owned(),
+            first_song_dupe.to_owned(),
+            second_song.to_owned(),
+            third_song.to_owned(),
+            fourth_song.to_owned(),
+            fifth_song.to_owned(),
+        ];
+        dedup_playlist(&mut playlist, Some(20.));
+        assert_eq!(playlist, vec![first_song.to_owned()]);
+        let mut playlist = vec![
+            first_song.to_owned(),
+            first_song_dupe.to_owned(),
+            second_song.to_owned(),
+            third_song.to_owned(),
+            fourth_song.to_owned(),
+            fifth_song.to_owned(),
+        ];
+        dedup_playlist(&mut playlist, None);
+        assert_eq!(
+            playlist,
+            vec![
+                first_song.to_owned(),
+                second_song.to_owned(),
+                fourth_song.to_owned()
+            ]
+        );
+    }
 
     #[test]
     fn test_song_to_song() {
