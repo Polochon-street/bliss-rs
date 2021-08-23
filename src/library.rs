@@ -5,7 +5,7 @@
 //! MPD](https://github.com/Polochon-street/blissify-rs) could also be useful.
 #[cfg(doc)]
 use crate::distance;
-use crate::distance::{closest_to_first_song, DistanceMetric, euclidean_distance};
+use crate::distance::{closest_to_first_song, euclidean_distance, DistanceMetric};
 use crate::{BlissError, BlissResult, Song};
 use log::{debug, error, info};
 use std::sync::mpsc;

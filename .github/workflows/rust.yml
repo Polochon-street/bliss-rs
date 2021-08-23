@@ -23,7 +23,7 @@ jobs:
         toolchain: nightly-2021-04-01
         override: false
     - name: Packages
-      run: sudo apt-get install build-essential yasm libavutil-dev libavcodec-dev libavformat-dev libavfilter-dev libavfilter-dev libavdevice-dev libswresample-dev libfftw3-dev ffmpeg
+      run: sudo apt-get update && sudo apt-get install build-essential yasm libavutil-dev libavcodec-dev libavformat-dev libavfilter-dev libavfilter-dev libavdevice-dev libswresample-dev libfftw3-dev ffmpeg
     - name: Build
       run: cargo build --verbose
     - name: Run tests
