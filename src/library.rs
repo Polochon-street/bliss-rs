@@ -8,6 +8,9 @@ use crate::distance;
 use crate::distance::{closest_to_first_song, euclidean_distance, DistanceMetric};
 use crate::{BlissError, BlissResult, Song};
 use log::{debug, error, info};
+use ndarray::{Array, Array2, Axis};
+use noisy_float::prelude::n32;
+use std::collections::HashMap;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
@@ -28,6 +31,92 @@ pub trait Library {
     /// This should work only after having run `analyze_library` at least
     /// once.
     fn get_stored_songs(&self) -> BlissResult<Vec<Song>>;
+
+    /// Return a list of `number_albums` albums that are similar
+    /// to `album`, discarding songs that don't belong to an album.
+    ///
+    /// # Arguments
+    ///
+    /// * `album` - The album the playlist will be built from.
+    /// * `number_albums` - The number of albums to queue.
+    ///
+    /// # Returns
+    ///
+    /// A vector of songs, including `first_song`, that you
+    /// most likely want to plug in your audio player by using something like
+    /// `ret.map(|song| song.path.to_owned()).collect::<Vec<String>>()`.
+    fn playlist_from_songs_album(
+        &self,
+        first_album: &str,
+        playlist_length: usize,
+    ) -> BlissResult<Vec<Song>> {
+        let songs = self.get_stored_songs()?;
+        let mut albums_analysis: HashMap<&str, Array2<f32>> = HashMap::new();
+        let mut albums = Vec::new();
+
+        for song in &songs {
+            if let Some(album) = &song.album {
+                if let Some(analysis) = albums_analysis.get_mut(&album as &str) {
+                    analysis
+                        .push_row(song.analysis.as_arr1().view())
+                        .map_err(|e| {
+                            BlissError::ProviderError(format!("while computing distances: {}", e))
+                        })?;
+                } else {
+                    let mut array = Array::zeros((1, song.analysis.as_arr1().len()));
+                    array.assign(&song.analysis.as_arr1());
+                    albums_analysis.insert(&album, array);
+                }
+            }
+        }
+        let mut first_analysis = None;
+        for (album, analysis) in albums_analysis.iter() {
+            let mean_analysis = analysis
+                .mean_axis(Axis(0))
+                .ok_or_else(|| BlissError::ProviderError(String::from(
+                    "Mean of empty slice",
+                )))?;
+            let album = album.to_owned();
+            albums.push((album, mean_analysis.to_owned()));
+            if album == first_album {
+                first_analysis = Some(mean_analysis);
+            }
+        }
+
+        if first_analysis.is_none() {
+            return Err(BlissError::ProviderError(format!(
+                "Could not find album \"{}\".",
+                first_album
+            )));
+        }
+        albums.sort_by_key(|(_, analysis)| {
+            n32(euclidean_distance(
+                first_analysis.as_ref().unwrap(),
+                &analysis,
+            ))
+        });
+        let albums = albums.get(..playlist_length).unwrap_or(&albums);
+        let mut playlist = Vec::new();
+        for (album, _) in albums {
+            let mut al = songs
+                .iter()
+                .filter(|s| s.album.is_some() && s.album.as_ref().unwrap() == &album.to_string())
+                .map(|s| s.to_owned())
+                .collect::<Vec<Song>>();
+            al.sort_by(|s1, s2| {
+                let track_number1 = s1.track_number.to_owned().unwrap_or_else(|| String::from(""));
+                let track_number2 = s2.track_number.to_owned().unwrap_or_else(|| String::from(""));
+                if let Ok(x) = track_number1.parse::<i32>() {
+                    if let Ok(y) = track_number2.parse::<i32>() {
+                        return x.cmp(&y);
+                    }
+                }
+                s1.track_number.cmp(&s2.track_number)
+            });
+            playlist.extend_from_slice(&al);
+        }
+        Ok(playlist)
+    }
 
     /// Return a list of `playlist_length` songs that are similar
     /// to ``first_song``, deduplicating identical songs.
@@ -507,6 +596,60 @@ mod test {
                 String::from("./data/s16_mono_22_5kHz.flac"),
                 String::from("./data/white_noise.flac"),
             ],
+        );
+    }
+
+    #[test]
+    fn test_playlist_from_album() {
+        let mut test_library = TestLibrary::default();
+        let first_song = Song {
+            path: Path::new("path-to-first").to_path_buf(),
+            analysis: Analysis::new([0.; 20]),
+            album: Some(String::from("Album")),
+            track_number: Some(String::from("01")),
+            ..Default::default()
+        };
+
+        let second_song = Song {
+            path: Path::new("path-to-second").to_path_buf(),
+            analysis: Analysis::new([0.1; 20]),
+            album: Some(String::from("Another Album")),
+            track_number: Some(String::from("10")),
+            ..Default::default()
+        };
+
+        let third_song = Song {
+            path: Path::new("path-to-third").to_path_buf(),
+            analysis: Analysis::new([10.; 20]),
+            album: Some(String::from("Album")),
+            track_number: Some(String::from("02")),
+            ..Default::default()
+        };
+
+        let fourth_song = Song {
+            path: Path::new("path-to-fourth").to_path_buf(),
+            analysis: Analysis::new([20.; 20]),
+            album: Some(String::from("Another Album")),
+            track_number: Some(String::from("01")),
+            ..Default::default()
+        };
+        let fifth_song = Song {
+            path: Path::new("path-to-fifth").to_path_buf(),
+            analysis: Analysis::new([20.; 20]),
+            album: None,
+            ..Default::default()
+        };
+
+        test_library.internal_storage = vec![
+            first_song.to_owned(),
+            fourth_song.to_owned(),
+            third_song.to_owned(),
+            second_song.to_owned(),
+            fifth_song.to_owned(),
+        ];
+        assert_eq!(
+            vec![first_song, third_song, fourth_song, second_song],
+            test_library.playlist_from_songs_album("Album", 3).unwrap()
         );
     }
 

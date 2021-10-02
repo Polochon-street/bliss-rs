@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.4.1
+* Add a function to make album playlists.
+
 ## bliss 0.4.0
 * Make the song-to-song custom sorting method faster.
 * Rename `to_vec` and `to_arr1` to `as_vec` and `as_arr1` .
