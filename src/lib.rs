@@ -63,7 +63,7 @@
 //! ```
 #![cfg_attr(feature = "bench", feature(test))]
 #![warn(missing_docs)]
-#![warn(missing_doc_code_examples)]
+#![warn(rustdoc::missing_doc_code_examples)]
 mod chroma;
 pub mod distance;
 pub mod library;
