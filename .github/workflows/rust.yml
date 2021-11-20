@@ -33,4 +33,4 @@ jobs:
     - name: Build benches
       run: cargo +nightly-2021-04-01 bench --verbose --features=bench --no-run
     - name: Build examples
-      run: cargo build --examples --verbose
+      run: cargo build --examples --verbose --features=serde
