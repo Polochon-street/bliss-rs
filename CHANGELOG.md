@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.4.2
+* Add a binary example to easily make playlists.
+
 ## bliss 0.4.1
 * Add a function to make album playlists.
 
