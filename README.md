@@ -23,10 +23,25 @@ different, more accurate values, based on
 [actual literature](https://lelele.io/thesis.pdf). It is also faster.
 
 ## Examples
-For simple analysis / distance computing, a look at `examples/distance.rs` and
+For simple analysis / distance computing, take a look at `examples/distance.rs` and
 `examples/analyse.rs`.
 
-Ready to use examples:
+If you simply want to try out making playlists from a folder containing songs,
+[this example](https://github.com/Polochon-street/bliss-rs/blob/master/examples/playlist.rs)
+contains all you need. Usage:
+
+        cargo run --features=serde --release --example=playlist /path/to/folder /path/to/first/song
+
+Don't forget the `--release` flag!
+
+By default, it outputs the playlist to stdout, but you can use `-o <path>`
+to output it to a specific path.
+
+To avoid having to analyze the entire folder
+several times, it also stores the analysis in `/tmp/analysis.json`. You can customize
+this behavior by using `-a <path>` to store this file in a specific place.
+
+Ready to use code examples:
 
 ### Compute the distance between two songs
 ```
@@ -72,7 +87,7 @@ fn main() -> Result<(), BlissError> {
 
 Instead of reinventing ways to fetch a user library, play songs, etc,
 and embed that into bliss, it is easier to look at the 
-[Library](https://github.com/Polochon-street/bliss-rs/blob/master/src/library.rs#L12)
+[Library](https://docs.rs/bliss-audio/0.4.1/bliss_audio/library/trait.Library.html)
 trait.
 
 By implementing a few functions to get songs from a media library, and store
