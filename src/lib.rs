@@ -85,6 +85,10 @@ pub use song::{Analysis, AnalysisIndex, Song, NUMBER_FEATURES};
 
 const CHANNELS: u16 = 1;
 const SAMPLE_RATE: u32 = 22050;
+/// Stores the current version of bliss-rs' features.
+/// It is bumped every time one or more feature is added, updated or removed,
+/// so plug-ins can rescan libraries when there is a major change.
+const FEATURES_VERSION: u16 = 1;
 
 #[derive(Error, Clone, Debug, PartialEq)]
 /// Umbrella type for bliss error types

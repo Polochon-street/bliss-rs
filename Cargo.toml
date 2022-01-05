@@ -1,6 +1,6 @@
 [package]
 name = "bliss-audio"
-version = "0.4.2"
+version = "0.4.3"
 authors = ["Polochon-street <polochonstreet@gmx.fr>"]
 edition = "2018"
 license = "GPL-3.0-only"

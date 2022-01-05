@@ -29,7 +29,7 @@ pub(crate) fn stft(signal: &[f32], window_length: usize, hop_length: usize) -> A
         (signal.len() as f32 / hop_length as f32).ceil() as usize,
         window_length / 2 + 1,
     ));
-    let signal = reflect_pad(&signal, window_length / 2);
+    let signal = reflect_pad(signal, window_length / 2);
 
     // Periodic, so window_size + 1
     let mut hann_window = Array::zeros(window_length + 1);
@@ -45,7 +45,7 @@ pub(crate) fn stft(signal: &[f32], window_length: usize, hop_length: usize) -> A
         .step_by(hop_length)
         .zip(stft.rows_mut())
     {
-        let mut signal = (arr1(&window) * &hann_window).mapv(|x| Complex::new(x, 0.));
+        let mut signal = (arr1(window) * &hann_window).mapv(|x| Complex::new(x, 0.));
         match signal.as_slice_mut() {
             Some(s) => fft.process(s),
             None => {

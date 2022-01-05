@@ -321,7 +321,7 @@ fn estimate_tuning(
     resolution: f64,
     bins_per_octave: u32,
 ) -> BlissResult<f64> {
-    let (pitch, mag) = pip_track(sample_rate, &spectrum, n_fft)?;
+    let (pitch, mag) = pip_track(sample_rate, spectrum, n_fft)?;
 
     let (filtered_pitch, filtered_mag): (Vec<N64>, Vec<N64>) = pitch
         .iter()

@@ -56,7 +56,7 @@ pub trait Library {
 
         for song in &songs {
             if let Some(album) = &song.album {
-                if let Some(analysis) = albums_analysis.get_mut(&album as &str) {
+                if let Some(analysis) = albums_analysis.get_mut(album as &str) {
                     analysis
                         .push_row(song.analysis.as_arr1().view())
                         .map_err(|e| {
@@ -65,7 +65,7 @@ pub trait Library {
                 } else {
                     let mut array = Array::zeros((1, song.analysis.as_arr1().len()));
                     array.assign(&song.analysis.as_arr1());
-                    albums_analysis.insert(&album, array);
+                    albums_analysis.insert(album, array);
                 }
             }
         }
@@ -92,7 +92,7 @@ pub trait Library {
         albums.sort_by_key(|(_, analysis)| {
             n32(euclidean_distance(
                 first_analysis.as_ref().unwrap(),
-                &analysis,
+                analysis,
             ))
         });
         let albums = albums.get(..playlist_length).unwrap_or(&albums);

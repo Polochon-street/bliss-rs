@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.4.3
+* Add features' version on each Song instance.
+
 ## bliss 0.4.2
 * Add a binary example to easily make playlists.
 
