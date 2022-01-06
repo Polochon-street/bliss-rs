@@ -12,7 +12,7 @@ extern crate ffmpeg_next as ffmpeg;
 extern crate ndarray;
 extern crate ndarray_npy;
 
-use super::CHANNELS;
+use crate::{CHANNELS, FEATURES_VERSION};
 use crate::chroma::ChromaDesc;
 use crate::distance::{euclidean_distance, DistanceMetric};
 use crate::misc::LoudnessDesc;
@@ -61,6 +61,10 @@ pub struct Song {
     pub genre: Option<String>,
     /// bliss analysis results
     pub analysis: Analysis,
+    /// Version of the features the song was analyzed with.
+    /// A simple integer that is bumped every time a breaking change
+    /// is introduced in the features.
+    pub features_version: u16,
 }
 
 #[derive(Debug, EnumIter, EnumCount)]
@@ -251,6 +255,7 @@ impl Song {
             track_number: raw_song.track_number,
             genre: raw_song.genre,
             analysis: Song::analyse(raw_song.sample_array)?,
+            features_version: FEATURES_VERSION,
         })
     }
 
@@ -289,7 +294,7 @@ impl Song {
                     .step_by(BPMDesc::HOP_SIZE);
 
                 for window in windows {
-                    tempo_desc.do_(&window)?;
+                    tempo_desc.do_(window)?;
                 }
                 Ok(tempo_desc.get_value())
             });
@@ -310,7 +315,7 @@ impl Song {
                     .windows(SpectralDesc::WINDOW_SIZE)
                     .step_by(SpectralDesc::HOP_SIZE);
                 for window in windows {
-                    spectral_desc.do_(&window)?;
+                    spectral_desc.do_(window)?;
                 }
                 let centroid = spectral_desc.get_centroid();
                 let rolloff = spectral_desc.get_rolloff();
@@ -330,7 +335,7 @@ impl Song {
                     let windows = sample_array.chunks(LoudnessDesc::WINDOW_SIZE);
 
                     for window in windows {
-                        loudness_desc.do_(&window);
+                        loudness_desc.do_(window);
                     }
                     Ok(loudness_desc.get_value())
                 });
@@ -657,6 +662,7 @@ mod tests {
         for (x, y) in song.analysis.as_vec().iter().zip(expected_analysis) {
             assert!(0.01 > (x - y).abs());
         }
+        assert_eq!(FEATURES_VERSION, song.features_version);
     }
 
     fn _test_decode(path: &Path, expected_hash: &[u8]) {

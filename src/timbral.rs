@@ -204,12 +204,12 @@ impl SpectralDesc {
         self.values_rolloff.push(freq);
 
         let cvec: CVec = fftgrain.as_slice().into();
-        let geo_mean = geometric_mean(&cvec.norm());
+        let geo_mean = geometric_mean(cvec.norm());
         if geo_mean == 0.0 {
             self.values_flatness.push(0.0);
             return Ok(());
         }
-        let flatness = geo_mean / mean(&cvec.norm());
+        let flatness = geo_mean / mean(cvec.norm());
         self.values_flatness.push(flatness);
         Ok(())
     }

@@ -107,7 +107,7 @@ pub fn dedup_playlist_custom_distance(
     distance: impl DistanceMetric,
 ) {
     songs.dedup_by(|s1, s2| {
-        n32(s1.custom_distance(&s2, &distance)) < distance_threshold.unwrap_or(0.05)
+        n32(s1.custom_distance(s2, &distance)) < distance_threshold.unwrap_or(0.05)
             || (s1.title.is_some()
                 && s2.title.is_some()
                 && s1.artist.is_some()
