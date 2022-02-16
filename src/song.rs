@@ -12,13 +12,13 @@ extern crate ffmpeg_next as ffmpeg;
 extern crate ndarray;
 extern crate ndarray_npy;
 
-use crate::{CHANNELS, FEATURES_VERSION};
 use crate::chroma::ChromaDesc;
 use crate::distance::{euclidean_distance, DistanceMetric};
 use crate::misc::LoudnessDesc;
 use crate::temporal::BPMDesc;
 use crate::timbral::{SpectralDesc, ZeroCrossingRateDesc};
 use crate::{BlissError, BlissResult, SAMPLE_RATE};
+use crate::{CHANNELS, FEATURES_VERSION};
 use ::log::warn;
 use core::ops::Index;
 use crossbeam::thread;
@@ -378,17 +378,21 @@ impl Song {
         let (mut codec, stream, expected_sample_number) = {
             let stream = format
                 .streams()
-                .find(|s| s.codec().medium() == ffmpeg::media::Type::Audio)
+                .find(|s| s.parameters().medium() == ffmpeg::media::Type::Audio)
                 .ok_or_else(|| BlissError::DecodingError(String::from("No audio stream found.")))?;
-            stream.codec().set_threading(Config {
+            let mut context = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
+                .map_err(|e| {
+                    BlissError::DecodingError(format!("Could not load the codec context: {:?}", e))
+                })?;
+            context.set_threading(Config {
                 kind: ThreadingType::Frame,
                 count: 0,
                 safe: true,
             });
-            let codec =
-                stream.codec().decoder().audio().map_err(|e| {
-                    BlissError::DecodingError(format!("when finding codec: {:?}.", e))
-                })?;
+            let codec = context
+                .decoder()
+                .audio()
+                .map_err(|e| BlissError::DecodingError(format!("when finding codec: {:?}.", e)))?;
             // Add SAMPLE_RATE to have one second margin to avoid reallocating if
             // the duration is slightly more than estimated
             // TODO>1.0 another way to get the exact number of samples is to decode
