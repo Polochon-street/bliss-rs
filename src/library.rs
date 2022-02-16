@@ -73,9 +73,7 @@ pub trait Library {
         for (album, analysis) in albums_analysis.iter() {
             let mean_analysis = analysis
                 .mean_axis(Axis(0))
-                .ok_or_else(|| BlissError::ProviderError(String::from(
-                    "Mean of empty slice",
-                )))?;
+                .ok_or_else(|| BlissError::ProviderError(String::from("Mean of empty slice")))?;
             let album = album.to_owned();
             albums.push((album, mean_analysis.to_owned()));
             if album == first_album {
@@ -104,8 +102,14 @@ pub trait Library {
                 .map(|s| s.to_owned())
                 .collect::<Vec<Song>>();
             al.sort_by(|s1, s2| {
-                let track_number1 = s1.track_number.to_owned().unwrap_or_else(|| String::from(""));
-                let track_number2 = s2.track_number.to_owned().unwrap_or_else(|| String::from(""));
+                let track_number1 = s1
+                    .track_number
+                    .to_owned()
+                    .unwrap_or_else(|| String::from(""));
+                let track_number2 = s2
+                    .track_number
+                    .to_owned()
+                    .unwrap_or_else(|| String::from(""));
                 if let Ok(x) = track_number1.parse::<i32>() {
                     if let Ok(y) = track_number2.parse::<i32>() {
                         return x.cmp(&y);

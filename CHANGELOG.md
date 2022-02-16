@@ -1,4 +1,8 @@
-# Changelog
+#Changelog
+
+## bliss 0.4.5
+* Bump ffmpeg crate version.
+* Add an "ffmpeg-static" option.
 
 ## bliss 0.4.4
 * Make features' version public.
