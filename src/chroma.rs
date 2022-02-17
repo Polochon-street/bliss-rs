@@ -207,13 +207,13 @@ fn chroma_filter(
     wts *= &freq_bins;
 
     // np.roll(), np bro
-    let mut uninit: Vec<f64> = Vec::with_capacity((&wts).len());
+    let mut uninit: Vec<f64> = vec![0.; (&wts).len()];
     unsafe {
         uninit.set_len(wts.len());
     }
     let mut b = Array::from(uninit)
         .into_shape(wts.dim())
-        .map_err(|e| BlissError::AnalysisError(format!("in chroma: {}", e.to_string())))?;
+        .map_err(|e| BlissError::AnalysisError(format!("in chroma: {}", e)))?;
     b.slice_mut(s![-3.., ..]).assign(&wts.slice(s![..3, ..]));
     b.slice_mut(s![..-3, ..]).assign(&wts.slice(s![3.., ..]));
 
@@ -308,7 +308,7 @@ fn pitch_tuning(
     }
     let max_index = counts
         .argmax()
-        .map_err(|e| BlissError::AnalysisError(format!("in chroma: {}", e.to_string())))?;
+        .map_err(|e| BlissError::AnalysisError(format!("in chroma: {}", e)))?;
 
     // Return the bin with the most reoccuring frequency.
     Ok((-50. + (100. * resolution * max_index as f64)) / 100.)
@@ -332,7 +332,7 @@ fn estimate_tuning(
 
     let threshold: N64 = Array::from(filtered_mag.to_vec())
         .quantile_axis_mut(Axis(0), n64(0.5), &Midpoint)
-        .map_err(|e| BlissError::AnalysisError(format!("in chroma: {}", e.to_string())))?
+        .map_err(|e| BlissError::AnalysisError(format!("in chroma: {}", e)))?
         .into_scalar();
 
     let mut pitch = filtered_pitch

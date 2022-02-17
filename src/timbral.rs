@@ -126,21 +126,21 @@ impl SpectralDesc {
                 .map_err(|e| {
                     BlissError::AnalysisError(format!(
                         "error while loading aubio centroid object: {}",
-                        e.to_string()
+                        e
                     ))
                 })?,
             rolloff_aubio_desc: SpecDesc::new(SpecShape::Rolloff, SpectralDesc::WINDOW_SIZE)
                 .map_err(|e| {
                     BlissError::AnalysisError(format!(
                         "error while loading aubio rolloff object: {}",
-                        e.to_string()
+                        e
                     ))
                 })?,
             phase_vocoder: PVoc::new(SpectralDesc::WINDOW_SIZE, SpectralDesc::HOP_SIZE).map_err(
                 |e| {
                     BlissError::AnalysisError(format!(
                         "error while loading aubio pvoc object: {}",
-                        e.to_string()
+                        e
                     ))
                 },
             )?,
@@ -163,10 +163,7 @@ impl SpectralDesc {
         self.phase_vocoder
             .do_(chunk, fftgrain.as_mut_slice())
             .map_err(|e| {
-                BlissError::AnalysisError(format!(
-                    "error while processing aubio pv object: {}",
-                    e.to_string()
-                ))
+                BlissError::AnalysisError(format!("error while processing aubio pv object: {}", e))
             })?;
 
         let bin = self
@@ -175,7 +172,7 @@ impl SpectralDesc {
             .map_err(|e| {
                 BlissError::AnalysisError(format!(
                     "error while processing aubio centroid object: {}",
-                    e.to_string()
+                    e
                 ))
             })?;
 

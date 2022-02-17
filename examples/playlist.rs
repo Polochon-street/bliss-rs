@@ -1,13 +1,20 @@
+#[cfg(feature = "serde")]
 use anyhow::Result;
+#[cfg(feature = "serde")]
 use bliss_audio::distance::{closest_to_first_song, dedup_playlist, euclidean_distance};
+#[cfg(feature = "serde")]
 use bliss_audio::{library::analyze_paths_streaming, Song};
+#[cfg(feature = "serde")]
 use clap::{App, Arg};
+#[cfg(feature = "serde")]
 use glob::glob;
-use mime_guess;
-use serde_json;
+#[cfg(feature = "serde")]
 use std::env;
+#[cfg(feature = "serde")]
 use std::fs;
+#[cfg(feature = "serde")]
 use std::io::BufReader;
+#[cfg(feature = "serde")]
 use std::path::{Path, PathBuf};
 
 /* Analyzes a folder recursively, and make a playlist out of the file

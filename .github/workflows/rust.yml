@@ -34,6 +34,10 @@ jobs:
       run: cargo +nightly-2022-02-16 bench --verbose --features=bench --no-run
     - name: Build examples
       run: cargo build --examples --verbose --features=serde
+    - name: Lint
+      run: cargo clippy --examples --features=serde -- -D warnings
+    - name: Check format
+      run: cargo fmt -- --check
 
   build-test-lint-windows:
     name: Windows - build, test and lint
@@ -65,14 +69,10 @@ jobs:
           override: true
           components: rustfmt, clippy
       - name: Build
-        run: |
-          cargo build --examples
+        run: cargo build --examples
       - name: Test
-        run: |
-          cargo test --examples
+        run: cargo test --examples --features=serde
       - name: Lint
-        run: |
-          cargo clippy --examples -- -D warnings
+        run: cargo clippy --examples --features=serde -- -D warnings
       - name: Check format
-        run: |
-          cargo fmt -- --check
+        run: cargo fmt -- --check
