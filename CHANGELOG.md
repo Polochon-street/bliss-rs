@@ -1,5 +1,8 @@
 #Changelog
 
+## bliss 0.4.6
+* Bump ffmpeg crate version to allow for cross-compilation.
+
 ## bliss 0.4.5
 * Bump ffmpeg crate version.
 * Add an "ffmpeg-static" option.
