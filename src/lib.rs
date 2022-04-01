@@ -114,7 +114,7 @@ pub type BlissResult<T> = Result<T, BlissError>;
 /// When making an extension for an audio player, prefer
 /// implementing the `Library` trait.
 #[doc(hidden)]
-pub fn bulk_analyse(paths: Vec<String>) -> Vec<BlissResult<Song>> {
+pub fn bulk_analyze(paths: Vec<String>) -> Vec<BlissResult<Song>> {
     let mut songs = Vec::with_capacity(paths.len());
     let num_cpus = num_cpus::get();
 
@@ -161,8 +161,8 @@ mod tests {
     }
 
     #[test]
-    fn test_bulk_analyse() {
-        let results = bulk_analyse(vec![
+    fn test_bulk_analyze() {
+        let results = bulk_analyze(vec![
             String::from("data/s16_mono_22_5kHz.flac"),
             String::from("data/s16_mono_22_5kHz.flac"),
             String::from("nonexistent"),
@@ -181,7 +181,7 @@ mod tests {
             .collect();
         errored_songs.sort_by(|a, b| a.cmp(b));
 
-        let mut analysed_songs: Vec<String> = results
+        let mut analyzed_songs: Vec<String> = results
             .iter()
             .filter_map(|x| {
                 x.as_ref()
@@ -189,7 +189,7 @@ mod tests {
                     .map(|x| x.path.to_str().unwrap().to_string())
             })
             .collect();
-        analysed_songs.sort_by(|a, b| a.cmp(b));
+        analyzed_songs.sort_by(|a, b| a.cmp(b));
 
         assert_eq!(
             vec![
@@ -206,7 +206,7 @@ mod tests {
                 String::from("data/s16_mono_22_5kHz.flac"),
                 String::from("data/s16_stereo_22_5kHz.flac"),
             ],
-            analysed_songs,
+            analyzed_songs,
         );
     }
 }

@@ -2,7 +2,7 @@
 [![build](https://github.com/Polochon-street/bliss-rs/workflows/Rust/badge.svg)](https://github.com/Polochon-street/bliss-rs/actions)
 [![doc](https://docs.rs/bliss-audio/badge.svg)](https://docs.rs/bliss-audio/)
 
-# bliss music analyser - Rust version
+# bliss music analyzer - Rust version
 bliss-rs is the Rust improvement of [bliss](https://github.com/Polochon-street/bliss), a
 library used to make playlists by analyzing songs, and computing distance between them.
 
@@ -24,7 +24,7 @@ different, more accurate values, based on
 
 ## Examples
 For simple analysis / distance computing, take a look at `examples/distance.rs` and
-`examples/analyse.rs`.
+`examples/analyze.rs`.
 
 If you simply want to try out making playlists from a folder containing songs,
 [this example](https://github.com/Polochon-street/bliss-rs/blob/master/examples/playlist.rs)

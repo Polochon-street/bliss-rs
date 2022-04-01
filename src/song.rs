@@ -254,13 +254,13 @@ impl Song {
             album: raw_song.album,
             track_number: raw_song.track_number,
             genre: raw_song.genre,
-            analysis: Song::analyse(raw_song.sample_array)?,
+            analysis: Song::analyze(raw_song.sample_array)?,
             features_version: FEATURES_VERSION,
         })
     }
 
     /**
-     * Analyse a song decoded in `sample_array`, with one channel @ 22050 Hz.
+     * Analyze a song decoded in `sample_array`, with one channel @ 22050 Hz.
      *
      * The current implementation doesn't make use of it,
      * but the song can also be streamed wrt.
@@ -270,7 +270,7 @@ impl Song {
      * Useful in the rare cases where the full song is not
      * completely available.
      **/
-    fn analyse(sample_array: Vec<f32>) -> BlissResult<Analysis> {
+    fn analyze(sample_array: Vec<f32>) -> BlissResult<Analysis> {
         let largest_window = vec![
             BPMDesc::WINDOW_SIZE,
             ChromaDesc::WINDOW_SIZE,
@@ -625,13 +625,13 @@ mod tests {
 
     #[test]
     fn test_analysis_too_small() {
-        let error = Song::analyse(vec![0.]).unwrap_err();
+        let error = Song::analyze(vec![0.]).unwrap_err();
         assert_eq!(
             error,
             BlissError::AnalysisError(String::from("empty or too short song."))
         );
 
-        let error = Song::analyse(vec![]).unwrap_err();
+        let error = Song::analyze(vec![]).unwrap_err();
         assert_eq!(
             error,
             BlissError::AnalysisError(String::from("empty or too short song."))
@@ -639,7 +639,7 @@ mod tests {
     }
 
     #[test]
-    fn test_analyse() {
+    fn test_analyze() {
         let song = Song::new(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let expected_analysis = vec![
             0.3846389,
