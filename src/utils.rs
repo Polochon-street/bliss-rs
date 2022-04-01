@@ -101,8 +101,7 @@ pub(crate) fn geometric_mean(input: &[f32]) -> f32 {
     let mut exponents: i32 = 0;
     let mut mantissas: f64 = 1.;
     for ch in input.chunks_exact(8) {
-        let mut m;
-        m = (ch[0] as f64 * ch[1] as f64) * (ch[2] as f64 * ch[3] as f64);
+        let mut m = (ch[0] as f64 * ch[1] as f64) * (ch[2] as f64 * ch[3] as f64);
         m *= 3.273390607896142e150; // 2^500 : avoid underflows and denormals
         m *= (ch[4] as f64 * ch[5] as f64) * (ch[6] as f64 * ch[7] as f64);
         if m == 0. {

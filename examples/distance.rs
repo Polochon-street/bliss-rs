@@ -4,7 +4,7 @@ use std::env;
 /**
  * Simple utility to print distance between two songs according to bliss.
  *
- * Takes two file paths, and analyse the corresponding songs, printing
+ * Takes two file paths, and analyze the corresponding songs, printing
  * the distance between the two files according to bliss.
  */
 fn main() -> Result<(), String> {
