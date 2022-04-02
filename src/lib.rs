@@ -5,7 +5,7 @@
 //! The core of the library is the `Song` object, which relates to a
 //! specific analyzed song and contains its path, title, analysis, and
 //! other metadata fields (album, genre...).
-//! Analyzing a song is as simple as running `Song::new("/path/to/song")`.
+//! Analyzing a song is as simple as running `Song::from_path("/path/to/song")`.
 //!
 //! The [analysis](Song::analysis) field of each song is an array of f32, which makes the
 //! comparison between songs easy, by just using euclidean distance (see
@@ -27,8 +27,8 @@
 //! use bliss_audio::{BlissResult, Song};
 //!
 //! fn main() -> BlissResult<()> {
-//!     let song1 = Song::new("/path/to/song1")?;
-//!     let song2 = Song::new("/path/to/song2")?;
+//!     let song1 = Song::from_path("/path/to/song1")?;
+//!     let song2 = Song::from_path("/path/to/song2")?;
 //!
 //!     println!("Distance between song1 and song2 is {}", song1.distance(&song2));
 //!     Ok(())
@@ -44,7 +44,7 @@
 //!     let paths = vec!["/path/to/song1", "/path/to/song2", "/path/to/song3"];
 //!     let mut songs: Vec<Song> = paths
 //!         .iter()
-//!         .map(|path| Song::new(path))
+//!         .map(|path| Song::from_path(path))
 //!         .collect::<BlissResult<Vec<Song>>>()?;
 //!
 //!     // Assuming there is a first song
@@ -128,7 +128,7 @@ pub fn bulk_analyze(paths: Vec<String>) -> Vec<BlissResult<Song>> {
             handles.push(s.spawn(move |_| {
                 let mut result = Vec::with_capacity(chunk.len());
                 for path in chunk {
-                    let song = Song::new(&path);
+                    let song = Song::from_path(&path);
                     result.push(song);
                 }
                 result

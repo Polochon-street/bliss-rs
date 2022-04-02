@@ -73,7 +73,7 @@ fn main() -> Result<()> {
             .map(|p| p.to_owned())
             .collect(),
     )?;
-    let first_song = Song::new(file)?;
+    let first_song = Song::from_path(file)?;
     let mut analyzed_songs = vec![first_song.to_owned()];
     for (path, result) in rx.iter() {
         match result {

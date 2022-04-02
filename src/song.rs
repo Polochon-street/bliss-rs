@@ -75,7 +75,7 @@ pub struct Song {
 /// use bliss_audio::{AnalysisIndex, BlissResult, Song};
 ///
 /// fn main() -> BlissResult<()> {
-///     let song = Song::new("path/to/song")?;
+///     let song = Song::from_path("path/to/song")?;
 ///     println!("{}", song.analysis[AnalysisIndex::Tempo]);
 ///     Ok(())
 /// }
@@ -228,12 +228,12 @@ impl Song {
         self.analysis.custom_distance(&other.analysis, distance)
     }
 
-    /// Returns a decoded Song given a file path, or an error if the song
+    /// Returns a decoded [Song] given a file path, or an error if the song
     /// could not be analyzed for some reason.
     ///
     /// # Arguments
     ///
-    /// * `path` - A string holding a valid file path to a valid audio file.
+    /// * `path` - A [Path] holding a valid file path to a valid audio file.
     ///
     /// # Errors
     ///
@@ -244,7 +244,7 @@ impl Song {
     /// The error type returned should give a hint as to whether it was a
     /// decoding ([DecodingError](BlissError::DecodingError)) or an analysis
     /// ([AnalysisError](BlissError::AnalysisError)) error.
-    pub fn new<P: AsRef<Path>>(path: P) -> BlissResult<Self> {
+    pub fn from_path<P: AsRef<Path>>(path: P) -> BlissResult<Self> {
         let raw_song = Song::decode(path.as_ref())?;
 
         Ok(Song {
@@ -640,7 +640,7 @@ mod tests {
 
     #[test]
     fn test_analyze() {
-        let song = Song::new(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
+        let song = Song::from_path(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let expected_analysis = vec![
             0.3846389,
             -0.849141,
@@ -820,14 +820,14 @@ mod tests {
 
     #[test]
     fn test_index_analysis() {
-        let song = Song::new("data/s16_mono_22_5kHz.flac").unwrap();
+        let song = Song::from_path("data/s16_mono_22_5kHz.flac").unwrap();
         assert_eq!(song.analysis[AnalysisIndex::Tempo], 0.3846389);
         assert_eq!(song.analysis[AnalysisIndex::Chroma10], -0.95968974);
     }
 
     #[test]
     fn test_debug_analysis() {
-        let song = Song::new("data/s16_mono_22_5kHz.flac").unwrap();
+        let song = Song::from_path("data/s16_mono_22_5kHz.flac").unwrap();
         assert_eq!(
             "Analysis { Tempo: 0.3846389, Zcr: -0.849141, MeanSpectralCentroid: \
             -0.75481045, StdDeviationSpectralCentroid: -0.8790748, MeanSpectralR\

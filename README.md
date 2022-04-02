@@ -48,8 +48,8 @@ Ready to use code examples:
 use bliss_audio::{BlissError, Song};
 
 fn main() -> Result<(), BlissError> {
-    let song1 = Song::new("/path/to/song1")?;
-    let song2 = Song::new("/path/to/song2")?;
+    let song1 = Song::from_path("/path/to/song1")?;
+    let song2 = Song::from_path("/path/to/song2")?;
         
     println!("Distance between song1 and song2 is {}", song1.distance(&song2));
     Ok(())
@@ -65,7 +65,7 @@ fn main() -> Result<(), BlissError> {
     let paths = vec!["/path/to/song1", "/path/to/song2", "/path/to/song3"];
     let mut songs: Vec<Song> = paths
         .iter()
-        .map(|path| Song::new(path))
+        .map(|path| Song::from_path(path))
         .collect::<Result<Vec<Song>, BlissError>>()?;
 
     // Assuming there is a first song
