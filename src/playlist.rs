@@ -1,19 +1,17 @@
-//! Module containing various distance metric functions.
+//! Module containing various functions to build playlists, as well as various
+//! distance metrics.
 //!
-//! All of these functions are intended to be used with the
+//! All of the distance functions are intended to be used with the
 //! [custom_distance](Song::custom_distance) method, or with
-//! [playlist_from_songs_custom_distance](Library::playlist_from_song_custom_distance).
 //!
 //! They will yield different styles of playlists, so don't hesitate to
 //! experiment with them if the default (euclidean distance for now) doesn't
 //! suit you.
-#[cfg(doc)]
-use crate::Library;
-use crate::Song;
-use crate::NUMBER_FEATURES;
-use ndarray::{Array, Array1};
+use crate::{BlissError, BlissResult, Song, NUMBER_FEATURES};
+use ndarray::{Array, Array1, Array2, Axis};
 use ndarray_stats::QuantileExt;
 use noisy_float::prelude::*;
+use std::collections::HashMap;
 
 /// Convenience trait for user-defined distance metrics.
 pub trait DistanceMetric: Fn(&Array1<f32>, &Array1<f32>) -> f32 {}
@@ -115,6 +113,92 @@ pub fn dedup_playlist_custom_distance(
                 && s1.title == s2.title
                 && s1.artist == s2.artist)
     });
+}
+
+/// Return a list of albums in a `pool` of songs that are similar to
+/// songs in `group`, discarding songs that don't belong to an album.
+/// It basically makes an "album" playlist from the `pool` of songs.
+///
+/// Songs from `group` would usually just be songs from an album, but not
+/// necessarily - they are discarded from `pool` no matter what.
+///
+/// # Arguments
+///
+/// * `group` - A small group of songs, e.g. an album.
+/// * `pool` - A pool of songs to find similar songs in, e.g. a user's song
+/// library.
+///
+/// # Returns
+///
+/// A vector of songs, including `group` at the beginning, that you
+/// most likely want to plug in your audio player by using something like
+/// `ret.map(|song| song.path.to_owned()).collect::<Vec<String>>()`.
+pub fn closest_album_to_group(group: Vec<Song>, pool: Vec<Song>) -> BlissResult<Vec<Song>> {
+    let mut albums_analysis: HashMap<&str, Array2<f32>> = HashMap::new();
+    let mut albums = Vec::new();
+
+    // Remove songs from the group from the pool.
+    let pool = pool
+        .into_iter()
+        .filter(|s| !group.contains(s))
+        .collect::<Vec<_>>();
+    for song in &pool {
+        if let Some(album) = &song.album {
+            if let Some(analysis) = albums_analysis.get_mut(album as &str) {
+                analysis
+                    .push_row(song.analysis.as_arr1().view())
+                    .map_err(|e| {
+                        BlissError::ProviderError(format!("while computing distances: {}", e))
+                    })?;
+            } else {
+                let mut array = Array::zeros((1, song.analysis.as_arr1().len()));
+                array.assign(&song.analysis.as_arr1());
+                albums_analysis.insert(album, array);
+            }
+        }
+    }
+    let mut group_analysis = Array::zeros((group.len(), NUMBER_FEATURES));
+    for (song, mut column) in group.iter().zip(group_analysis.axis_iter_mut(Axis(0))) {
+        column.assign(&song.analysis.as_arr1());
+    }
+    let first_analysis = group_analysis
+        .mean_axis(Axis(0))
+        .ok_or_else(|| BlissError::ProviderError(String::from("Mean of empty slice")))?;
+    for (album, analysis) in albums_analysis.iter() {
+        let mean_analysis = analysis
+            .mean_axis(Axis(0))
+            .ok_or_else(|| BlissError::ProviderError(String::from("Mean of empty slice")))?;
+        let album = album.to_owned();
+        albums.push((album, mean_analysis.to_owned()));
+    }
+
+    albums.sort_by_key(|(_, analysis)| n32(euclidean_distance(&first_analysis, analysis)));
+    let mut playlist = group;
+    for (album, _) in albums {
+        let mut al = pool
+            .iter()
+            .filter(|s| s.album.is_some() && s.album.as_ref().unwrap() == &album.to_string())
+            .map(|s| s.to_owned())
+            .collect::<Vec<Song>>();
+        al.sort_by(|s1, s2| {
+            let track_number1 = s1
+                .track_number
+                .to_owned()
+                .unwrap_or_else(|| String::from(""));
+            let track_number2 = s2
+                .track_number
+                .to_owned()
+                .unwrap_or_else(|| String::from(""));
+            if let Ok(x) = track_number1.parse::<i32>() {
+                if let Ok(y) = track_number2.parse::<i32>() {
+                    return x.cmp(&y);
+                }
+            }
+            s1.track_number.cmp(&s2.track_number)
+        });
+        playlist.extend_from_slice(&al);
+    }
+    Ok(playlist)
 }
 
 #[cfg(test)]
@@ -227,7 +311,7 @@ mod test {
             vec![
                 first_song.to_owned(),
                 second_song.to_owned(),
-                fourth_song.to_owned()
+                fourth_song.to_owned(),
             ]
         );
     }
@@ -388,5 +472,69 @@ mod test {
         let b = arr1(&[0.5; 20]);
         assert_eq!(cosine_distance(&a, &b), 0.);
         assert_eq!(cosine_distance(&a, &b), 0.);
+    }
+
+    #[test]
+    fn test_closest_to_group() {
+        let first_song = Song {
+            path: Path::new("path-to-first").to_path_buf(),
+            analysis: Analysis::new([0.; 20]),
+            album: Some(String::from("Album")),
+            artist: Some(String::from("Artist")),
+            track_number: Some(String::from("01")),
+            ..Default::default()
+        };
+
+        let second_song = Song {
+            path: Path::new("path-to-second").to_path_buf(),
+            analysis: Analysis::new([0.1; 20]),
+            album: Some(String::from("Another Album")),
+            artist: Some(String::from("Artist")),
+            track_number: Some(String::from("10")),
+            ..Default::default()
+        };
+
+        let third_song = Song {
+            path: Path::new("path-to-third").to_path_buf(),
+            analysis: Analysis::new([10.; 20]),
+            album: Some(String::from("Album")),
+            artist: Some(String::from("Another Artist")),
+            track_number: Some(String::from("02")),
+            ..Default::default()
+        };
+
+        let fourth_song = Song {
+            path: Path::new("path-to-fourth").to_path_buf(),
+            analysis: Analysis::new([20.; 20]),
+            album: Some(String::from("Another Album")),
+            artist: Some(String::from("Another Artist")),
+            track_number: Some(String::from("01")),
+            ..Default::default()
+        };
+        let fifth_song = Song {
+            path: Path::new("path-to-fifth").to_path_buf(),
+            analysis: Analysis::new([40.; 20]),
+            artist: Some(String::from("Third Artist")),
+            album: None,
+            ..Default::default()
+        };
+
+        let pool = vec![
+            first_song.to_owned(),
+            fourth_song.to_owned(),
+            third_song.to_owned(),
+            second_song.to_owned(),
+            fifth_song.to_owned(),
+        ];
+        let group = vec![first_song.to_owned(), third_song.to_owned()];
+        assert_eq!(
+            vec![
+                first_song.to_owned(),
+                third_song.to_owned(),
+                fourth_song.to_owned(),
+                second_song.to_owned()
+            ],
+            closest_album_to_group(group, pool.to_owned()).unwrap(),
+        );
     }
 }

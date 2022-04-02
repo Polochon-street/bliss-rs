@@ -1,6 +1,9 @@
 #Changelog
 
 ## bliss 0.5.0
+* Remove the unusued Library trait, and extract a few useful functions from
+  there (`analyze_paths`, `closest_to_album_group`.
+* Rename `distance` module to `playlist`.
 * Remove all traces of the "analyse" word vs "analyze" to make the codebase
   more coherent.
 * Rename `Song::new` to `Song::from_path`.

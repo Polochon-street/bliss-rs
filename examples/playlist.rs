@@ -1,9 +1,9 @@
 #[cfg(feature = "serde")]
 use anyhow::Result;
 #[cfg(feature = "serde")]
-use bliss_audio::distance::{closest_to_first_song, dedup_playlist, euclidean_distance};
+use bliss_audio::playlist::{closest_to_first_song, dedup_playlist, euclidean_distance};
 #[cfg(feature = "serde")]
-use bliss_audio::{library::analyze_paths_streaming, Song};
+use bliss_audio::{analyze_paths, Song};
 #[cfg(feature = "serde")]
 use clap::{App, Arg};
 #[cfg(feature = "serde")]
@@ -66,16 +66,16 @@ fn main() -> Result<()> {
         .map(|x| x.to_string_lossy().to_string())
         .collect::<Vec<String>>();
 
-    let rx = analyze_paths_streaming(
+    let song_iterator = analyze_paths(
         paths
             .iter()
             .filter(|p| !analyzed_paths.contains(&PathBuf::from(p)))
             .map(|p| p.to_owned())
             .collect(),
-    )?;
+    );
     let first_song = Song::from_path(file)?;
     let mut analyzed_songs = vec![first_song.to_owned()];
-    for (path, result) in rx.iter() {
+    for (path, result) in song_iterator {
         match result {
             Ok(song) => analyzed_songs.push(song),
             Err(e) => println!("error analyzing {}: {}", path, e),
