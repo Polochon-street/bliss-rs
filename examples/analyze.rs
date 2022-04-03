@@ -9,7 +9,7 @@ use std::env;
 fn main() {
     let args: Vec<String> = env::args().skip(1).collect();
     for path in &args {
-        match Song::new(&path) {
+        match Song::from_path(&path) {
             Ok(song) => println!("{}: {:?}", path, song.analysis),
             Err(e) => println!("{}: {}", path, e),
         }

@@ -3,6 +3,7 @@
 ## bliss 0.5.0
 * Remove all traces of the "analyse" word vs "analyze" to make the codebase
   more coherent.
+* Rename `Song::new` to `Song::from_path`.
 
 ## bliss 0.4.6
 * Bump ffmpeg crate version to allow for cross-compilation.

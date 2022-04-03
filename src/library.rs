@@ -221,8 +221,8 @@ pub trait Library {
     /// * `distance` - a user-supplied valid distance metric, either taken
     ///    from the [distance](distance) module, or made from scratch.
     /// * `sort` - a user-supplied sorting function that uses the `distance`
-    ///    metric, either taken from the [distance](module), or made from
-    ///    scratch.
+    ///    metric, either taken from the [distance module](distance), or made
+    ///    from scratch.
     ///
     /// # Returns
     ///
@@ -276,7 +276,7 @@ pub trait Library {
             let child = thread::spawn(move || {
                 for path in owned_chunk {
                     info!("Analyzing file '{}'", path);
-                    let song = Song::new(&path);
+                    let song = Song::from_path(&path);
                     tx_thread.send((path.to_string(), song)).unwrap();
                 }
                 drop(tx_thread);
@@ -395,7 +395,7 @@ pub fn analyze_paths_streaming(
         let child = thread::spawn(move || {
             for path in owned_chunk {
                 info!("Analyzing file '{}'", path);
-                let song = Song::new(&path);
+                let song = Song::from_path(&path);
                 tx_thread.send((path.to_string(), song)).unwrap();
             }
         });
