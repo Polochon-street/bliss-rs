@@ -13,8 +13,10 @@ extern crate ndarray;
 extern crate ndarray_npy;
 
 use crate::chroma::ChromaDesc;
-use crate::distance::{euclidean_distance, DistanceMetric};
 use crate::misc::LoudnessDesc;
+#[cfg(doc)]
+use crate::playlist;
+use crate::playlist::{closest_to_first_song, dedup_playlist, euclidean_distance, DistanceMetric};
 use crate::temporal::BPMDesc;
 use crate::timbral::{SpectralDesc, ZeroCrossingRateDesc};
 use crate::{BlissError, BlissResult, SAMPLE_RATE};
@@ -226,6 +228,44 @@ impl Song {
     /// properties, so don't sweat it too much.
     pub fn custom_distance(&self, other: &Self, distance: impl DistanceMetric) -> f32 {
         self.analysis.custom_distance(&other.analysis, distance)
+    }
+
+    /// Orders songs in `pool` by proximity to `self`, using the distance
+    /// metric `distance` to compute the order.
+    /// Basically return a playlist from songs in `pool`, starting
+    /// from `self`, using `distance` (some distance metrics can
+    /// be found in the [playlist] module).
+    ///
+    /// Note that contrary to [Song::closest_from_pool], `self` is NOT added
+    /// to the beginning of the returned vector.
+    ///
+    /// No deduplication is ran either; if you're looking for something easy
+    /// that works "out of the box", use [Song::closest_from_pool].
+    pub fn closest_from_pool_custom(
+        &self,
+        pool: Vec<Self>,
+        distance: impl DistanceMetric,
+    ) -> Vec<Self> {
+        let mut pool = pool;
+        closest_to_first_song(self, &mut pool, distance);
+        pool
+    }
+
+    /// Order songs in `pool` by proximity to `self`.
+    /// Convenience method to return a playlist from songs in `pool`,
+    /// starting from `self`.
+    ///
+    /// The distance is already chosen, deduplication is ran, and the first song
+    /// is added to the top of the playlist, to make everything easier.
+    ///
+    /// If you want more control over which distance metric is chosen,
+    /// run deduplication manually, etc, use [Song::closest_from_pool_custom].
+    pub fn closest_from_pool(&self, pool: Vec<Self>) -> Vec<Self> {
+        let mut playlist = vec![self.to_owned()];
+        playlist.extend_from_slice(&pool);
+        closest_to_first_song(self, &mut playlist, euclidean_distance);
+        dedup_playlist(&mut playlist, None);
+        playlist
     }
 
     /// Returns a decoded [Song] given a file path, or an error if the song
@@ -848,6 +888,7 @@ mod tests {
     fn dummy_distance(_: &Array1<f32>, _: &Array1<f32>) -> f32 {
         0.
     }
+
     #[test]
     fn test_custom_distance() {
         let mut a = Song::default();
@@ -864,6 +905,84 @@ mod tests {
             0.54437275, 0.22076826, 0.91232151, 0.29233168, 0.32846024, 0.04522147,
         ]);
         assert_eq!(a.custom_distance(&b, dummy_distance), 0.);
+    }
+
+    #[test]
+    fn test_closest_from_pool() {
+        let song = Song {
+            path: Path::new("path-to-first").to_path_buf(),
+            analysis: Analysis::new([
+                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let first_song_dupe = Song {
+            path: Path::new("path-to-dupe").to_path_buf(),
+            analysis: Analysis::new([
+                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+
+        let second_song = Song {
+            path: Path::new("path-to-second").to_path_buf(),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let third_song = Song {
+            path: Path::new("path-to-third").to_path_buf(),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let fourth_song = Song {
+            path: Path::new("path-to-fourth").to_path_buf(),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let fifth_song = Song {
+            path: Path::new("path-to-fifth").to_path_buf(),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+
+        let songs = vec![
+            song.to_owned(),
+            first_song_dupe.to_owned(),
+            second_song.to_owned(),
+            third_song.to_owned(),
+            fourth_song.to_owned(),
+            fifth_song.to_owned(),
+        ];
+        let playlist = song.closest_from_pool(songs.to_owned());
+        assert_eq!(
+            playlist,
+            vec![
+                song.to_owned(),
+                second_song.to_owned(),
+                fourth_song.to_owned(),
+                third_song.to_owned(),
+            ],
+        );
+        let playlist = song.closest_from_pool_custom(songs, euclidean_distance);
+        assert_eq!(
+            playlist,
+            vec![
+                song,
+                first_song_dupe,
+                second_song,
+                fourth_song,
+                fifth_song,
+                third_song
+            ],
+        );
     }
 }
 
