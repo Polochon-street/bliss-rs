@@ -24,6 +24,10 @@ use crate::{CHANNELS, FEATURES_VERSION};
 use ::log::warn;
 use core::ops::Index;
 use crossbeam::thread;
+#[cfg(feature = "cue")]
+use cue::cd::CD;
+#[cfg(feature = "cue")]
+use cue::cd_text::PTI;
 use ffmpeg_next::codec::threading::{Config, Type as ThreadingType};
 use ffmpeg_next::util;
 use ffmpeg_next::util::channel_layout::ChannelLayout;
@@ -34,6 +38,8 @@ use ffmpeg_next::util::frame::audio::Audio;
 use ffmpeg_next::util::log;
 use ffmpeg_next::util::log::level::Level;
 use ndarray::{arr1, Array1};
+#[cfg(feature = "cue")]
+use std::collections::HashMap;
 use std::convert::TryInto;
 use std::fmt;
 use std::path::Path;
@@ -268,7 +274,7 @@ impl Song {
         playlist
     }
 
-    /// Returns a decoded [Song] given a file path, or an error if the song
+    /// Return a decoded [Song] given a file path, or an error if the song
     /// could not be analyzed for some reason.
     ///
     /// # Arguments
@@ -297,6 +303,89 @@ impl Song {
             analysis: Song::analyze(raw_song.sample_array)?,
             features_version: FEATURES_VERSION,
         })
+    }
+
+    #[cfg(feature = "cue")]
+    /// Return a list of [Song]s that are listed in a CUE sheet, decoding the
+    /// tracks found in the corresponding audio file.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - A [Path] holding a valid file path to a proper CUE sheet.
+    ///
+    /// # Returns
+    ///
+    /// Return a list of songs, with populated tags and paths formatted like
+    /// `path_to_audio_file.flac/CUE_TRACK001`.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error directly if reading the CUE sheet
+    /// did not work for any reason, as well as individual errors if they
+    /// happen for specific tracks.
+    pub fn from_cue<P: AsRef<Path>>(cue_path: P) -> BlissResult<Vec<BlissResult<Self>>> {
+        let cd = CD::parse_file(cue_path.as_ref().to_path_buf()).map_err(|e| {
+            BlissError::DecodingError(format!("could not parse CUE file: {:?}.", e))
+        })?;
+
+        // Apparently one CUE file can have several filepaths.
+        let mut tracks = cd.tracks();
+        tracks.sort_by_key(|s| s.get_filename());
+        tracks.dedup_by_key(|s| s.get_filename());
+
+        // Hold a HashMap like
+        // {"path/to/file1": sample_array1, "path/to/file2": sample_array2}
+        let mut raw_whole_albums = HashMap::new();
+        for path in tracks.iter().map(|s| s.get_filename()) {
+            let path = match cue_path.as_ref().parent() {
+                Some(parent) => format!("{}/{}", parent.to_string_lossy(), path),
+                None => path,
+            };
+            raw_whole_albums.insert(path.to_owned(), Song::decode(&PathBuf::from(path))?);
+        }
+
+        let mut songs = Vec::new();
+        for (index, track) in cd.tracks().iter().enumerate() {
+            let path = match cue_path.as_ref().parent() {
+                Some(parent) => format!("{}/{}", parent.to_string_lossy(), track.get_filename()),
+                None => track.get_filename(),
+            };
+            let whole_sample_array = &raw_whole_albums[&path].sample_array;
+            // Start time, in seconds
+            let start = track.get_start() as f32 / 75.;
+            // End time, in seconds
+            let end = start + track.get_length() as f32 / 75.;
+
+            // If track.get_length() is -1, then it means it's the last song,
+            // so act accordingly.
+            let analysis = if end > start {
+                Song::analyze(
+                    whole_sample_array[(start * SAMPLE_RATE as f32) as usize
+                        ..(end * SAMPLE_RATE as f32) as usize]
+                        .to_vec(),
+                )
+            } else {
+                Song::analyze(whole_sample_array[(start * SAMPLE_RATE as f32) as usize..].to_vec())
+            };
+            let cd_text = track.get_cdtext();
+            let song = if let Ok(a) = analysis {
+                Ok(Song {
+                    path: PathBuf::from(format!("{}/CUE_TRACK{:03}", path, index + 1)),
+                    artist: cd_text.read(PTI::Performer),
+                    title: cd_text.read(PTI::Title),
+                    album: cd.get_cdtext().read(PTI::Title),
+                    genre: cd.get_cdtext().read(PTI::Genre),
+                    analysis: a,
+                    features_version: FEATURES_VERSION,
+                    track_number: Some(format!("{:02}", index + 1)),
+                })
+            } else {
+                Err(analysis.unwrap_err())
+            };
+            songs.push(song);
+        }
+
+        Ok(songs)
     }
 
     /**
@@ -662,6 +751,117 @@ mod tests {
     use super::*;
     use ripemd160::{Digest, Ripemd160};
     use std::path::Path;
+
+    #[test]
+    #[cfg(feature = "cue")]
+    fn test_cue_analysis() {
+        let songs = Song::from_cue(Path::new("data/testcue.cue")).unwrap();
+        let expected = vec![
+            Ok(Song {
+                path: Path::new("data/testcue.wav/CUE_TRACK001").to_path_buf(),
+                analysis: Analysis {
+                    internal_analysis: [
+                        0.38463724,
+                        -0.85219246,
+                        -0.761946,
+                        -0.8904667,
+                        -0.63892543,
+                        -0.73945934,
+                        -0.8004017,
+                        -0.8237293,
+                        0.33865356,
+                        0.32481194,
+                        -0.35692245,
+                        -0.6355889,
+                        -0.29584837,
+                        0.06431806,
+                        0.21875131,
+                        -0.58104205,
+                        -0.9466792,
+                        -0.94811195,
+                        -0.9820919,
+                        -0.9596871,
+                    ],
+                },
+                album: Some(String::from("Album for CUE test")),
+                artist: Some(String::from("David TMX")),
+                title: Some(String::from("Renaissance")),
+                genre: Some(String::from("Random")),
+                track_number: Some(String::from("01")),
+                features_version: FEATURES_VERSION,
+                ..Default::default()
+            }),
+            Ok(Song {
+                path: Path::new("data/testcue.wav/CUE_TRACK002").to_path_buf(),
+                analysis: Analysis {
+                    internal_analysis: [
+                        0.18622077,
+                        -0.5989029,
+                        -0.5554645,
+                        -0.6343865,
+                        -0.24163479,
+                        -0.25766593,
+                        -0.40616858,
+                        -0.23334873,
+                        0.76875293,
+                        0.7785741,
+                        -0.5075115,
+                        -0.5272629,
+                        -0.56706166,
+                        -0.568486,
+                        -0.5639081,
+                        -0.5706943,
+                        -0.96501005,
+                        -0.96501285,
+                        -0.9649896,
+                        -0.96498996,
+                    ],
+                },
+                features_version: FEATURES_VERSION,
+                album: Some(String::from("Album for CUE test")),
+                artist: Some(String::from("Polochon_street")),
+                title: Some(String::from("Piano")),
+                genre: Some(String::from("Random")),
+                track_number: Some(String::from("02")),
+                ..Default::default()
+            }),
+            Ok(Song {
+                path: Path::new("data/testcue.wav/CUE_TRACK003").to_path_buf(),
+                analysis: Analysis {
+                    internal_analysis: [
+                        0.0024261475,
+                        0.9874661,
+                        0.97330654,
+                        -0.9724426,
+                        0.99678576,
+                        -0.9961549,
+                        -0.9840142,
+                        -0.9269961,
+                        0.7498772,
+                        0.22429907,
+                        -0.8355152,
+                        -0.9977258,
+                        -0.9977849,
+                        -0.997785,
+                        -0.99778515,
+                        -0.997785,
+                        -0.99999976,
+                        -0.99999976,
+                        -0.99999976,
+                        -0.99999976,
+                    ],
+                },
+                album: Some(String::from("Album for CUE test")),
+                artist: Some(String::from("Polochon_street")),
+                title: Some(String::from("Tone")),
+                genre: Some(String::from("Random")),
+                track_number: Some(String::from("03")),
+                features_version: FEATURES_VERSION,
+                ..Default::default()
+            }),
+        ];
+        assert_eq!(expected, songs);
+    }
 
     #[test]
     fn test_analysis_too_small() {

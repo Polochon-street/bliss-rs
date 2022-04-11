@@ -15,7 +15,7 @@ features = ["bliss-audio-aubio-rs/rustdoc"]
 no-default-features = true
 
 [features]
-default = ["bliss-audio-aubio-rs/static"]
+default = ["bliss-audio-aubio-rs/static", "cue"]
 # Build ffmpeg instead of using the host's.
 build-ffmpeg = ["ffmpeg-next/build"]
 ffmpeg-static = ["ffmpeg-next/static"]
@@ -45,6 +45,7 @@ bliss-audio-aubio-rs = "0.2.0"
 strum = "0.21"
 strum_macros = "0.21"
 serde = { version = "1.0", optional = true, features = ["derive"] }
+cue = { version = "1.0.1", optional = true }
 
 [dev-dependencies]
 mime_guess = "2.0.3"

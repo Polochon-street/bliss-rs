@@ -1,9 +1,11 @@
 #Changelog
 
 ## bliss 0.5.0
+* Add support for CUE files.
 * Fix a bug in `estimate_tuning` that led to empty chroma errors.
-* Remove the unusued Library trait, and extract a few useful functions from
-  there (`analyze_paths`, `closest_to_album_group`.
+* Remove the Library trait, which was too convoluted, and extract a few useful
+  functions from there into different modules
+  (`analyze_paths` to `lib.rs`, `closest_to_album_group` to `playlist.rs`).
 * Rename `distance` module to `playlist`.
 * Remove all traces of the "analyse" word vs "analyze" to make the codebase
   more coherent.
