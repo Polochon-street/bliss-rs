@@ -24,6 +24,8 @@ jobs:
         override: false
     - name: Packages
       run: sudo apt-get update && sudo apt-get install build-essential yasm libavutil-dev libavcodec-dev libavformat-dev libavfilter-dev libavfilter-dev libavdevice-dev libswresample-dev libfftw3-dev ffmpeg
+    - name: Check format
+      run: cargo fmt -- --check
     - name: Build
       run: cargo build --verbose
     - name: Run tests
@@ -36,8 +38,6 @@ jobs:
       run: cargo build --examples --verbose --features=serde
     - name: Lint
       run: cargo clippy --examples --features=serde -- -D warnings
-    - name: Check format
-      run: cargo fmt -- --check
 
   build-test-lint-windows:
     name: Windows - build, test and lint

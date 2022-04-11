@@ -83,7 +83,7 @@ fn main() -> Result<()> {
     }
     analyzed_songs.extend_from_slice(&songs);
     let serialized = serde_json::to_string(&analyzed_songs).unwrap();
-    let mut songs_to_chose_from = analyzed_songs
+    let mut songs_to_chose_from: Vec<_> = analyzed_songs
         .into_iter()
         .filter(|x| x == &first_song || paths.contains(&x.path.to_string_lossy().to_string()))
         .collect();

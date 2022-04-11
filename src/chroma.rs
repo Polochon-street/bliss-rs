@@ -330,11 +330,14 @@ fn estimate_tuning(
         .map(|(x, y)| (n64(*x), n64(*y)))
         .unzip();
 
+    if pitch.is_empty() {
+        return Ok(0.);
+    }
+
     let threshold: N64 = Array::from(filtered_mag.to_vec())
         .quantile_axis_mut(Axis(0), n64(0.5), &Midpoint)
         .map_err(|e| BlissError::AnalysisError(format!("in chroma: {}", e)))?
         .into_scalar();
-
     let mut pitch = filtered_pitch
         .iter()
         .zip(&filtered_mag)
@@ -484,6 +487,11 @@ mod test {
 
         let tuning = estimate_tuning(22050, &arr, 2048, 0.01, 12).unwrap();
         assert!(0.000001 > (-0.09999999999999998 - tuning).abs());
+    }
+
+    #[test]
+    fn test_chroma_estimate_tuning_empty_fix() {
+        assert!(0. == estimate_tuning(22050, &Array2::zeros((8192, 1)), 8192, 0.01, 12).unwrap());
     }
 
     #[test]

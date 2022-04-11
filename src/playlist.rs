@@ -39,11 +39,7 @@ pub fn cosine_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
 
 /// Sort `songs` in place by putting songs close to `first_song` first
 /// using the `distance` metric.
-pub fn closest_to_first_song(
-    first_song: &Song,
-    songs: &mut Vec<Song>,
-    distance: impl DistanceMetric,
-) {
+pub fn closest_to_first_song(first_song: &Song, songs: &mut [Song], distance: impl DistanceMetric) {
     songs.sort_by_cached_key(|song| n32(first_song.custom_distance(song, &distance)));
 }
 
