@@ -41,6 +41,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
 use std::thread as std_thread;
+use std::time::Duration;
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::{EnumCount, EnumIter};
 
@@ -57,12 +58,16 @@ pub struct Song {
     pub title: Option<String>,
     /// Song's album name, read from the metadata
     pub album: Option<String>,
+    /// Song's album's artist name, read from the metadata
+    pub album_artist: Option<String>,
     /// Song's tracked number, read from the metadata
     pub track_number: Option<String>,
     /// Song's genre, read from the metadata (`""` if empty)
     pub genre: Option<String>,
     /// bliss analysis results
     pub analysis: Analysis,
+    /// The song's duration
+    pub duration: Duration,
     /// Version of the features the song was analyzed with.
     /// A simple integer that is bumped every time a breaking change
     /// is introduced in the features.
@@ -290,10 +295,12 @@ impl Song {
         Ok(Song {
             path: raw_song.path,
             artist: raw_song.artist,
+            album_artist: raw_song.album_artist,
             title: raw_song.title,
             album: raw_song.album,
             track_number: raw_song.track_number,
             genre: raw_song.genre,
+            duration: raw_song.duration,
             analysis: Song::analyze(raw_song.sample_array)?,
             features_version: FEATURES_VERSION,
         })
@@ -477,6 +484,13 @@ impl Song {
                 t => Some(t.to_string()),
             };
         };
+        if let Some(album_artist) = format.metadata().get("album_artist") {
+            song.album_artist = match album_artist {
+                "" => None,
+                t => Some(t.to_string()),
+            };
+        };
+
         let in_channel_layout = {
             if codec.channel_layout() == ChannelLayout::empty() {
                 ChannelLayout::default(codec.channels().into())
@@ -569,6 +583,8 @@ impl Song {
 
         drop(tx);
         song.sample_array = child.join().unwrap()?;
+        let duration_seconds = song.sample_array.len() as f32 / SAMPLE_RATE as f32;
+        song.duration = Duration::from_nanos((duration_seconds * 1e9_f32).round() as u64);
         Ok(song)
     }
 }
@@ -577,10 +593,12 @@ impl Song {
 pub(crate) struct InternalSong {
     pub path: PathBuf,
     pub artist: Option<String>,
+    pub album_artist: Option<String>,
     pub title: Option<String>,
     pub album: Option<String>,
     pub track_number: Option<String>,
     pub genre: Option<String>,
+    pub duration: Duration,
     pub sample_array: Vec<f32>,
 }
 
@@ -723,10 +741,17 @@ mod tests {
     fn test_tags() {
         let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         assert_eq!(song.artist, Some(String::from("David TMX")));
+        assert_eq!(
+            song.album_artist,
+            Some(String::from("David TMX - Album Artist"))
+        );
         assert_eq!(song.title, Some(String::from("Renaissance")));
         assert_eq!(song.album, Some(String::from("Renaissance")));
         assert_eq!(song.track_number, Some(String::from("02")));
         assert_eq!(song.genre, Some(String::from("Pop")));
+        // Test that there is less than 10ms of difference between what
+        // the song advertises and what we compute.
+        assert!((song.duration.as_millis() as f32 - 11070.).abs() < 10.);
     }
 
     #[test]
