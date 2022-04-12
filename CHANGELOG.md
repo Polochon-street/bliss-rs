@@ -1,9 +1,10 @@
 #Changelog
 
 ## bliss 0.5.0
+* Add `album_artist` and `duration` to `Song`.
 * Fix a bug in `estimate_tuning` that led to empty chroma errors.
 * Remove the unusued Library trait, and extract a few useful functions from
-  there (`analyze_paths`, `closest_to_album_group`.
+  there (`analyze_paths`, `closest_to_album_group`).
 * Rename `distance` module to `playlist`.
 * Remove all traces of the "analyse" word vs "analyze" to make the codebase
   more coherent.
