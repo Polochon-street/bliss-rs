@@ -45,6 +45,7 @@ bliss-audio-aubio-rs = "0.2.0"
 strum = "0.21"
 strum_macros = "0.21"
 serde = { version = "1.0", optional = true, features = ["derive"] }
+rcue = "0.1.1"
 
 [dev-dependencies]
 mime_guess = "2.0.3"

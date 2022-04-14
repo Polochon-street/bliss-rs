@@ -103,6 +103,7 @@ dependencies = [
  "noisy_float",
  "num_cpus",
  "rayon",
+ "rcue",
  "ripemd160",
  "rustfft",
  "serde",
@@ -992,6 +993,12 @@ dependencies = [
  "lazy_static 1.4.0",
  "num_cpus",
 ]
+
+[[package]]
+name = "rcue"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe64124d8a42e46e01d60b00707c9c741fe7efb65267cac6c8e5bfaf390e7af5"
 
 [[package]]
 name = "regex"

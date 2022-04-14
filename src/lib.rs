@@ -77,7 +77,7 @@ use std::sync::mpsc;
 use std::thread;
 use thiserror::Error;
 
-pub use song::{Analysis, AnalysisIndex, Song, NUMBER_FEATURES};
+pub use song::{Analysis, AnalysisIndex, BlissCue, BlissCueFile, Song, NUMBER_FEATURES};
 
 const CHANNELS: u16 = 1;
 const SAMPLE_RATE: u32 = 22050;
