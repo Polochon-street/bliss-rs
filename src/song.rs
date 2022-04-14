@@ -13,6 +13,7 @@ extern crate ndarray;
 extern crate ndarray_npy;
 
 use crate::chroma::ChromaDesc;
+use crate::cue::CueInfo;
 use crate::misc::LoudnessDesc;
 #[cfg(doc)]
 use crate::playlist;
@@ -34,8 +35,6 @@ use ffmpeg_next::util::frame::audio::Audio;
 use ffmpeg_next::util::log;
 use ffmpeg_next::util::log::level::Level;
 use ndarray::{arr1, Array1};
-use rcue::cue::{Cue, Track};
-use rcue::parser::parse_from_file;
 use std::convert::TryInto;
 use std::fmt;
 use std::path::Path;
@@ -74,6 +73,12 @@ pub struct Song {
     /// A simple integer that is bumped every time a breaking change
     /// is introduced in the features.
     pub features_version: u16,
+    /// Populated only if the song was extracted from a larger audio file,
+    /// through the use of a CUE sheet.
+    /// By default, such a song's path would be
+    /// `path/to/cue_file.wav/CUE_TRACK00<track_number>`. Using this field,
+    /// you can change `song.path` to fit your needs.
+    pub cue_info: Option<CueInfo>,
 }
 
 #[derive(Debug, EnumIter, EnumCount)]
@@ -137,7 +142,7 @@ pub const NUMBER_FEATURES: usize = AnalysisIndex::COUNT;
 /// on most of the features, except the chroma ones, which are documented
 /// directly in this code.
 pub struct Analysis {
-    internal_analysis: [f32; NUMBER_FEATURES],
+    pub(crate) internal_analysis: [f32; NUMBER_FEATURES],
 }
 
 impl Index<AnalysisIndex> for Analysis {
@@ -201,133 +206,6 @@ impl Analysis {
     /// properties, so don't sweat it too much.
     pub fn custom_distance(&self, other: &Self, distance: impl DistanceMetric) -> f32 {
         distance(&self.as_arr1(), &other.as_arr1())
-    }
-}
-
-#[allow(missing_docs)]
-pub struct BlissCue {
-    cue: Cue,
-    path: String,
-}
-
-#[allow(missing_docs)]
-pub struct BlissCueFile {
-    sample_array: Vec<f32>,
-    album: Option<String>,
-    artist: Option<String>,
-    genre: Option<String>,
-    tracks: Vec<Track>,
-    path: String,
-}
-
-impl BlissCue {
-    #[allow(missing_docs)]
-    pub fn from_path<P: AsRef<Path> + std::fmt::Debug>(path: P) -> BlissResult<Self> {
-        let cue = parse_from_file(&path.as_ref().to_string_lossy(), false).map_err(|e| {
-            BlissError::DecodingError(format!("when opening CUE file '{:?}': {:?}", path, e))
-        })?;
-        Ok(BlissCue {
-            cue,
-            path: path.as_ref().to_string_lossy().to_string(),
-        })
-    }
-
-    #[allow(missing_docs)]
-    pub fn files(&self) -> BlissResult<Vec<BlissCueFile>> {
-        let mut cue_files = Vec::new();
-        for cue_file in self.cue.files.iter() {
-            let cue_path = match Path::new(&self.path).parent() {
-                Some(parent) => format!("{}/{}", parent.to_string_lossy(), cue_file.file),
-                None => cue_file.file.to_string(),
-            };
-            let genre = self
-                .cue
-                .comments
-                .iter()
-                .find(|(c, _)| c == "GENRE")
-                .map(|(_, v)| v.to_owned());
-            let sample_array = Song::decode(Path::new(&cue_path))?.sample_array;
-            let bliss_cue_file = BlissCueFile {
-                sample_array,
-                genre,
-                artist: self.cue.performer.to_owned(),
-                album: self.cue.title.to_owned(),
-                tracks: cue_file.tracks.to_owned(),
-                path: cue_path,
-            };
-            cue_files.push(bliss_cue_file)
-        }
-        Ok(cue_files)
-    }
-}
-
-impl BlissCueFile {
-    #[allow(missing_docs)]
-    pub fn get_songs(&self) -> Vec<BlissResult<Song>> {
-        let mut songs = Vec::new();
-        for (index, tuple) in (&self.tracks[..]).windows(2).enumerate() {
-            let (current_track, next_track) = (tuple[0].to_owned(), tuple[1].to_owned());
-            if let Some((_, start_current)) = current_track.indices.get(0) {
-                if let Some((_, end_current)) = next_track.indices.get(0) {
-                    // TODO remove unwraps here
-                    let start_current = (start_current.as_secs_f32() * SAMPLE_RATE as f32) as usize;
-                    let end_current = (end_current.as_secs_f32() * SAMPLE_RATE as f32) as usize;
-                    // TODO to_vec, really?
-                    let analysis =
-                        Song::analyze(self.sample_array[start_current..end_current].to_vec());
-                    if let Ok(a) = analysis {
-                        let song = Song {
-                            path: PathBuf::from(format!("{}/CUE_TRACK{:03}", self.path, index + 1)),
-                            album: self.album.to_owned(),
-                            artist: current_track.performer.to_owned(),
-                            album_artist: self.artist.to_owned(),
-                            analysis: a,
-                            duration: Duration::from_secs_f32(
-                                (end_current - start_current) as f32 / SAMPLE_RATE as f32,
-                            ),
-                            genre: self.genre.to_owned(),
-                            title: current_track.title,
-                            track_number: Some(current_track.no),
-                            features_version: FEATURES_VERSION,
-                        };
-                        songs.push(Ok(song));
-                    } else {
-                        songs.push(Err(analysis.unwrap_err()))
-                    };
-                }
-            }
-        }
-        // TODO put into a function
-        if let Some(last_track) = self.tracks.last() {
-            if let Some((_, start_current)) = last_track.indices.get(0) {
-                let start_current = (start_current.as_secs_f32() * SAMPLE_RATE as f32) as usize;
-                let analysis = Song::analyze(self.sample_array[start_current..].to_vec());
-                if let Ok(a) = analysis {
-                    let song = Song {
-                        path: PathBuf::from(format!(
-                            "{}/CUE_TRACK{:03}",
-                            self.path,
-                            self.tracks.len()
-                        )),
-                        album: self.album.to_owned(),
-                        artist: self.artist.to_owned(),
-                        album_artist: self.artist.to_owned(),
-                        analysis: a,
-                        duration: Duration::from_secs_f32(
-                            (self.sample_array.len() - start_current) as f32 / SAMPLE_RATE as f32,
-                        ),
-                        genre: self.genre.to_owned(),
-                        title: last_track.title.to_owned(),
-                        track_number: Some(last_track.no.to_owned()),
-                        features_version: FEATURES_VERSION,
-                    };
-                    songs.push(Ok(song));
-                } else {
-                    songs.push(Err(analysis.unwrap_err()))
-                };
-            }
-        }
-        songs
     }
 }
 
@@ -430,8 +308,9 @@ impl Song {
             track_number: raw_song.track_number,
             genre: raw_song.genre,
             duration: raw_song.duration,
-            analysis: Song::analyze(raw_song.sample_array)?,
+            analysis: Song::analyze(&raw_song.sample_array)?,
             features_version: FEATURES_VERSION,
+            cue_info: None,
         })
     }
 
@@ -446,7 +325,7 @@ impl Song {
      * Useful in the rare cases where the full song is not
      * completely available.
      **/
-    fn analyze(sample_array: Vec<f32>) -> BlissResult<Analysis> {
+    pub(crate) fn analyze(sample_array: &[f32]) -> BlissResult<Analysis> {
         let largest_window = vec![
             BPMDesc::WINDOW_SIZE,
             ChromaDesc::WINDOW_SIZE,
@@ -477,7 +356,7 @@ impl Song {
 
             let child_chroma: thread::ScopedJoinHandle<'_, BlissResult<Vec<f32>>> = s.spawn(|_| {
                 let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
-                chroma_desc.do_(&sample_array)?;
+                chroma_desc.do_(sample_array)?;
                 Ok(chroma_desc.get_values())
             });
 
@@ -501,7 +380,7 @@ impl Song {
 
             let child_zcr: thread::ScopedJoinHandle<'_, BlissResult<f32>> = s.spawn(|_| {
                 let mut zcr_desc = ZeroCrossingRateDesc::default();
-                zcr_desc.do_(&sample_array);
+                zcr_desc.do_(sample_array);
                 Ok(zcr_desc.get_value())
             });
 
@@ -542,33 +421,55 @@ impl Song {
     }
 
     pub(crate) fn decode(path: &Path) -> BlissResult<InternalSong> {
-        ffmpeg::init()
-            .map_err(|e| BlissError::DecodingError(format!("ffmpeg init error: {:?}.", e)))?;
+        ffmpeg::init().map_err(|e| {
+            BlissError::DecodingError(format!(
+                "ffmpeg init error while decoding file '{}': {:?}.",
+                path.display(),
+                e
+            ))
+        })?;
         log::set_level(Level::Quiet);
         let mut song = InternalSong {
             path: path.into(),
             ..Default::default()
         };
-        let mut format = ffmpeg::format::input(&path)
-            .map_err(|e| BlissError::DecodingError(format!("while opening format: {:?}.", e)))?;
+        let mut format = ffmpeg::format::input(&path).map_err(|e| {
+            BlissError::DecodingError(format!(
+                "while opening format for file '{}': {:?}.",
+                path.display(),
+                e
+            ))
+        })?;
         let (mut codec, stream, expected_sample_number) = {
             let stream = format
                 .streams()
                 .find(|s| s.parameters().medium() == ffmpeg::media::Type::Audio)
-                .ok_or_else(|| BlissError::DecodingError(String::from("No audio stream found.")))?;
+                .ok_or_else(|| {
+                    BlissError::DecodingError(format!(
+                        "No audio stream found for file '{}'.",
+                        path.display()
+                    ))
+                })?;
             let mut context = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
                 .map_err(|e| {
-                    BlissError::DecodingError(format!("Could not load the codec context: {:?}", e))
+                    BlissError::DecodingError(format!(
+                        "Could not load the codec context for file '{}': {:?}",
+                        path.display(),
+                        e
+                    ))
                 })?;
             context.set_threading(Config {
                 kind: ThreadingType::Frame,
                 count: 0,
                 safe: true,
             });
-            let codec = context
-                .decoder()
-                .audio()
-                .map_err(|e| BlissError::DecodingError(format!("when finding codec: {:?}.", e)))?;
+            let codec = context.decoder().audio().map_err(|e| {
+                BlissError::DecodingError(format!(
+                    "when finding codec for file '{}': {:?}.",
+                    path.display(),
+                    e
+                ))
+            })?;
             // Add SAMPLE_RATE to have one second margin to avoid reallocating if
             // the duration is slightly more than estimated
             // TODO>1.0 another way to get the exact number of samples is to decode
@@ -648,17 +549,21 @@ impl Song {
             match codec.send_packet(&packet) {
                 Ok(_) => (),
                 Err(Error::Other { errno: EINVAL }) => {
-                    return Err(BlissError::DecodingError(String::from(
-                        "wrong codec opened.",
+                    return Err(BlissError::DecodingError(format!(
+                        "wrong codec opened for file '{}.",
+                        path.display(),
                     )))
                 }
                 Err(Error::Eof) => {
-                    warn!("Premature EOF reached while decoding.");
+                    warn!(
+                        "Premature EOF reached while decoding file '{}'.",
+                        path.display()
+                    );
                     drop(tx);
                     song.sample_array = child.join().unwrap()?;
                     return Ok(song);
                 }
-                Err(e) => warn!("error while decoding {}: {}", path.display(), e),
+                Err(e) => warn!("error while decoding file '{}': {}", path.display(), e),
             };
 
             loop {
@@ -667,8 +572,9 @@ impl Song {
                     Ok(_) => {
                         tx.send(decoded).map_err(|e| {
                             BlissError::DecodingError(format!(
-                                "while sending decoded frame to the resampling thread: {:?}",
-                                e
+                                "while sending decoded frame to the resampling thread for file '{}': {:?}",
+                                path.display(),
+                                e,
                             ))
                         })?;
                     }
@@ -682,12 +588,16 @@ impl Song {
         match codec.send_packet(&packet) {
             Ok(_) => (),
             Err(Error::Other { errno: EINVAL }) => {
-                return Err(BlissError::DecodingError(String::from(
-                    "wrong codec opened.",
+                return Err(BlissError::DecodingError(format!(
+                    "wrong codec opened for file '{}'.",
+                    path.display()
                 )))
             }
             Err(Error::Eof) => {
-                warn!("Premature EOF reached while decoding.");
+                warn!(
+                    "Premature EOF reached while decoding file '{}'.",
+                    path.display()
+                );
                 drop(tx);
                 song.sample_array = child.join().unwrap()?;
                 return Ok(song);
@@ -701,7 +611,8 @@ impl Song {
                 Ok(_) => {
                     tx.send(decoded).map_err(|e| {
                         BlissError::DecodingError(format!(
-                            "while sending decoded frame to the resampling thread: {:?}",
+                            "while sending decoded frame to the resampling thread for file '{}': {:?}",
+                            path.display(),
                             e
                         ))
                     })?;
@@ -807,18 +718,19 @@ fn push_to_sample_array(frame: &ffmpeg::frame::Audio, sample_array: &mut Vec<f32
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pretty_assertions::assert_eq;
     use ripemd160::{Digest, Ripemd160};
     use std::path::Path;
 
     #[test]
     fn test_analysis_too_small() {
-        let error = Song::analyze(vec![0.]).unwrap_err();
+        let error = Song::analyze(&[0.]).unwrap_err();
         assert_eq!(
             error,
             BlissError::AnalysisError(String::from("empty or too short song."))
         );
 
-        let error = Song::analyze(vec![]).unwrap_err();
+        let error = Song::analyze(&[]).unwrap_err();
         assert_eq!(
             error,
             BlissError::AnalysisError(String::from("empty or too short song."))
@@ -1003,12 +915,14 @@ mod tests {
         assert_eq!(
             Song::decode(Path::new("nonexistent")).unwrap_err(),
             BlissError::DecodingError(String::from(
-                "while opening format: ffmpeg::Error(2: No such file or directory)."
+                "while opening format for file 'nonexistent': ffmpeg::Error(2: No such file or directory)."
             )),
         );
         assert_eq!(
             Song::decode(Path::new("data/picture.png")).unwrap_err(),
-            BlissError::DecodingError(String::from("No audio stream found.")),
+            BlissError::DecodingError(String::from(
+                "No audio stream found for file 'data/picture.png'."
+            )),
         );
     }
 
@@ -1137,125 +1051,6 @@ mod tests {
                 third_song
             ],
         );
-    }
-
-    #[test]
-    fn test_cue_analysis() {
-        let cue = BlissCue::from_path(Path::new("data/testcue.cue")).unwrap();
-        let cue_files = cue.files().unwrap();
-        let cue_file = cue_files.first().unwrap();
-        let songs = cue_file.get_songs();
-        let expected = vec![
-            Ok(Song {
-                path: Path::new("data/testcue.wav/CUE_TRACK001").to_path_buf(),
-                analysis: Analysis {
-                    internal_analysis: [
-                        0.38463724,
-                        -0.85219246,
-                        -0.761946,
-                        -0.8904667,
-                        -0.63892543,
-                        -0.73945934,
-                        -0.8004017,
-                        -0.8237293,
-                        0.33865356,
-                        0.32481194,
-                        -0.35692245,
-                        -0.6355889,
-                        -0.29584837,
-                        0.06431806,
-                        0.21875131,
-                        -0.58104205,
-                        -0.9466792,
-                        -0.94811195,
-                        -0.9820919,
-                        -0.9596871,
-                    ],
-                },
-                album: Some(String::from("Album for CUE test")),
-                artist: Some(String::from("David TMX")),
-                title: Some(String::from("Renaissance")),
-                genre: Some(String::from("Random")),
-                track_number: Some(String::from("01")),
-                features_version: FEATURES_VERSION,
-                album_artist: Some(String::from("Polochon_street")),
-                duration: Duration::from_secs_f32(11.066666603),
-                ..Default::default()
-            }),
-            Ok(Song {
-                path: Path::new("data/testcue.wav/CUE_TRACK002").to_path_buf(),
-                analysis: Analysis {
-                    internal_analysis: [
-                        0.18622077,
-                        -0.5989029,
-                        -0.5554645,
-                        -0.6343865,
-                        -0.24163479,
-                        -0.25766593,
-                        -0.40616858,
-                        -0.23334873,
-                        0.76875293,
-                        0.7785741,
-                        -0.5075115,
-                        -0.5272629,
-                        -0.56706166,
-                        -0.568486,
-                        -0.5639081,
-                        -0.5706943,
-                        -0.96501005,
-                        -0.96501285,
-                        -0.9649896,
-                        -0.96498996,
-                    ],
-                },
-                features_version: FEATURES_VERSION,
-                album: Some(String::from("Album for CUE test")),
-                artist: Some(String::from("Polochon_street")),
-                title: Some(String::from("Piano")),
-                genre: Some(String::from("Random")),
-                track_number: Some(String::from("02")),
-                album_artist: Some(String::from("Polochon_street")),
-                duration: Duration::from_secs_f64(5.853333473),
-                ..Default::default()
-            }),
-            Ok(Song {
-                path: Path::new("data/testcue.wav/CUE_TRACK003").to_path_buf(),
-                analysis: Analysis {
-                    internal_analysis: [
-                        0.0024261475,
-                        0.9874661,
-                        0.97330654,
-                        -0.9724426,
-                        0.99678576,
-                        -0.9961549,
-                        -0.9840142,
-                        -0.9269961,
-                        0.7498772,
-                        0.22429907,
-                        -0.8355152,
-                        -0.9977258,
-                        -0.9977849,
-                        -0.997785,
-                        -0.99778515,
-                        -0.997785,
-                        -0.99999976,
-                        -0.99999976,
-                        -0.99999976,
-                        -0.99999976,
-                    ],
-                },
-                album: Some(String::from("Album for CUE test")),
-                artist: Some(String::from("Polochon_street")),
-                title: Some(String::from("Tone")),
-                genre: Some(String::from("Random")),
-                track_number: Some(String::from("03")),
-                features_version: FEATURES_VERSION,
-                album_artist: Some(String::from("Polochon_street")),
-                duration: Duration::from_secs_f32(5.586666584),
-                ..Default::default()
-            }),
-        ];
-        assert_eq!(expected, songs);
     }
 }
 

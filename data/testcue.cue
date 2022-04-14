@@ -15,3 +15,15 @@ FILE "testcue.wav" WAVE
     TITLE "Tone"
     PERFORMER "Polochon_street"
     INDEX 01 0:16:69
+
+FILE "not-existing.wav" WAVE
+  TRACK 01 AUDIO
+    TITLE "Nope"
+    PERFORMER "Charlie"
+    INDEX 01 0:00:00
+  TRACK 02 AUDIO
+    TITLE "Nope"
+    PERFORMER "Charlie"
+    INDEX 01 0:10:00
+
+

@@ -71,7 +71,7 @@ fn main() -> Result<()> {
             .iter()
             .filter(|p| !analyzed_paths.contains(&PathBuf::from(p)))
             .map(|p| p.to_owned())
-            .collect(),
+            .collect::<Vec<String>>(),
     );
     let first_song = Song::from_path(file)?;
     let mut analyzed_songs = vec![first_song.to_owned()];
