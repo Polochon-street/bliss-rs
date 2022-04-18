@@ -13,6 +13,7 @@ extern crate ndarray;
 extern crate ndarray_npy;
 
 use crate::chroma::ChromaDesc;
+use crate::cue::CueInfo;
 use crate::misc::LoudnessDesc;
 #[cfg(doc)]
 use crate::playlist;
@@ -72,6 +73,12 @@ pub struct Song {
     /// A simple integer that is bumped every time a breaking change
     /// is introduced in the features.
     pub features_version: u16,
+    /// Populated only if the song was extracted from a larger audio file,
+    /// through the use of a CUE sheet.
+    /// By default, such a song's path would be
+    /// `path/to/cue_file.wav/CUE_TRACK00<track_number>`. Using this field,
+    /// you can change `song.path` to fit your needs.
+    pub cue_info: Option<CueInfo>,
 }
 
 #[derive(Debug, EnumIter, EnumCount)]
@@ -135,7 +142,7 @@ pub const NUMBER_FEATURES: usize = AnalysisIndex::COUNT;
 /// on most of the features, except the chroma ones, which are documented
 /// directly in this code.
 pub struct Analysis {
-    internal_analysis: [f32; NUMBER_FEATURES],
+    pub(crate) internal_analysis: [f32; NUMBER_FEATURES],
 }
 
 impl Index<AnalysisIndex> for Analysis {
@@ -301,8 +308,9 @@ impl Song {
             track_number: raw_song.track_number,
             genre: raw_song.genre,
             duration: raw_song.duration,
-            analysis: Song::analyze(raw_song.sample_array)?,
+            analysis: Song::analyze(&raw_song.sample_array)?,
             features_version: FEATURES_VERSION,
+            cue_info: None,
         })
     }
 
@@ -317,7 +325,7 @@ impl Song {
      * Useful in the rare cases where the full song is not
      * completely available.
      **/
-    fn analyze(sample_array: Vec<f32>) -> BlissResult<Analysis> {
+    pub(crate) fn analyze(sample_array: &[f32]) -> BlissResult<Analysis> {
         let largest_window = vec![
             BPMDesc::WINDOW_SIZE,
             ChromaDesc::WINDOW_SIZE,
@@ -348,7 +356,7 @@ impl Song {
 
             let child_chroma: thread::ScopedJoinHandle<'_, BlissResult<Vec<f32>>> = s.spawn(|_| {
                 let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
-                chroma_desc.do_(&sample_array)?;
+                chroma_desc.do_(sample_array)?;
                 Ok(chroma_desc.get_values())
             });
 
@@ -372,7 +380,7 @@ impl Song {
 
             let child_zcr: thread::ScopedJoinHandle<'_, BlissResult<f32>> = s.spawn(|_| {
                 let mut zcr_desc = ZeroCrossingRateDesc::default();
-                zcr_desc.do_(&sample_array);
+                zcr_desc.do_(sample_array);
                 Ok(zcr_desc.get_value())
             });
 
@@ -413,33 +421,55 @@ impl Song {
     }
 
     pub(crate) fn decode(path: &Path) -> BlissResult<InternalSong> {
-        ffmpeg::init()
-            .map_err(|e| BlissError::DecodingError(format!("ffmpeg init error: {:?}.", e)))?;
+        ffmpeg::init().map_err(|e| {
+            BlissError::DecodingError(format!(
+                "ffmpeg init error while decoding file '{}': {:?}.",
+                path.display(),
+                e
+            ))
+        })?;
         log::set_level(Level::Quiet);
         let mut song = InternalSong {
             path: path.into(),
             ..Default::default()
         };
-        let mut format = ffmpeg::format::input(&path)
-            .map_err(|e| BlissError::DecodingError(format!("while opening format: {:?}.", e)))?;
+        let mut format = ffmpeg::format::input(&path).map_err(|e| {
+            BlissError::DecodingError(format!(
+                "while opening format for file '{}': {:?}.",
+                path.display(),
+                e
+            ))
+        })?;
         let (mut codec, stream, expected_sample_number) = {
             let stream = format
                 .streams()
                 .find(|s| s.parameters().medium() == ffmpeg::media::Type::Audio)
-                .ok_or_else(|| BlissError::DecodingError(String::from("No audio stream found.")))?;
+                .ok_or_else(|| {
+                    BlissError::DecodingError(format!(
+                        "No audio stream found for file '{}'.",
+                        path.display()
+                    ))
+                })?;
             let mut context = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
                 .map_err(|e| {
-                    BlissError::DecodingError(format!("Could not load the codec context: {:?}", e))
+                    BlissError::DecodingError(format!(
+                        "Could not load the codec context for file '{}': {:?}",
+                        path.display(),
+                        e
+                    ))
                 })?;
             context.set_threading(Config {
                 kind: ThreadingType::Frame,
                 count: 0,
                 safe: true,
             });
-            let codec = context
-                .decoder()
-                .audio()
-                .map_err(|e| BlissError::DecodingError(format!("when finding codec: {:?}.", e)))?;
+            let codec = context.decoder().audio().map_err(|e| {
+                BlissError::DecodingError(format!(
+                    "when finding codec for file '{}': {:?}.",
+                    path.display(),
+                    e
+                ))
+            })?;
             // Add SAMPLE_RATE to have one second margin to avoid reallocating if
             // the duration is slightly more than estimated
             // TODO>1.0 another way to get the exact number of samples is to decode
@@ -519,17 +549,21 @@ impl Song {
             match codec.send_packet(&packet) {
                 Ok(_) => (),
                 Err(Error::Other { errno: EINVAL }) => {
-                    return Err(BlissError::DecodingError(String::from(
-                        "wrong codec opened.",
+                    return Err(BlissError::DecodingError(format!(
+                        "wrong codec opened for file '{}.",
+                        path.display(),
                     )))
                 }
                 Err(Error::Eof) => {
-                    warn!("Premature EOF reached while decoding.");
+                    warn!(
+                        "Premature EOF reached while decoding file '{}'.",
+                        path.display()
+                    );
                     drop(tx);
                     song.sample_array = child.join().unwrap()?;
                     return Ok(song);
                 }
-                Err(e) => warn!("error while decoding {}: {}", path.display(), e),
+                Err(e) => warn!("error while decoding file '{}': {}", path.display(), e),
             };
 
             loop {
@@ -538,8 +572,9 @@ impl Song {
                     Ok(_) => {
                         tx.send(decoded).map_err(|e| {
                             BlissError::DecodingError(format!(
-                                "while sending decoded frame to the resampling thread: {:?}",
-                                e
+                                "while sending decoded frame to the resampling thread for file '{}': {:?}",
+                                path.display(),
+                                e,
                             ))
                         })?;
                     }
@@ -553,12 +588,16 @@ impl Song {
         match codec.send_packet(&packet) {
             Ok(_) => (),
             Err(Error::Other { errno: EINVAL }) => {
-                return Err(BlissError::DecodingError(String::from(
-                    "wrong codec opened.",
+                return Err(BlissError::DecodingError(format!(
+                    "wrong codec opened for file '{}'.",
+                    path.display()
                 )))
             }
             Err(Error::Eof) => {
-                warn!("Premature EOF reached while decoding.");
+                warn!(
+                    "Premature EOF reached while decoding file '{}'.",
+                    path.display()
+                );
                 drop(tx);
                 song.sample_array = child.join().unwrap()?;
                 return Ok(song);
@@ -572,7 +611,8 @@ impl Song {
                 Ok(_) => {
                     tx.send(decoded).map_err(|e| {
                         BlissError::DecodingError(format!(
-                            "while sending decoded frame to the resampling thread: {:?}",
+                            "while sending decoded frame to the resampling thread for file '{}': {:?}",
+                            path.display(),
                             e
                         ))
                     })?;
@@ -678,18 +718,19 @@ fn push_to_sample_array(frame: &ffmpeg::frame::Audio, sample_array: &mut Vec<f32
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pretty_assertions::assert_eq;
     use ripemd160::{Digest, Ripemd160};
     use std::path::Path;
 
     #[test]
     fn test_analysis_too_small() {
-        let error = Song::analyze(vec![0.]).unwrap_err();
+        let error = Song::analyze(&[0.]).unwrap_err();
         assert_eq!(
             error,
             BlissError::AnalysisError(String::from("empty or too short song."))
         );
 
-        let error = Song::analyze(vec![]).unwrap_err();
+        let error = Song::analyze(&[]).unwrap_err();
         assert_eq!(
             error,
             BlissError::AnalysisError(String::from("empty or too short song."))
@@ -874,12 +915,14 @@ mod tests {
         assert_eq!(
             Song::decode(Path::new("nonexistent")).unwrap_err(),
             BlissError::DecodingError(String::from(
-                "while opening format: ffmpeg::Error(2: No such file or directory)."
+                "while opening format for file 'nonexistent': ffmpeg::Error(2: No such file or directory)."
             )),
         );
         assert_eq!(
             Song::decode(Path::new("data/picture.png")).unwrap_err(),
-            BlissError::DecodingError(String::from("No audio stream found.")),
+            BlissError::DecodingError(String::from(
+                "No audio stream found for file 'data/picture.png'."
+            )),
         );
     }
 

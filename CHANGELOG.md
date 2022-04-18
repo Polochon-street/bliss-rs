@@ -1,6 +1,7 @@
 #Changelog
 
 ## bliss 0.5.0
+* Add support for CUE files.
 * Add `album_artist` and `duration` to `Song`.
 * Fix a bug in `estimate_tuning` that led to empty chroma errors.
 * Remove the unusued Library trait, and extract a few useful functions from
