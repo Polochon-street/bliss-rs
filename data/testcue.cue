@@ -2,7 +2,7 @@ REM GENRE Random
 REM DATE 2022
 PERFORMER "Polochon_street"
 TITLE "Album for CUE test"
-FILE "testcue.wav" WAVE
+FILE "testcue.flac" WAVE
   TRACK 01 AUDIO
     TITLE "Renaissance"
     PERFORMER "David TMX"

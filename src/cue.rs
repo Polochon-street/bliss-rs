@@ -192,7 +192,7 @@ mod tests {
         let songs = BlissCue::songs_from_path("data/testcue.cue").unwrap();
         let expected = vec![
             Ok(Song {
-                path: Path::new("data/testcue.wav/CUE_TRACK001").to_path_buf(),
+                path: Path::new("data/testcue.flac/CUE_TRACK001").to_path_buf(),
                 analysis: Analysis {
                     internal_analysis: [
                         0.38463724,
@@ -227,12 +227,12 @@ mod tests {
                 duration: Duration::from_secs_f32(11.066666603),
                 cue_info: Some(CueInfo {
                     cue_path: PathBuf::from("data/testcue.cue"),
-                    audio_file_path: PathBuf::from("data/testcue.wav"),
+                    audio_file_path: PathBuf::from("data/testcue.flac"),
                 }),
                 ..Default::default()
             }),
             Ok(Song {
-                path: Path::new("data/testcue.wav/CUE_TRACK002").to_path_buf(),
+                path: Path::new("data/testcue.flac/CUE_TRACK002").to_path_buf(),
                 analysis: Analysis {
                     internal_analysis: [
                         0.18622077,
@@ -267,12 +267,12 @@ mod tests {
                 duration: Duration::from_secs_f64(5.853333473),
                 cue_info: Some(CueInfo {
                     cue_path: PathBuf::from("data/testcue.cue"),
-                    audio_file_path: PathBuf::from("data/testcue.wav"),
+                    audio_file_path: PathBuf::from("data/testcue.flac"),
                 }),
                 ..Default::default()
             }),
             Ok(Song {
-                path: Path::new("data/testcue.wav/CUE_TRACK003").to_path_buf(),
+                path: Path::new("data/testcue.flac/CUE_TRACK003").to_path_buf(),
                 analysis: Analysis {
                     internal_analysis: [
                         0.0024261475,
@@ -307,7 +307,7 @@ mod tests {
                 duration: Duration::from_secs_f32(5.586666584),
                 cue_info: Some(CueInfo {
                     cue_path: PathBuf::from("data/testcue.cue"),
-                    audio_file_path: PathBuf::from("data/testcue.wav"),
+                    audio_file_path: PathBuf::from("data/testcue.flac"),
                 }),
                 ..Default::default()
             }),

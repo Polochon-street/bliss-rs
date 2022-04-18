@@ -262,9 +262,9 @@ mod tests {
                     ),),
                 ),
                 (true, String::from("./data/s16_mono_22_5kHz.flac"), None),
-                (true, String::from("./data/testcue.wav/CUE_TRACK001"), None),
-                (true, String::from("./data/testcue.wav/CUE_TRACK002"), None),
-                (true, String::from("./data/testcue.wav/CUE_TRACK003"), None),
+                (true, String::from("./data/testcue.flac/CUE_TRACK001"), None),
+                (true, String::from("./data/testcue.flac/CUE_TRACK002"), None),
+                (true, String::from("./data/testcue.flac/CUE_TRACK003"), None),
                 (true, String::from("./data/white_noise.flac"), None),
             ],
         );
