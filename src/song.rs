@@ -62,6 +62,7 @@ pub struct Song {
     /// Song's album's artist name, read from the metadata
     pub album_artist: Option<String>,
     /// Song's tracked number, read from the metadata
+    /// TODO normalize this into an integer
     pub track_number: Option<String>,
     /// Song's genre, read from the metadata (`""` if empty)
     pub genre: Option<String>,

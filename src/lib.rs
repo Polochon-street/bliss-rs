@@ -59,6 +59,8 @@
 #![warn(rustdoc::missing_doc_code_examples)]
 mod chroma;
 pub mod cue;
+#[cfg(feature = "library")]
+pub mod library;
 mod misc;
 pub mod playlist;
 mod song;
