@@ -1,26 +1,16 @@
-#[cfg(feature = "serde")]
 use anyhow::Result;
-#[cfg(feature = "serde")]
 use bliss_audio::playlist::{closest_to_first_song, dedup_playlist, euclidean_distance};
-#[cfg(feature = "serde")]
 use bliss_audio::{analyze_paths, Song};
-#[cfg(feature = "serde")]
 use clap::{App, Arg};
-#[cfg(feature = "serde")]
 use glob::glob;
-#[cfg(feature = "serde")]
 use std::env;
-#[cfg(feature = "serde")]
 use std::fs;
-#[cfg(feature = "serde")]
 use std::io::BufReader;
-#[cfg(feature = "serde")]
 use std::path::{Path, PathBuf};
 
 /* Analyzes a folder recursively, and make a playlist out of the file
  * provided by the user. */
 // How to use: ./playlist [-o file.m3u] [-a analysis.json] <folder> <file to start the playlist from>
-#[cfg(feature = "serde")]
 fn main() -> Result<()> {
     let matches = App::new("playlist")
         .version(env!("CARGO_PKG_VERSION"))
@@ -102,9 +92,4 @@ fn main() -> Result<()> {
         println!("{}", playlist);
     }
     Ok(())
-}
-
-#[cfg(not(feature = "serde"))]
-fn main() {
-    println!("You need the serde feature enabled to run this file.");
 }

@@ -30,14 +30,16 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+    - name: Run library tests
+      run: cargo test --verbose --features=library
     - name: Run example tests
       run: cargo test --verbose --examples
     - name: Build benches
       run: cargo +nightly-2022-02-16 bench --verbose --features=bench --no-run
     - name: Build examples
-      run: cargo build --examples --verbose --features=serde
+      run: cargo build --examples --verbose --features=serde,library
     - name: Lint
-      run: cargo clippy --examples --features=serde -- -D warnings
+      run: cargo clippy --examples --features=serde,library -- -D warnings
 
   build-test-lint-windows:
     name: Windows - build, test and lint
