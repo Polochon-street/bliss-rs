@@ -88,7 +88,7 @@ const SAMPLE_RATE: u32 = 22050;
 /// so plug-ins can rescan libraries when there is a major change.
 pub const FEATURES_VERSION: u16 = 1;
 
-#[derive(Error, Clone, Debug, PartialEq)]
+#[derive(Error, Clone, Debug, PartialEq, Eq)]
 /// Umbrella type for bliss error types
 pub enum BlissError {
     #[error("error happened while decoding file – {0}")]
