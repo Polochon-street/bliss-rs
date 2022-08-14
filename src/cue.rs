@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Default, Debug, PartialEq, Clone)]
+#[derive(Default, Debug, PartialEq, Eq, Clone)]
 /// A struct populated when the corresponding [Song] has been extracted from an
 /// audio file split with the help of a CUE sheet.
 pub struct CueInfo {
