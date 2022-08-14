@@ -39,7 +39,11 @@ pub fn cosine_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
 
 /// Sort `songs` in place by putting songs close to `first_song` first
 /// using the `distance` metric.
-pub fn closest_to_first_song(first_song: &Song, songs: &mut [Song], distance: impl DistanceMetric) {
+pub fn closest_to_first_song(
+    first_song: &Song,
+    #[allow(clippy::ptr_arg)] songs: &mut Vec<Song>,
+    distance: impl DistanceMetric,
+) {
     songs.sort_by_cached_key(|song| n32(first_song.custom_distance(song, &distance)));
 }
 
@@ -114,6 +118,8 @@ pub fn dedup_playlist_custom_distance(
 /// Return a list of albums in a `pool` of songs that are similar to
 /// songs in `group`, discarding songs that don't belong to an album.
 /// It basically makes an "album" playlist from the `pool` of songs.
+///
+/// `group` should be ordered by track number.
 ///
 /// Songs from `group` would usually just be songs from an album, but not
 /// necessarily - they are discarded from `pool` no matter what.
