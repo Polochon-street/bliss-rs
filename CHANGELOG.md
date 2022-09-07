@@ -1,5 +1,9 @@
 #Changelog
 
+## bliss 5.2.3
+* Fix a bug with some broken MP3 files
+* Bump ffmpeg to 5.1.0
+
 ## bliss 0.5.0
 * Add support for CUE files.
 * Add `album_artist` and `duration` to `Song`.

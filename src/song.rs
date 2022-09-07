@@ -664,7 +664,16 @@ fn resample_frame(
         ))
     })?;
     let mut resampled = ffmpeg::frame::Audio::empty();
+    let mut something_happened = false;
     for decoded in rx.iter() {
+        if in_codec_format != decoded.format()
+            || in_channel_layout != decoded.channel_layout()
+            || in_rate != decoded.rate()
+        {
+            warn!("received decoded packet with wrong format; file might be corrupted.");
+            continue;
+        }
+        something_happened = true;
         resampled = ffmpeg::frame::Audio::empty();
         resample_context
             .run(&decoded, &mut resampled)
@@ -672,6 +681,9 @@ fn resample_frame(
                 BlissError::DecodingError(format!("while trying to resample song: {:?}", e))
             })?;
         push_to_sample_array(&resampled, &mut sample_array);
+    }
+    if !something_happened {
+        return Ok(sample_array);
     }
     // TODO when ffmpeg-next will be active again: shouldn't we allocate
     // `resampled` again?
