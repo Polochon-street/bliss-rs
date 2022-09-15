@@ -264,11 +264,11 @@ mod tests {
     #[test]
     fn test_analyze_paths() {
         let paths = vec![
-            PathBuf::from("./data/s16_mono_22_5kHz.flac"),
-            PathBuf::from("./data/testcue.cue"),
-            PathBuf::from("./data/white_noise.flac"),
-            PathBuf::from("definitely-not-existing.foo"),
-            PathBuf::from("not-existing.foo"),
+            "./data/s16_mono_22_5kHz.flac",
+            "./data/testcue.cue",
+            "./data/white_noise.flac",
+            "definitely-not-existing.foo",
+            "not-existing.foo",
         ];
         let mut results = analyze_paths(&paths)
             .map(|x| match &x.1 {

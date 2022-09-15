@@ -1,13 +1,22 @@
 //! Module containing utilities to manage a SQLite library of [Song]s.
 use crate::analyze_paths;
+use crate::cue::CueInfo;
+use crate::playlist::closest_album_to_group_by_key;
+use crate::playlist::closest_to_first_song_by_key;
+use crate::playlist::dedup_playlist_by_key;
+use crate::playlist::dedup_playlist_custom_distance_by_key;
 use crate::playlist::euclidean_distance;
+use crate::playlist::DistanceMetric;
 use anyhow::{bail, Context, Result};
 #[cfg(not(test))]
 use dirs::data_local_dir;
 use indicatif::{ProgressBar, ProgressStyle};
+use log::warn;
 use noisy_float::prelude::*;
 use rusqlite::params;
 use rusqlite::Connection;
+use rusqlite::OptionalExtension;
+use rusqlite::Params;
 use rusqlite::Row;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -32,6 +41,11 @@ pub trait AppConfigTrait: Serialize + Sized + DeserializeOwned {
     /// This trait should return the [BaseConfig] from the parent,
     /// user-created `Config`.
     fn base_config(&self) -> &BaseConfig;
+
+    // Implementers have to provide these.
+    /// This trait should return the [BaseConfig] from the parent,
+    /// user-created `Config`.
+    fn base_config_mut(&mut self) -> &mut BaseConfig;
 
     // Default implementation to output the config as a JSON file.
     /// Convert the current config to a [String], to be written to
@@ -92,6 +106,7 @@ pub trait ConfigTrait: AppConfigTrait {
 pub struct BaseConfig {
     config_path: PathBuf,
     database_path: PathBuf,
+    features_version: u16,
 }
 
 impl BaseConfig {
@@ -134,6 +149,7 @@ impl BaseConfig {
         Ok(Self {
             config_path,
             database_path,
+            features_version: FEATURES_VERSION,
         })
     }
 
@@ -143,6 +159,10 @@ impl BaseConfig {
 impl<App: AppConfigTrait> ConfigTrait for App {}
 impl AppConfigTrait for BaseConfig {
     fn base_config(&self) -> &BaseConfig {
+        self
+    }
+
+    fn base_config_mut(&mut self) -> &mut BaseConfig {
         self
     }
 }
@@ -186,14 +206,12 @@ pub struct LibrarySong<T: Serialize + DeserializeOwned> {
     pub extra_info: T,
 }
 
-// TODO simple playlist
 // TODO add logging statement
-// TODO replace String by pathbufs / the ref thing
 // TODO concrete examples
 // TODO example LibrarySong without any extra_info
 // TODO maybe return number of elements updated / deleted / whatev in analysis
 //      functions?
-// TODO manage bliss feature version
+// TODO add a CUE song to the library, test that getting out CUE songs work
 impl<Config: ConfigTrait> Library<Config> {
     /// Create a new [Library] object from the given [Config] struct,
     /// writing the configuration to the file given in
@@ -216,6 +234,8 @@ impl<Config: ConfigTrait> Library<Config> {
                 album text,
                 track_number text,
                 genre text,
+                cue_path text,
+                audio_file_path text,
                 stamp timestamp default current_timestamp,
                 version integer,
                 analyzed boolean default false,
@@ -257,10 +277,37 @@ impl<Config: ConfigTrait> Library<Config> {
         let data = fs::read_to_string(config_path)?;
         let config = Config::deserialize_config(&data)?;
         let sqlite_conn = Connection::open(&config.base_config().database_path)?;
-        Ok(Library {
+        let mut library = Library {
             config,
             sqlite_conn: Arc::new(Mutex::new(sqlite_conn)),
-        })
+        };
+        if !library.version_sanity_check()? {
+            warn!(
+                "Songs have been analyzed with different versions of bliss; \
+                older versions will be ignored from playlists. Update your \
+                bliss library to correct the issue."
+            );
+        }
+        Ok(library)
+    }
+
+    /// Check whether the library contains songs analyzed with different,
+    /// incompatible versions of bliss.
+    ///
+    /// Returns true if the database is clean (only one version of the
+    /// features), and false otherwise.
+    pub fn version_sanity_check(&mut self) -> Result<bool> {
+        let connection = self
+            .sqlite_conn
+            .lock()
+            .map_err(|e| BlissError::ProviderError(e.to_string()))?;
+        let count: u32 = connection
+            .query_row("select count(distinct version) from song", [], |row| {
+                row.get(0)
+            })
+            .optional()?
+            .unwrap_or(0);
+        Ok(count <= 1)
     }
 
     /// Create a new [Library] object from a minimal configuration setup,
@@ -289,27 +336,110 @@ impl<Config: ConfigTrait> Library<Config> {
     ) -> Result<Vec<LibrarySong<T>>> {
         let first_song: LibrarySong<T> = self.song_from_path(song_path)?;
         let mut songs = self.songs_from_library()?;
+        closest_to_first_song_by_key(
+            &first_song,
+            &mut songs,
+            euclidean_distance,
+            |s: &LibrarySong<T>| s.bliss_song.to_owned(),
+        );
         songs.sort_by_cached_key(|song| n32(first_song.bliss_song.distance(&song.bliss_song)));
-        songs.truncate(playlist_length);
-        songs.dedup_by(|s1, s2| {
-            n32(s1
-                .bliss_song
-                .custom_distance(&s2.bliss_song, &euclidean_distance))
-                < 0.05
-                || (s1.bliss_song.title.is_some()
-                    && s2.bliss_song.title.is_some()
-                    && s1.bliss_song.artist.is_some()
-                    && s2.bliss_song.artist.is_some()
-                    && s1.bliss_song.title == s2.bliss_song.title
-                    && s1.bliss_song.artist == s2.bliss_song.artist)
+        dedup_playlist_by_key(&mut songs, None, |s: &LibrarySong<T>| {
+            s.bliss_song.to_owned()
         });
+        songs.truncate(playlist_length);
         Ok(songs)
+    }
+
+    /// Build a playlist of `playlist_length` items from an already analyzed
+    /// song in the library at `song_path`, using distance metric `distance`,
+    /// the sorting function `sort_by` and deduplicating if `dedup` is set to
+    /// `true`.
+    ///
+    /// You can use ready to use distance metrics such as
+    /// [playlist::euclidean_distance], and ready to use sorting functions like
+    /// [playlist::closest_to_first_song_by_key].
+    ///
+    /// In most cases, you just want to use [playlist_from]. Use this if you want
+    /// to experiment with different distance metrics / sorting functions.
+    ///
+    /// Example:
+    /// `library.playlist_from_song_custom(song_path, 20, euclidean_distance,
+    /// closest_to_first_song_by_key, true)`.
+    pub fn playlist_from_custom<F, G, T: Serialize + DeserializeOwned + std::fmt::Debug>(
+        &self,
+        song_path: &str,
+        playlist_length: usize,
+        distance: G,
+        mut sort_by: F,
+        dedup: bool,
+    ) -> Result<Vec<LibrarySong<T>>>
+    where
+        F: FnMut(&LibrarySong<T>, &mut Vec<LibrarySong<T>>, G, fn(&LibrarySong<T>) -> Song),
+        G: DistanceMetric + Copy,
+    {
+        let first_song: LibrarySong<T> = self.song_from_path(song_path)?;
+        let mut songs = self.songs_from_library()?;
+        sort_by(&first_song, &mut songs, distance, |s: &LibrarySong<T>| {
+            s.bliss_song.to_owned()
+        });
+        if dedup {
+            dedup_playlist_custom_distance_by_key(
+                &mut songs,
+                None,
+                distance,
+                |s: &LibrarySong<T>| s.bliss_song.to_owned(),
+            );
+        }
+        songs.truncate(playlist_length);
+        Ok(songs)
+    }
+
+    /// Make a playlist of `number_albums` albums closest to the album
+    /// with title `album_title`.
+    /// The playlist starts with the album with `album_title`, and contains
+    /// `number_albums` on top of that one.
+    ///
+    /// Returns the songs of each album ordered by bliss' `track_number`.
+    pub fn album_playlist_from<T: Serialize + DeserializeOwned + Clone + PartialEq>(
+        &self,
+        album_title: String,
+        number_albums: usize,
+    ) -> Result<Vec<LibrarySong<T>>> {
+        let album = self.songs_from_album(&album_title)?;
+        // Every song should be from the same album. Hopefully...
+        let songs = self.songs_from_library()?;
+        let playlist = closest_album_to_group_by_key(album, songs, |s| s.bliss_song.to_owned())?;
+
+        let mut album_count = 0;
+        let mut index = 0;
+        let mut current_album = Some(album_title);
+        for song in playlist.iter() {
+            if song.bliss_song.album != current_album {
+                album_count += 1;
+                if album_count > number_albums {
+                    break;
+                }
+                current_album = song.bliss_song.album.to_owned();
+            }
+            index += 1;
+        }
+        let playlist = &playlist[..index];
+        Ok(playlist.to_vec())
     }
 
     /// Analyze and store all songs in `paths` that haven't been already analyzed.
     ///
     /// Use this function if you don't have any extra data to bundle with each song.
-    pub fn update_library(&mut self, paths: Vec<String>, show_progress_bar: bool) -> Result<()> {
+    ///
+    /// If your library
+    /// contains CUE files, pass the CUE file path only, and not individual
+    /// CUE track names: passing `vec![file.cue]` will add
+    /// individual tracks with the `cue_info` field set in the database.
+    pub fn update_library<P: Into<PathBuf>>(
+        &mut self,
+        paths: Vec<P>,
+        show_progress_bar: bool,
+    ) -> Result<()> {
         let paths_extra_info = paths.into_iter().map(|path| (path, ())).collect::<Vec<_>>();
         self.update_library_convert_extra_info(paths_extra_info, show_progress_bar, |x, _, _| x)
     }
@@ -317,9 +447,9 @@ impl<Config: ConfigTrait> Library<Config> {
     /// Analyze and store all songs in `paths_extra_info` that haven't already
     /// been analyzed, along with some extra metadata serializable, and known
     /// before song analysis.
-    pub fn update_library_extra_info<T: Serialize + DeserializeOwned>(
+    pub fn update_library_extra_info<T: Serialize + DeserializeOwned, P: Into<PathBuf>>(
         &mut self,
-        paths_extra_info: Vec<(String, T)>,
+        paths_extra_info: Vec<(P, T)>,
         show_progress_bar: bool,
     ) -> Result<()> {
         self.update_library_convert_extra_info(
@@ -338,12 +468,21 @@ impl<Config: ConfigTrait> Library<Config> {
     ///
     /// `paths_extra_info` is a tuple made out of song paths, along
     /// with any extra info you want to store for each song.
+    /// If your library
+    /// contains CUE files, pass the CUE file path only, and not individual
+    /// CUE track names: passing `vec![file.cue]` will add
+    /// individual tracks with the `cue_info` field set in the database.
     ///
     /// `convert_extra_info` is a function that you should specify
     /// to convert that extra info to something serializable.
-    pub fn update_library_convert_extra_info<T: Serialize + DeserializeOwned, U>(
+    ///
+    pub fn update_library_convert_extra_info<
+        T: Serialize + DeserializeOwned,
+        U,
+        P: Into<PathBuf>,
+    >(
         &mut self,
-        paths_extra_info: Vec<(String, U)>,
+        paths_extra_info: Vec<(P, U)>,
         show_progress_bar: bool,
         convert_extra_info: fn(U, &Song, &Self) -> T,
     ) -> Result<()> {
@@ -361,16 +500,20 @@ impl<Config: ConfigTrait> Library<Config> {
             )?;
             #[allow(clippy::let_and_return)]
             let return_value = path_statement
-                .query_map([FEATURES_VERSION], |row| Ok(row.get_unwrap(0)))?
-                .map(|x| x.unwrap())
-                .collect::<Vec<String>>();
+                .query_map([FEATURES_VERSION], |row| {
+                    Ok(row.get_unwrap::<usize, String>(0))
+                })?
+                .map(|x| PathBuf::from(x.unwrap()))
+                .collect::<Vec<PathBuf>>();
             return_value
         };
 
         let paths_to_analyze = paths_extra_info
             .into_iter()
+            .map(|(x, y)| (x.into(), y))
             .filter(|(path, _)| !existing_paths.contains(path))
-            .collect::<Vec<_>>();
+            .collect::<Vec<(PathBuf, U)>>();
+
         self.analyze_paths_convert_extra_info(
             paths_to_analyze,
             show_progress_bar,
@@ -380,17 +523,39 @@ impl<Config: ConfigTrait> Library<Config> {
 
     /// Analyze and store all songs in `paths`.
     ///
+    /// Updates the value of `features_version` in the config, using bliss'
+    /// latest version.
+    ///
     /// Use this function if you don't have any extra data to bundle with each song.
-    pub fn analyze_paths(&mut self, paths: Vec<String>, show_progress_bar: bool) -> Result<()> {
+    ///
+    /// If your library
+    /// contains CUE files, pass the CUE file path only, and not individual
+    /// CUE track names: passing `vec![file.cue]` will add
+    /// individual tracks with the `cue_info` field set in the database.
+    pub fn analyze_paths<P: Into<PathBuf>>(
+        &mut self,
+        paths: Vec<P>,
+        show_progress_bar: bool,
+    ) -> Result<()> {
         let paths_extra_info = paths.into_iter().map(|path| (path, ())).collect::<Vec<_>>();
         self.analyze_paths_convert_extra_info(paths_extra_info, show_progress_bar, |x, _, _| x)
     }
 
     /// Analyze and store all songs in `paths_extra_info`, along with some
     /// extra metadata serializable, and known before song analysis.
-    pub fn analyze_paths_extra_info<T: Serialize + DeserializeOwned + std::fmt::Debug>(
+    ///
+    /// Updates the value of `features_version` in the config, using bliss'
+    /// latest version.
+    /// If your library
+    /// contains CUE files, pass the CUE file path only, and not individual
+    /// CUE track names: passing `vec![file.cue]` will add
+    /// individual tracks with the `cue_info` field set in the database.
+    pub fn analyze_paths_extra_info<
+        T: Serialize + DeserializeOwned + std::fmt::Debug,
+        P: Into<PathBuf>,
+    >(
         &mut self,
-        paths_extra_info: Vec<(String, T)>,
+        paths_extra_info: Vec<(P, T)>,
         show_progress_bar: bool,
     ) -> Result<()> {
         self.analyze_paths_convert_extra_info(
@@ -405,16 +570,27 @@ impl<Config: ConfigTrait> Library<Config> {
     /// or that need input from the analyzed Song to be processed.
     /// If you just want to analyze and store songs, along with some
     /// directly serializable metadata values, consider using
-    /// [analyze_paths_extra_info].
+    /// [analyze_paths_extra_info], or [analyze_paths] for the simpler
+    /// use cases.
+    ///
+    /// Updates the value of `features_version` in the config, using bliss'
+    /// latest version.
     ///
     /// `paths_extra_info` is a tuple made out of song paths, along
-    /// with any extra info you want to store for each song.
+    /// with any extra info you want to store for each song. If your library
+    /// contains CUE files, pass the CUE file path only, and not individual
+    /// CUE track names: passing `vec![file.cue]` will add
+    /// individual tracks with the `cue_info` field set in the database.
     ///
     /// `convert_extra_info` is a function that you should specify
     /// to convert that extra info to something serializable.
-    pub fn analyze_paths_convert_extra_info<T: Serialize + DeserializeOwned, U>(
+    pub fn analyze_paths_convert_extra_info<
+        T: Serialize + DeserializeOwned,
+        U,
+        P: Into<PathBuf>,
+    >(
         &mut self,
-        paths_extra_info: Vec<(String, U)>,
+        paths_extra_info: Vec<(P, U)>,
         show_progress_bar: bool,
         convert_extra_info: fn(U, &Song, &Self) -> T,
     ) -> Result<()> {
@@ -437,21 +613,59 @@ impl<Config: ConfigTrait> Library<Config> {
             .progress_chars("##-");
         pb.set_style(style);
 
-        let mut paths_extra_info: HashMap<String, U> = paths_extra_info.into_iter().collect();
+        let mut paths_extra_info: HashMap<PathBuf, U> = paths_extra_info
+            .into_iter()
+            .map(|(x, y)| (x.into(), y))
+            .collect();
+        let mut cue_extra_info: HashMap<PathBuf, String> = HashMap::new();
+
         let results = analyze_paths(paths_extra_info.keys());
         let mut success_count = 0;
         let mut failure_count = 0;
         for (path, result) in results {
             if show_progress_bar {
-                pb.set_message(format!("Analyzing {}", path));
+                pb.set_message(format!("Analyzing {}", path.display()));
             }
             match result {
                 Ok(song) => {
-                    let extra = paths_extra_info.remove(&path).unwrap();
-                    let e = convert_extra_info(extra, &song, self);
+                    let is_cue = song.cue_info.is_some();
+                    // If it's a song that's part of a CUE, its path will be
+                    // something like `testcue.flac/CUE_TRACK001`, so we need
+                    // to get the path of the main CUE file.
+                    let path = {
+                        if let Some(cue_info) = song.cue_info.to_owned() {
+                            cue_info.cue_path
+                        } else {
+                            path
+                        }
+                    };
+                    // Some magic to avoid having to depend on T: Clone, because
+                    // all CUE tracks on a CUE file have the same extra_info.
+                    // This serializes the data, store the serialized version
+                    // in a hashmap, and then deserializes that when needed.
+                    let extra = {
+                        if is_cue && paths_extra_info.contains_key(&path) {
+                            let extra = paths_extra_info.remove(&path).unwrap();
+                            let e = convert_extra_info(extra, &song, self);
+                            cue_extra_info.insert(
+                                path,
+                                serde_json::to_string(&e)
+                                    .map_err(|e| BlissError::ProviderError(e.to_string()))?,
+                            );
+                            e
+                        } else if is_cue {
+                            let serialized_extra_info =
+                                cue_extra_info.get(&path).unwrap().to_owned();
+                            serde_json::from_str(&serialized_extra_info).unwrap()
+                        } else {
+                            let extra = paths_extra_info.remove(&path).unwrap();
+                            convert_extra_info(extra, &song, self)
+                        }
+                    };
+
                     let library_song = LibrarySong::<T> {
                         bliss_song: song,
-                        extra_info: e,
+                        extra_info: extra,
                     };
                     self.store_song(&library_song)?;
                     success_count += 1;
@@ -459,7 +673,7 @@ impl<Config: ConfigTrait> Library<Config> {
                 Err(e) => {
                     log::error!(
                         "Analysis of song '{}' failed: {} The error has been stored.",
-                        path,
+                        path.display(),
                         e
                     );
 
@@ -480,45 +694,31 @@ impl<Config: ConfigTrait> Library<Config> {
             failure_count,
         );
 
+        self.config.base_config_mut().features_version = FEATURES_VERSION;
+        self.config.write()?;
+
         Ok(())
     }
 
-    /// Retrieve all songs which have been analyzed with
-    /// current bliss version.
-    ///
-    /// Returns an error if one or several songs have a different number of
-    /// features than they should, indicating the offending song id.
-    ///
-    // TODO maybe allow to specify the version?
-    // TODO maybe the error should make the song id / song path
-    // accessible easily?
-    pub fn songs_from_library<T: Serialize + DeserializeOwned>(
+    // Get songs from a songs / features statement.
+    // BEWARE that the two songs and features query MUST be the same
+    fn _songs_from_statement<T: Serialize + DeserializeOwned, P: Params + Clone>(
         &self,
+        songs_statement: &str,
+        features_statement: &str,
+        params: P,
     ) -> Result<Vec<LibrarySong<T>>> {
         let connection = self
             .sqlite_conn
             .lock()
             .map_err(|e| BlissError::ProviderError(e.to_string()))?;
-        let mut songs_statement = connection.prepare(
-            "
-            select
-                path, artist, title, album, album_artist,
-                track_number, genre, duration, version, extra_info, id
-                from song where analyzed = true and version = ? order by id
-            ",
-        )?;
-        let mut features_statement = connection.prepare(
-            "
-            select
-                feature, song.id from feature join song on song.id = feature.song_id
-                where song.analyzed = true and song.version = ? order by song_id, feature_index
-                ",
-        )?;
-        let song_rows = songs_statement.query_map([FEATURES_VERSION], |row| {
-            Ok((row.get(10)?, Self::_song_from_row_closure(row)?))
+        let mut songs_statement = connection.prepare(songs_statement)?;
+        let mut features_statement = connection.prepare(features_statement)?;
+        let song_rows = songs_statement.query_map(params.to_owned(), |row| {
+            Ok((row.get(12)?, Self::_song_from_row_closure(row)?))
         })?;
-        let feature_rows = features_statement
-            .query_map([FEATURES_VERSION], |row| Ok((row.get(1)?, row.get(0)?)))?;
+        let feature_rows =
+            features_statement.query_map(params, |row| Ok((row.get(1)?, row.get(0)?)))?;
 
         let mut feature_iterator = feature_rows.into_iter().peekable();
         let mut songs = Vec::new();
@@ -554,32 +754,66 @@ impl<Config: ConfigTrait> Library<Config> {
         Ok(songs)
     }
 
-    fn _song_from_row_closure<T: Serialize + DeserializeOwned>(
-        row: &Row,
-    ) -> Result<LibrarySong<T>, RusqliteError> {
-        let path: String = row.get(0)?;
-        let song = Song {
-            path: PathBuf::from(path),
-            artist: row.get(1).unwrap(),
-            title: row.get(2).unwrap(),
-            album: row.get(3).unwrap(),
-            album_artist: row.get(4).unwrap(),
-            track_number: row.get(5).unwrap(),
-            genre: row.get(6).unwrap(),
-            analysis: Analysis {
-                internal_analysis: [0.; NUMBER_FEATURES],
-            },
-            duration: Duration::from_secs_f64(row.get(7).unwrap()),
-            features_version: row.get(8).unwrap(),
-            cue_info: None,
-        };
+    /// Retrieve all songs which have been analyzed with
+    /// current bliss version.
+    ///
+    /// Returns an error if one or several songs have a different number of
+    /// features than they should, indicating the offending song id.
+    ///
+    // TODO maybe the error should make the song id / song path
+    // accessible easily?
+    pub fn songs_from_library<T: Serialize + DeserializeOwned>(
+        &self,
+    ) -> Result<Vec<LibrarySong<T>>> {
+        let songs_statement = "
+            select
+                path, artist, title, album, album_artist,
+                track_number, genre, duration, version, extra_info, cue_path,
+                audio_file_path, id
+                from song where analyzed = true and version = ? order by id
+            ";
+        let features_statement = "
+            select
+                feature, song.id from feature join song on song.id = feature.song_id
+                where song.analyzed = true and song.version = ? order by song_id, feature_index
+                ";
+        let params = params![self.config.base_config().features_version];
+        self._songs_from_statement(songs_statement, features_statement, params)
+    }
 
-        let serialized: String = row.get(9).unwrap();
-        let extra_info = serde_json::from_str(&serialized).unwrap();
-        Ok(LibrarySong {
-            bliss_song: song,
-            extra_info,
-        })
+    /// Get a LibrarySong from a given album title.
+    ///
+    /// This will return all songs with corresponding bliss "album" tag,
+    /// and will order them by track number.
+    pub fn songs_from_album<T: Serialize + DeserializeOwned>(
+        &self,
+        album_title: &str,
+    ) -> Result<Vec<LibrarySong<T>>> {
+        let params = params![album_title, self.config.base_config().features_version];
+        let songs_statement = "
+            select
+                path, artist, title, album, album_artist,
+                track_number, genre, duration, version, extra_info, cue_path,
+                audio_file_path, id
+                from song where album = ? and analyzed = true and version = ?
+                order
+                by cast(track_number as integer);
+            ";
+
+        // Get the song's analysis, and attach it to the existing song.
+        let features_statement = "
+            select
+                feature, song.id from feature join song on song.id = feature.song_id
+                where album=? and analyzed = true and version = ?
+                order by cast(track_number as integer);
+            ";
+        let songs = self._songs_from_statement(songs_statement, features_statement, params)?;
+        if songs.is_empty() {
+            bail!(BlissError::ProviderError(String::from(
+                "target album was not found in the database.",
+            )));
+        };
+        Ok(songs)
     }
 
     /// Get a LibrarySong from a given file path.
@@ -596,7 +830,8 @@ impl<Config: ConfigTrait> Library<Config> {
             "
             select
                 path, artist, title, album, album_artist,
-                track_number, genre, duration, version, extra_info
+                track_number, genre, duration, version, extra_info,
+                cue_path, audio_file_path
                 from song where path=? and analyzed = true
             ",
             params![song_path],
@@ -630,8 +865,48 @@ impl<Config: ConfigTrait> Library<Config> {
         Ok(song)
     }
 
+    fn _song_from_row_closure<T: Serialize + DeserializeOwned>(
+        row: &Row,
+    ) -> Result<LibrarySong<T>, RusqliteError> {
+        let path: String = row.get(0)?;
+
+        let cue_path: Option<String> = row.get(10)?;
+        let audio_file_path: Option<String> = row.get(11)?;
+        let mut cue_info = None;
+        if let Some(cue_path) = cue_path {
+            cue_info = Some(CueInfo {
+                cue_path: PathBuf::from(cue_path),
+                audio_file_path: PathBuf::from(audio_file_path.unwrap()),
+            })
+        };
+
+        let song = Song {
+            path: PathBuf::from(path),
+            artist: row.get(1).unwrap(),
+            title: row.get(2).unwrap(),
+            album: row.get(3).unwrap(),
+            album_artist: row.get(4).unwrap(),
+            track_number: row.get(5).unwrap(),
+            genre: row.get(6).unwrap(),
+            analysis: Analysis {
+                internal_analysis: [0.; NUMBER_FEATURES],
+            },
+            duration: Duration::from_secs_f64(row.get(7).unwrap()),
+            features_version: row.get(8).unwrap(),
+            cue_info,
+        };
+
+        let serialized: String = row.get(9).unwrap();
+        let extra_info = serde_json::from_str(&serialized).unwrap();
+        Ok(LibrarySong {
+            bliss_song: song,
+            extra_info,
+        })
+    }
+
     /// Store a [Song] in the database, overidding any existing
     /// song with the same path by that one.
+    // TODO to_str() returns an option; return early and avoid panicking
     pub fn store_song<T: Serialize + DeserializeOwned>(
         &mut self,
         library_song: &LibrarySong<T>,
@@ -641,14 +916,22 @@ impl<Config: ConfigTrait> Library<Config> {
             .transaction()
             .map_err(|e| BlissError::ProviderError(e.to_string()))?;
         let song = &library_song.bliss_song;
+        let (cue_path, audio_file_path) = match &song.cue_info {
+            Some(c) => (
+                Some(c.cue_path.to_string_lossy()),
+                Some(c.audio_file_path.to_string_lossy()),
+            ),
+            None => (None, None),
+        };
         tx.execute(
             "
             insert into song (
                 path, artist, title, album, album_artist,
-                duration, track_number, genre, analyzed, version, extra_info
+                duration, track_number, genre, analyzed, version, extra_info,
+                cue_path, audio_file_path
             )
             values (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13
             )
             on conflict(path)
             do update set
@@ -661,7 +944,9 @@ impl<Config: ConfigTrait> Library<Config> {
                 genre=excluded.genre,
                 analyzed=excluded.analyzed,
                 version=excluded.version,
-                extra_info=excluded.extra_info
+                extra_info=excluded.extra_info,
+                cue_path=excluded.cue_path,
+                audio_file_path=excluded.audio_file_path
             ",
             params![
                 song.path.to_str(),
@@ -676,6 +961,8 @@ impl<Config: ConfigTrait> Library<Config> {
                 song.features_version,
                 serde_json::to_string(&library_song.extra_info)
                     .map_err(|e| BlissError::ProviderError(e.to_string()))?,
+                cue_path,
+                audio_file_path,
             ],
         )
         .map_err(|e| BlissError::ProviderError(e.to_string()))?;
@@ -707,7 +994,11 @@ impl<Config: ConfigTrait> Library<Config> {
     ///
     /// If there already is an existing song with that path, replace it by
     /// the latest failed result.
-    pub fn store_failed_song(&mut self, song_path: String, e: BlissError) -> Result<()> {
+    pub fn store_failed_song<P: Into<PathBuf>>(
+        &mut self,
+        song_path: P,
+        e: BlissError,
+    ) -> Result<()> {
         self.sqlite_conn
             .lock()
             .unwrap()
@@ -715,7 +1006,10 @@ impl<Config: ConfigTrait> Library<Config> {
                 "
             insert or replace into song (path, error) values (?1, ?2)
             ",
-                [song_path, e.to_string()],
+                [
+                    song_path.into().to_string_lossy().to_string(),
+                    e.to_string(),
+                ],
             )
             .map_err(|e| BlissError::ProviderError(e.to_string()))?;
         Ok(())
@@ -724,7 +1018,8 @@ impl<Config: ConfigTrait> Library<Config> {
     /// Delete a song with path `song_path` from the database.
     ///
     /// Errors out if the song is not in the database.
-    pub fn delete_song(&mut self, song_path: String) -> Result<()> {
+    pub fn delete_song<P: Into<PathBuf>>(&mut self, song_path: P) -> Result<()> {
+        let song_path = song_path.into();
         let count = self
             .sqlite_conn
             .lock()
@@ -733,13 +1028,13 @@ impl<Config: ConfigTrait> Library<Config> {
                 "
                 delete from song where path = ?1;
             ",
-                [song_path.to_owned()],
+                [song_path.to_str()],
             )
             .map_err(|e| BlissError::ProviderError(e.to_string()))?;
         if count == 0 {
             bail!(BlissError::ProviderError(format!(
                 "tried to delete song {}, not existing in the database.",
-                song_path,
+                song_path.display(),
             )));
         }
         Ok(())
@@ -755,6 +1050,7 @@ fn data_local_dir() -> Option<PathBuf> {
 mod test {
     use super::*;
     use crate::{Analysis, NUMBER_FEATURES};
+    use ndarray::Array1;
     use pretty_assertions::assert_eq;
     use serde::{de::DeserializeOwned, Deserialize};
     use std::{convert::TryInto, fmt::Debug, sync::MutexGuard, time::Duration};
@@ -778,6 +1074,10 @@ mod test {
         fn base_config(&self) -> &BaseConfig {
             &self.base_config
         }
+
+        fn base_config_mut(&mut self) -> &mut BaseConfig {
+            &mut self.base_config
+        }
     }
 
     // Returning the TempDir here, so it doesn't go out of scope, removing
@@ -789,6 +1089,8 @@ mod test {
         Library<BaseConfig>,
         TempDir,
         (
+            LibrarySong<ExtraInfo>,
+            LibrarySong<ExtraInfo>,
             LibrarySong<ExtraInfo>,
             LibrarySong<ExtraInfo>,
             LibrarySong<ExtraInfo>,
@@ -811,7 +1113,7 @@ mod test {
             title: Some("Title1001".into()),
             album: Some("An Album1001".into()),
             album_artist: Some("An Album Artist1001".into()),
-            track_number: Some("01".into()),
+            track_number: Some("03".into()),
             genre: Some("Electronica1001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -855,19 +1157,19 @@ mod test {
                 metadata_bliss_does_not_have: String::from("/path/to/charlie2001"),
             },
         };
+
         let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
             .map(|x| x as f32 / 2.)
             .collect::<Vec<f32>>()
             .try_into()
             .unwrap();
-
         let song = Song {
             path: "/path/to/song5001".into(),
             artist: Some("Artist5001".into()),
             title: Some("Title5001".into()),
-            album: Some("An Album5001".into()),
+            album: Some("An Album1001".into()),
             album_artist: Some("An Album Artist5001".into()),
-            track_number: Some("04".into()),
+            track_number: Some("01".into()),
             genre: Some("Electronica5001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -884,6 +1186,62 @@ mod test {
             },
         };
 
+        let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
+            .map(|x| x as f32 * 0.9)
+            .collect::<Vec<f32>>()
+            .try_into()
+            .unwrap();
+        let song = Song {
+            path: "/path/to/song6001".into(),
+            artist: Some("Artist6001".into()),
+            title: Some("Title6001".into()),
+            album: Some("An Album2001".into()),
+            album_artist: Some("An Album Artist6001".into()),
+            track_number: Some("01".into()),
+            genre: Some("Electronica6001".into()),
+            analysis: Analysis {
+                internal_analysis: analysis_vector,
+            },
+            duration: Duration::from_secs(710),
+            features_version: 1,
+            cue_info: None,
+        };
+        let fourth_song = LibrarySong {
+            bliss_song: song,
+            extra_info: ExtraInfo {
+                ignore: false,
+                metadata_bliss_does_not_have: String::from("/path/to/charlie6001"),
+            },
+        };
+
+        let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
+            .map(|x| x as f32 * 50.)
+            .collect::<Vec<f32>>()
+            .try_into()
+            .unwrap();
+        let song = Song {
+            path: "/path/to/song7001".into(),
+            artist: Some("Artist7001".into()),
+            title: Some("Title7001".into()),
+            album: Some("An Album7001".into()),
+            album_artist: Some("An Album Artist7001".into()),
+            track_number: Some("01".into()),
+            genre: Some("Electronica7001".into()),
+            analysis: Analysis {
+                internal_analysis: analysis_vector,
+            },
+            duration: Duration::from_secs(810),
+            features_version: 1,
+            cue_info: None,
+        };
+        let fifth_song = LibrarySong {
+            bliss_song: song,
+            extra_info: ExtraInfo {
+                ignore: false,
+                metadata_bliss_does_not_have: String::from("/path/to/charlie7001"),
+            },
+        };
+
         {
             let connection = library.sqlite_conn.lock().unwrap();
             connection
@@ -894,7 +1252,7 @@ mod test {
                         genre, duration, analyzed, version, extra_info
                     ) values (
                         1001, '/path/to/song1001', 'Artist1001', 'Title1001', 'An Album1001',
-                        'An Album Artist1001', '01', 'Electronica1001', 310, true,
+                        'An Album Artist1001', '03', 'Electronica1001', 310, true,
                         1, '{\"ignore\": true, \"metadata_bliss_does_not_have\":
                         \"/path/to/charlie1001\"}'
                     ),
@@ -911,15 +1269,39 @@ mod test {
                     ),
                     (
                         4001, '/path/to/song4001', 'Artist4001', 'Title4001', 'An Album4001',
-                        'An Album Artist4001', '03', 'Electronica4001', 510, true,
+                        'An Album Artist4001', '01', 'Electronica4001', 510, true,
                         0, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
                         \"/path/to/charlie4001\"}'
                     ),
                     (
-                        5001, '/path/to/song5001', 'Artist5001', 'Title5001', 'An Album5001',
-                        'An Album Artist5001', '04', 'Electronica5001', 610, true,
+                        5001, '/path/to/song5001', 'Artist5001', 'Title5001', 'An Album1001',
+                        'An Album Artist5001', '01', 'Electronica5001', 610, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
                         \"/path/to/charlie5001\"}'
+                    ),
+                    (
+                        6001, '/path/to/song6001', 'Artist6001', 'Title6001', 'An Album2001',
+                        'An Album Artist6001', '01', 'Electronica6001', 710, true,
+                        1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie6001\"}'
+                    ),
+                    (
+                        7001, '/path/to/song7001', 'Artist7001', 'Title7001', 'An Album7001',
+                        'An Album Artist7001', '01', 'Electronica7001', 810, true,
+                        1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie7001\"}'
+                    ),
+                    (
+                        8001, '/path/to/song8001', 'Artist8001', 'Title8001', 'An Album1001',
+                        'An Album Artist8001', '03', 'Electronica8001', 910, true,
+                        0, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie8001\"}'
+                    ),
+                    (
+                        9001, './data/s16_stereo_22_5kHz.flac', 'Artist9001', 'Title9001',
+                        'An Album9001', 'An Album Artist8001', '03', 'Electronica8001',
+                        1010, true, 0, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie7001\"}'
                     );
                     ",
                     [],
@@ -930,20 +1312,46 @@ mod test {
                     .execute(
                         "
                             insert into feature(song_id, feature, feature_index)
-                            values (1001, ?1, ?2), (2001, ?3, ?2), (3001, ?4, ?2), (5001, ?5, ?2);
+                            values
+                                (1001, ?2, ?1),
+                                (2001, ?3, ?1),
+                                (3001, ?4, ?1),
+                                (5001, ?5, ?1),
+                                (6001, ?6, ?1),
+                                (7001, ?7, ?1);
                             ",
                         params![
-                            index as f32 / 10.,
                             index,
+                            index as f32 / 10.,
                             index as f32 + 10.,
                             index as f32 / 10. + 1.,
-                            index as f32 / 2.
+                            index as f32 / 2.,
+                            index as f32 * 0.9,
+                            index as f32 * 50.,
                         ],
                     )
                     .unwrap();
             }
+            // Imaginary version 0 of bliss with less features.
+            for index in 0..NUMBER_FEATURES - 5 {
+                connection
+                    .execute(
+                        "
+                            insert into feature(song_id, feature, feature_index)
+                            values
+                                (8001, ?2, ?1),
+                                (9001, ?3, ?1);
+                            ",
+                        params![index, index as f32 / 20., index + 1],
+                    )
+                    .unwrap();
+            }
         }
-        (library, config_dir, (first_song, second_song, third_song))
+        (
+            library,
+            config_dir,
+            (first_song, second_song, third_song, fourth_song, fifth_song),
+        )
     }
 
     fn _library_song_from_database<T: DeserializeOwned + Serialize + Clone + Debug>(
@@ -955,12 +1363,22 @@ mod test {
                 "
             select
                 path, artist, title, album, album_artist,
-                track_number, genre, duration, version, extra_info
+                track_number, genre, duration, version, extra_info,
+                cue_path, audio_file_path
                 from song where path=?
             ",
                 params![song_path],
                 |row| {
                     let path: String = row.get(0)?;
+                    let cue_path: Option<String> = row.get(10)?;
+                    let audio_file_path: Option<String> = row.get(11)?;
+                    let mut cue_info = None;
+                    if let Some(cue_path) = cue_path {
+                        cue_info = Some(CueInfo {
+                            cue_path: PathBuf::from(cue_path),
+                            audio_file_path: PathBuf::from(audio_file_path.unwrap()),
+                        })
+                    };
                     let song = Song {
                         path: PathBuf::from(path),
                         artist: row.get(1).unwrap(),
@@ -974,7 +1392,7 @@ mod test {
                         },
                         duration: Duration::from_secs_f64(row.get(7).unwrap()),
                         features_version: row.get(8).unwrap(),
-                        cue_info: None,
+                        cue_info,
                     };
 
                     let serialized: String = row.get(9).unwrap();
@@ -1123,14 +1541,219 @@ mod test {
         assert_eq!(
             vec![
                 "/path/to/song2001",
+                "/path/to/song6001",
                 "/path/to/song5001",
-                "/path/to/song1001"
+                "/path/to/song1001",
+                "/path/to/song7001",
             ],
             songs
                 .into_iter()
                 .map(|s| s.bliss_song.path.to_string_lossy().to_string())
                 .collect::<Vec<String>>(),
         )
+    }
+
+    #[test]
+    fn test_library_custom_playlist_distance() {
+        let (library, _temp_dir, _) = setup_test_library();
+        let distance =
+            |a: &Array1<f32>, b: &Array1<f32>| (a.get(1).unwrap() - b.get(1).unwrap()).abs();
+        let songs: Vec<LibrarySong<ExtraInfo>> = library
+            .playlist_from_custom(
+                "/path/to/song2001",
+                20,
+                distance,
+                closest_to_first_song_by_key,
+                true,
+            )
+            .unwrap();
+        assert_eq!(
+            vec![
+                "/path/to/song2001",
+                "/path/to/song6001",
+                "/path/to/song5001",
+                "/path/to/song1001",
+                "/path/to/song7001",
+            ],
+            songs
+                .into_iter()
+                .map(|s| s.bliss_song.path.to_string_lossy().to_string())
+                .collect::<Vec<String>>(),
+        )
+    }
+
+    fn custom_sort<F>(
+        first_song: &LibrarySong<ExtraInfo>,
+        songs: &mut Vec<LibrarySong<ExtraInfo>>,
+        _distance: impl DistanceMetric,
+        key_fn: F,
+    ) where
+        F: Fn(&LibrarySong<ExtraInfo>) -> Song,
+    {
+        let first_song = key_fn(first_song);
+        songs.sort_by_cached_key(|song| (&key_fn(song).path).cmp(&first_song.path));
+    }
+
+    #[test]
+    fn test_library_custom_playlist_sort() {
+        let (library, _temp_dir, _) = setup_test_library();
+        let songs: Vec<LibrarySong<ExtraInfo>> = library
+            .playlist_from_custom(
+                "/path/to/song2001",
+                20,
+                euclidean_distance,
+                custom_sort,
+                true,
+            )
+            .unwrap();
+        assert_eq!(
+            vec![
+                "/path/to/song1001",
+                "/path/to/song2001",
+                "/path/to/song5001",
+                "/path/to/song6001",
+                "/path/to/song7001",
+            ],
+            songs
+                .into_iter()
+                .map(|s| s.bliss_song.path.to_string_lossy().to_string())
+                .collect::<Vec<String>>(),
+        )
+    }
+
+    #[test]
+    fn test_library_custom_playlist_dedup() {
+        let (library, _temp_dir, _) = setup_test_library();
+        let distance = |a: &Array1<f32>, b: &Array1<f32>| {
+            ((a.get(1).unwrap() - b.get(1).unwrap()).abs() / 30.).floor()
+        };
+        let songs: Vec<LibrarySong<ExtraInfo>> = library
+            .playlist_from_custom(
+                "/path/to/song2001",
+                20,
+                distance,
+                closest_to_first_song_by_key,
+                true,
+            )
+            .unwrap();
+        assert_eq!(
+            vec!["/path/to/song1001", "/path/to/song7001"],
+            songs
+                .into_iter()
+                .map(|s| s.bliss_song.path.to_string_lossy().to_string())
+                .collect::<Vec<String>>(),
+        );
+
+        let distance =
+            |a: &Array1<f32>, b: &Array1<f32>| ((a.get(1).unwrap() - b.get(1).unwrap()).abs());
+        let songs: Vec<LibrarySong<ExtraInfo>> = library
+            .playlist_from_custom(
+                "/path/to/song2001",
+                20,
+                distance,
+                closest_to_first_song_by_key,
+                false,
+            )
+            .unwrap();
+        assert_eq!(
+            vec![
+                "/path/to/song2001",
+                "/path/to/song6001",
+                "/path/to/song5001",
+                "/path/to/song1001",
+                "/path/to/song7001",
+            ],
+            songs
+                .into_iter()
+                .map(|s| s.bliss_song.path.to_string_lossy().to_string())
+                .collect::<Vec<String>>(),
+        )
+    }
+
+    #[test]
+    fn test_library_album_playlist() {
+        let (library, _temp_dir, _) = setup_test_library();
+        let album: Vec<LibrarySong<ExtraInfo>> = library
+            .album_playlist_from("An Album1001".to_string(), 20)
+            .unwrap();
+        assert_eq!(
+            vec![
+                // First album.
+                "/path/to/song5001".to_string(),
+                "/path/to/song1001".to_string(),
+                // Second album, well ordered.
+                "/path/to/song6001".to_string(),
+                "/path/to/song2001".to_string(),
+                // Third album.
+                "/path/to/song7001".to_string(),
+            ],
+            album
+                .into_iter()
+                .map(|s| s.bliss_song.path.to_string_lossy().to_string())
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    #[test]
+    fn test_library_album_playlist_crop() {
+        let (library, _temp_dir, _) = setup_test_library();
+        let album: Vec<LibrarySong<ExtraInfo>> = library
+            .album_playlist_from("An Album1001".to_string(), 1)
+            .unwrap();
+        assert_eq!(
+            vec![
+                // First album.
+                "/path/to/song5001".to_string(),
+                "/path/to/song1001".to_string(),
+                // Second album, well ordered.
+                "/path/to/song6001".to_string(),
+                "/path/to/song2001".to_string(),
+            ],
+            album
+                .into_iter()
+                .map(|s| s.bliss_song.path.to_string_lossy().to_string())
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    #[test]
+    fn test_library_songs_from_album() {
+        let (library, _temp_dir, _) = setup_test_library();
+        let album: Vec<LibrarySong<ExtraInfo>> = library.songs_from_album("An Album1001").unwrap();
+        assert_eq!(
+            vec![
+                "/path/to/song5001".to_string(),
+                "/path/to/song1001".to_string()
+            ],
+            album
+                .into_iter()
+                .map(|s| s.bliss_song.path.to_string_lossy().to_string())
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    #[test]
+    fn test_library_songs_from_album_proper_features_version() {
+        let (library, _temp_dir, _) = setup_test_library();
+        let album: Vec<LibrarySong<ExtraInfo>> = library.songs_from_album("An Album1001").unwrap();
+        assert_eq!(
+            vec![
+                "/path/to/song5001".to_string(),
+                "/path/to/song1001".to_string()
+            ],
+            album
+                .into_iter()
+                .map(|s| s.bliss_song.path.to_string_lossy().to_string())
+                .collect::<Vec<_>>(),
+        )
+    }
+
+    #[test]
+    fn test_library_songs_from_album_not_existing() {
+        let (library, _temp_dir, _) = setup_test_library();
+        assert!(library
+            .songs_from_album::<ExtraInfo>("not-existing")
+            .is_err());
     }
 
     #[test]
@@ -1155,7 +1778,7 @@ mod test {
                 .unwrap();
             assert_eq!(count, 0);
         }
-        assert!(library.delete_song("not-existing".into()).is_err());
+        assert!(library.delete_song("not-existing").is_err());
     }
 
     #[test]
@@ -1181,9 +1804,7 @@ mod test {
             assert!(count >= 1);
         }
 
-        library
-            .delete_song(String::from("/path/to/song1001"))
-            .unwrap();
+        library.delete_song("/path/to/song1001").unwrap();
 
         {
             let connection = library.sqlite_conn.lock().unwrap();
@@ -1207,13 +1828,63 @@ mod test {
     }
 
     #[test]
-    fn test_analyze_paths() {
+    fn test_analyze_paths_cue() {
         let (mut library, _temp_dir, _) = setup_test_library();
+        library.config.base_config_mut().features_version = 0;
+        {
+            let sqlite_conn =
+                Connection::open(&library.config.base_config().database_path).unwrap();
+            sqlite_conn.execute("delete from song", []).unwrap();
+        }
 
         let paths = vec![
-            "./data/s16_mono_22_5kHz.flac".into(),
-            "./data/s16_stereo_22_5kHz.flac".into(),
-            "non-existing".into(),
+            "./data/s16_mono_22_5kHz.flac",
+            "./data/testcue.cue",
+            "non-existing",
+        ];
+        library.analyze_paths(paths.to_owned(), false).unwrap();
+        let expected_analyzed_paths = vec![
+            "./data/s16_mono_22_5kHz.flac",
+            "./data/testcue.flac/CUE_TRACK001",
+            "./data/testcue.flac/CUE_TRACK002",
+            "./data/testcue.flac/CUE_TRACK003",
+        ];
+        {
+            let connection = library.sqlite_conn.lock().unwrap();
+            let mut stmt = connection
+                .prepare(
+                    "
+                select
+                    path from song where analyzed = true and path not like '%song%'
+                    order by path
+                ",
+                )
+                .unwrap();
+            let paths = stmt
+                .query_map(params![], |row| row.get(0))
+                .unwrap()
+                .map(|x| x.unwrap())
+                .collect::<Vec<String>>();
+
+            assert_eq!(paths, expected_analyzed_paths);
+        }
+        {
+            let connection = library.sqlite_conn.lock().unwrap();
+            let song: LibrarySong<()> =
+                _library_song_from_database(connection, "./data/testcue.flac/CUE_TRACK001");
+            assert!(song.bliss_song.cue_info.is_some());
+        }
+    }
+
+    #[test]
+    fn test_analyze_paths() {
+        let (mut library, _temp_dir, _) = setup_test_library();
+        library.config.base_config_mut().features_version = 0;
+
+        let paths = vec![
+            "./data/s16_mono_22_5kHz.flac",
+            "./data/s16_stereo_22_5kHz.flac",
+            "non-existing",
         ];
         library.analyze_paths(paths.to_owned(), false).unwrap();
         let songs = paths[..2]
@@ -1232,36 +1903,32 @@ mod test {
             })
             .collect::<Vec<LibrarySong<()>>>();
         assert_eq!(songs, expected_songs);
+        assert_eq!(
+            library.config.base_config_mut().features_version,
+            FEATURES_VERSION
+        );
     }
 
     #[test]
     fn test_analyze_paths_convert_extra_info() {
         let (mut library, _temp_dir, _) = setup_test_library();
-
+        library.config.base_config_mut().features_version = 0;
         let paths = vec![
-            ("./data/s16_mono_22_5kHz.flac".into(), true),
-            ("./data/s16_stereo_22_5kHz.flac".into(), false),
-            ("non-existing".into(), false),
+            ("./data/s16_mono_22_5kHz.flac", true),
+            ("./data/s16_stereo_22_5kHz.flac", false),
+            ("non-existing", false),
         ];
         library
-            .analyze_paths_convert_extra_info::<ExtraInfo, bool>(
-                paths.to_owned(),
-                true,
-                |b, _, _| ExtraInfo {
-                    ignore: b,
-                    metadata_bliss_does_not_have: String::from("coucou"),
-                },
-            )
+            .analyze_paths_convert_extra_info(paths.to_owned(), true, |b, _, _| ExtraInfo {
+                ignore: b,
+                metadata_bliss_does_not_have: String::from("coucou"),
+            })
             .unwrap();
         library
-            .analyze_paths_convert_extra_info::<ExtraInfo, bool>(
-                paths.to_owned(),
-                false,
-                |b, _, _| ExtraInfo {
-                    ignore: b,
-                    metadata_bliss_does_not_have: String::from("coucou"),
-                },
-            )
+            .analyze_paths_convert_extra_info(paths.to_owned(), false, |b, _, _| ExtraInfo {
+                ignore: b,
+                metadata_bliss_does_not_have: String::from("coucou"),
+            })
             .unwrap();
         let songs = paths[..2]
             .iter()
@@ -1291,6 +1958,10 @@ mod test {
             })
             .collect::<Vec<LibrarySong<ExtraInfo>>>();
         assert_eq!(songs, expected_songs);
+        assert_eq!(
+            library.config.base_config_mut().features_version,
+            FEATURES_VERSION
+        );
     }
 
     #[test]
@@ -1299,21 +1970,21 @@ mod test {
 
         let paths = vec![
             (
-                "./data/s16_mono_22_5kHz.flac".into(),
+                "./data/s16_mono_22_5kHz.flac",
                 ExtraInfo {
                     ignore: true,
                     metadata_bliss_does_not_have: String::from("hey"),
                 },
             ),
             (
-                "./data/s16_stereo_22_5kHz.flac".into(),
+                "./data/s16_stereo_22_5kHz.flac",
                 ExtraInfo {
                     ignore: false,
                     metadata_bliss_does_not_have: String::from("hello"),
                 },
             ),
             (
-                "non-existing".into(),
+                "non-existing",
                 ExtraInfo {
                     ignore: true,
                     metadata_bliss_does_not_have: String::from("coucou"),
@@ -1321,7 +1992,7 @@ mod test {
             ),
         ];
         library
-            .analyze_paths_extra_info::<ExtraInfo>(paths.to_owned(), false)
+            .analyze_paths_extra_info(paths.to_owned(), false)
             .unwrap();
         let songs = paths[..2]
             .iter()
@@ -1358,23 +2029,20 @@ mod test {
     // analyzed again on updates.
     fn test_update_skip_analyzed() {
         let (mut library, _temp_dir, _) = setup_test_library();
+        library.config.base_config_mut().features_version = 0;
 
         for input in vec![
-            ("./data/s16_mono_22_5kHz.flac".into(), true),
-            ("./data/s16_mono_22_5khz.flac".into(), false),
+            ("./data/s16_mono_22_5kHz.flac", true),
+            ("./data/s16_mono_22_5khz.flac", false),
         ]
         .into_iter()
         {
             let paths = vec![input.to_owned()];
             library
-                .update_library_convert_extra_info::<ExtraInfo, bool>(
-                    paths.to_owned(),
-                    false,
-                    |b, _, _| ExtraInfo {
-                        ignore: b,
-                        metadata_bliss_does_not_have: String::from("coucou"),
-                    },
-                )
+                .update_library_convert_extra_info(paths.to_owned(), false, |b, _, _| ExtraInfo {
+                    ignore: b,
+                    metadata_bliss_does_not_have: String::from("coucou"),
+                })
                 .unwrap();
             let song = {
                 let connection = library.sqlite_conn.lock().unwrap();
@@ -1390,6 +2058,10 @@ mod test {
                 }
             };
             assert_eq!(song, expected_song);
+            assert_eq!(
+                library.config.base_config_mut().features_version,
+                FEATURES_VERSION
+            );
         }
     }
 
@@ -1407,8 +2079,65 @@ mod test {
     }
 
     #[test]
+    fn test_update_library_override_old_features() {
+        let (mut library, _temp_dir, _) = setup_test_library();
+        let path: String = "./data/s16_stereo_22_5kHz.flac".into();
+
+        {
+            let connection = library.sqlite_conn.lock().unwrap();
+            let mut stmt = connection
+                .prepare(
+                    "
+                select
+                    feature from feature join song on song.id = feature.song_id
+                    where song.path = ? order by feature_index
+                ",
+                )
+                .unwrap();
+            let analysis_vector = stmt
+                .query_map(params![path], |row| row.get(0))
+                .unwrap()
+                .into_iter()
+                .map(|x| x.unwrap())
+                .collect::<Vec<f32>>();
+            assert_eq!(
+                analysis_vector,
+                vec![1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12., 13., 14., 15.]
+            )
+        }
+
+        library
+            .update_library(vec![path.to_owned()], false)
+            .unwrap();
+
+        let connection = library.sqlite_conn.lock().unwrap();
+        let mut stmt = connection
+            .prepare(
+                "
+            select
+                feature from feature join song on song.id = feature.song_id
+                where song.path = ? order by feature_index
+            ",
+            )
+            .unwrap();
+        let analysis_vector = Analysis {
+            internal_analysis: stmt
+                .query_map(params![path], |row| row.get(0))
+                .unwrap()
+                .into_iter()
+                .map(|x| x.unwrap())
+                .collect::<Vec<f32>>()
+                .try_into()
+                .unwrap(),
+        };
+        let expected_analysis_vector = Song::from_path(path).unwrap().analysis;
+        assert_eq!(analysis_vector, expected_analysis_vector);
+    }
+
+    #[test]
     fn test_update_library() {
         let (mut library, _temp_dir, _) = setup_test_library();
+        library.config.base_config_mut().features_version = 0;
 
         {
             let connection = library.sqlite_conn.lock().unwrap();
@@ -1417,10 +2146,10 @@ mod test {
         }
 
         let paths = vec![
-            "./data/s16_mono_22_5kHz.flac".into(),
-            "./data/s16_stereo_22_5kHz.flac".into(),
-            "/path/to/song4001".into(),
-            "non-existing".into(),
+            "./data/s16_mono_22_5kHz.flac",
+            "./data/s16_stereo_22_5kHz.flac",
+            "/path/to/song4001",
+            "non-existing",
         ];
         library.update_library(paths.to_owned(), false).unwrap();
         library.update_library(paths.to_owned(), true).unwrap();
@@ -1447,11 +2176,16 @@ mod test {
             // Make sure that we tried to "update" song4001 with the new features.
             assert!(!_get_song_analyzed(connection, "/path/to/song4001".into()));
         }
+        assert_eq!(
+            library.config.base_config_mut().features_version,
+            FEATURES_VERSION
+        );
     }
 
     #[test]
     fn test_update_extra_info() {
         let (mut library, _temp_dir, _) = setup_test_library();
+        library.config.base_config_mut().features_version = 0;
 
         {
             let connection = library.sqlite_conn.lock().unwrap();
@@ -1460,13 +2194,13 @@ mod test {
         }
 
         let paths = vec![
-            ("./data/s16_mono_22_5kHz.flac".into(), true),
-            ("./data/s16_stereo_22_5kHz.flac".into(), false),
-            ("/path/to/song4001".into(), false),
-            ("non-existing".into(), false),
+            ("./data/s16_mono_22_5kHz.flac", true),
+            ("./data/s16_stereo_22_5kHz.flac", false),
+            ("/path/to/song4001", false),
+            ("non-existing", false),
         ];
         library
-            .update_library_extra_info::<bool>(paths.to_owned(), false)
+            .update_library_extra_info(paths.to_owned(), false)
             .unwrap();
         let songs = paths[..2]
             .iter()
@@ -1489,11 +2223,16 @@ mod test {
             // Make sure that we tried to "update" song4001 with the new features.
             assert!(!_get_song_analyzed(connection, "/path/to/song4001".into()));
         }
+        assert_eq!(
+            library.config.base_config_mut().features_version,
+            FEATURES_VERSION
+        );
     }
 
     #[test]
     fn test_update_convert_extra_info() {
         let (mut library, _temp_dir, _) = setup_test_library();
+        library.config.base_config_mut().features_version = 0;
 
         {
             let connection = library.sqlite_conn.lock().unwrap();
@@ -1502,20 +2241,16 @@ mod test {
         }
 
         let paths = vec![
-            ("./data/s16_mono_22_5kHz.flac".into(), true),
-            ("./data/s16_stereo_22_5kHz.flac".into(), false),
-            ("/path/to/song4001".into(), false),
-            ("non-existing".into(), false),
+            ("./data/s16_mono_22_5kHz.flac", true),
+            ("./data/s16_stereo_22_5kHz.flac", false),
+            ("/path/to/song4001", false),
+            ("non-existing", false),
         ];
         library
-            .update_library_convert_extra_info::<ExtraInfo, bool>(
-                paths.to_owned(),
-                false,
-                |b, _, _| ExtraInfo {
-                    ignore: b,
-                    metadata_bliss_does_not_have: String::from("coucou"),
-                },
-            )
+            .update_library_convert_extra_info(paths.to_owned(), false, |b, _, _| ExtraInfo {
+                ignore: b,
+                metadata_bliss_does_not_have: String::from("coucou"),
+            })
             .unwrap();
         let songs = paths[..2]
             .iter()
@@ -1550,6 +2285,10 @@ mod test {
             // Make sure that we tried to "update" song4001 with the new features.
             assert!(!_get_song_analyzed(connection, "/path/to/song4001".into()));
         }
+        assert_eq!(
+            library.config.base_config_mut().features_version,
+            FEATURES_VERSION
+        );
     }
 
     #[test]
@@ -1595,7 +2334,7 @@ mod test {
         let (mut library, _temp_dir, _) = setup_test_library();
         library
             .store_failed_song(
-                "/some/failed/path".into(),
+                "/some/failed/path",
                 BlissError::ProviderError("error with the analysis".into()),
             )
             .unwrap();
@@ -1637,13 +2376,15 @@ mod test {
         let (library, _temp_dir, expected_library_songs) = setup_test_library();
 
         let library_songs = library.songs_from_library::<ExtraInfo>().unwrap();
-        assert_eq!(library_songs.len(), 3);
+        assert_eq!(library_songs.len(), 5);
         assert_eq!(
             expected_library_songs,
             (
                 library_songs[0].to_owned(),
                 library_songs[1].to_owned(),
-                library_songs[2].to_owned()
+                library_songs[2].to_owned(),
+                library_songs[3].to_owned(),
+                library_songs[4].to_owned(),
             )
         );
     }
@@ -1711,9 +2452,10 @@ mod test {
         assert_eq!(
             config_content,
             format!(
-                "{{\"config_path\":\"{}\",\"database_path\":\"{}\"}}",
+                "{{\"config_path\":\"{}\",\"database_path\":\"{}\",\"features_version\":{}}}",
                 library.config.base_config().config_path.display(),
                 library.config.base_config().database_path.display(),
+                FEATURES_VERSION,
             )
         );
     }
@@ -1839,5 +2581,24 @@ mod test {
             config,
             CustomConfig::from_path(&config_file.to_string_lossy()).unwrap(),
         );
+    }
+
+    #[test]
+    fn test_library_sanity_check_fail() {
+        let (mut library, _temp_dir, _) = setup_test_library();
+        assert!(!library.version_sanity_check().unwrap());
+    }
+
+    #[test]
+    fn test_library_sanity_check_ok() {
+        let (mut library, _temp_dir, _) = setup_test_library();
+        {
+            let sqlite_conn =
+                Connection::open(&library.config.base_config().database_path).unwrap();
+            sqlite_conn
+                .execute("delete from song where version != 1", [])
+                .unwrap();
+        }
+        assert!(library.version_sanity_check().unwrap());
     }
 }

@@ -2,7 +2,7 @@
 /// through [Library].
 ///
 /// For simplicity's sake, this example recursively gets songs from a folder
-/// to emulate an audio player library.
+/// to emulate an audio player library, without handling CUE files.
 use anyhow::Result;
 use bliss_audio::library::{AppConfigTrait, BaseConfig, Library};
 use clap::{App, Arg, SubCommand};
@@ -35,6 +35,10 @@ impl Config {
 impl AppConfigTrait for Config {
     fn base_config(&self) -> &BaseConfig {
         &self.base_config
+    }
+
+    fn base_config_mut(&mut self) -> &mut BaseConfig {
+        &mut self.base_config
     }
 }
 
