@@ -180,7 +180,7 @@ fn chroma_filter(
         }),
     );
 
-    let mut d: Array2<f64> = Array::zeros((n_chroma as usize, (&freq_bins).len()));
+    let mut d: Array2<f64> = Array::zeros((n_chroma as usize, (freq_bins).len()));
     for (idx, mut row) in d.rows_mut().into_iter().enumerate() {
         row.fill(idx as f64);
     }
@@ -207,7 +207,7 @@ fn chroma_filter(
     wts *= &freq_bins;
 
     // np.roll(), np bro
-    let mut uninit: Vec<f64> = vec![0.; (&wts).len()];
+    let mut uninit: Vec<f64> = vec![0.; (wts).len()];
     unsafe {
         uninit.set_len(wts.len());
     }

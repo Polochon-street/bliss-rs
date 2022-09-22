@@ -78,7 +78,7 @@ fn main() -> Result<()> {
     for (path, result) in song_iterator {
         match result {
             Ok(song) => analyzed_songs.push(song),
-            Err(e) => println!("error analyzing {}: {}", path, e),
+            Err(e) => println!("error analyzing {}: {}", path.display(), e),
         };
     }
     analyzed_songs.extend_from_slice(&songs);
