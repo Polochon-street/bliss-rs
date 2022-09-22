@@ -32,26 +32,25 @@
 //!
 //! ### Make a playlist from a song, discarding failed songs
 //! ```no_run
-//! use bliss_audio::{analyze_paths, BlissResult, Song};
-//! use noisy_float::prelude::n32;
+//! use bliss_audio::{
+//!     analyze_paths,
+//!     playlist::{closest_to_first_song, euclidean_distance},
+//!     BlissResult, Song,
+//! };
 //!
 //! fn main() -> BlissResult<()> {
 //!     let paths = vec!["/path/to/song1", "/path/to/song2", "/path/to/song3"];
-//!     let mut songs: Vec<Song> = analyze_paths(&paths)
-//!         .filter_map(|(_, s)| s.ok())
-//!         .collect();
+//!     let mut songs: Vec<Song> = analyze_paths(&paths).filter_map(|(_, s)| s.ok()).collect();
 //!
 //!     // Assuming there is a first song
 //!     let first_song = songs.first().unwrap().to_owned();
 //!
-//!     songs.sort_by_cached_key(|song| n32(first_song.distance(&song)));
-//!     println!(
-//!         "Playlist is: {:?}",
-//!         songs
-//!             .iter()
-//!             .map(|song| song.path.to_string_lossy().to_string())
-//!             .collect::<Vec<String>>()
-//!     );
+//!     closest_to_first_song(&first_song, &mut songs, euclidean_distance);
+//!
+//!     println!("Playlist is:");
+//!     for song in songs {
+//!         println!("{}", song.path.display());
+//!     }
 //!     Ok(())
 //! }
 //! ```
@@ -137,7 +136,7 @@ pub type BlissResult<T> = Result<T, BlissError>;
 ///     for (path, result) in analyze_paths(&paths) {
 ///         match result {
 ///             Ok(song) => println!("Do something with analyzed song {} with title {:?}", song.path.display(), song.title),
-///             Err(e) => println!("Song at {} could not be analyzed. Failed with: {}", path, e),
+///             Err(e) => println!("Song at {} could not be analyzed. Failed with: {}", path.display(), e),
 ///         }
 ///     }
 ///     Ok(())
@@ -145,19 +144,70 @@ pub type BlissResult<T> = Result<T, BlissError>;
 /// ```
 pub fn analyze_paths<P: Into<PathBuf>, F: IntoIterator<Item = P>>(
     paths: F,
-) -> mpsc::IntoIter<(String, BlissResult<Song>)> {
-    let num_cpus = num_cpus::get();
+) -> mpsc::IntoIter<(PathBuf, BlissResult<Song>)> {
+    let cores = num_cpus::get();
+    analyze_paths_with_cores(paths, cores)
+}
+
+/// Analyze songs in `paths`, and return the analyzed [Song] objects through an
+/// [mpsc::IntoIter]. `number_cores` sets the number of cores the analysis
+/// will use, capped by your system's capacity. Most of the time, you want to
+/// use the simpler `analyze_paths` functions, which autodetects the number
+/// of cores in your system.
+///
+/// Return an iterator, whose items are a tuple made of
+/// the song path (to display to the user in case the analysis failed),
+/// and a Result<Song>.
+///
+/// # Note
+///
+/// This function also works with CUE files - it finds the audio files
+/// mentionned in the CUE sheet, and then runs the analysis on each song
+/// defined by it, returning a proper [Song] object for each one of them.
+///
+/// Make sure that you don't submit both the audio file along with the CUE
+/// sheet if your library uses them, otherwise the audio file will be
+/// analyzed as one, single, long song. For instance, with a CUE sheet named
+/// `cue-file.cue` with the corresponding audio files `album-1.wav` and
+/// `album-2.wav` defined in the CUE sheet, you would just pass `cue-file.cue`
+/// to `analyze_paths`, and it will return [Song]s from both files, with
+/// more information about which file it is extracted from in the
+/// [cue info field](Song::cue_info).
+///
+/// # Example:
+/// ```no_run
+/// use bliss_audio::{analyze_paths_with_cores, BlissResult};
+///
+/// fn main() -> BlissResult<()> {
+///     let paths = vec![String::from("/path/to/song1"), String::from("/path/to/song2")];
+///     for (path, result) in analyze_paths_with_cores(&paths, 2) {
+///         match result {
+///             Ok(song) => println!("Do something with analyzed song {} with title {:?}", song.path.display(), song.title),
+///             Err(e) => println!("Song at {} could not be analyzed. Failed with: {}", path.display(), e),
+///         }
+///     }
+///     Ok(())
+/// }
+/// ```
+pub fn analyze_paths_with_cores<P: Into<PathBuf>, F: IntoIterator<Item = P>>(
+    paths: F,
+    number_cores: usize,
+) -> mpsc::IntoIter<(PathBuf, BlissResult<Song>)> {
+    let mut cores = num_cpus::get();
+    if cores > number_cores {
+        cores = number_cores;
+    }
     let paths: Vec<PathBuf> = paths.into_iter().map(|p| p.into()).collect();
     #[allow(clippy::type_complexity)]
     let (tx, rx): (
-        mpsc::Sender<(String, BlissResult<Song>)>,
-        mpsc::Receiver<(String, BlissResult<Song>)>,
+        mpsc::Sender<(PathBuf, BlissResult<Song>)>,
+        mpsc::Receiver<(PathBuf, BlissResult<Song>)>,
     ) = mpsc::channel();
     if paths.is_empty() {
         return rx.into_iter();
     }
     let mut handles = Vec::new();
-    let mut chunk_length = paths.len() / num_cpus;
+    let mut chunk_length = paths.len() / cores;
     if chunk_length == 0 {
         chunk_length = paths.len();
     }
@@ -173,22 +223,16 @@ pub fn analyze_paths<P: Into<PathBuf>, F: IntoIterator<Item = P>>(
                         match BlissCue::songs_from_path(&path) {
                             Ok(songs) => {
                                 for song in songs {
-                                    tx_thread
-                                        .send((path.to_string_lossy().to_string(), song))
-                                        .unwrap();
+                                    tx_thread.send((path.to_owned(), song)).unwrap();
                                 }
                             }
-                            Err(e) => tx_thread
-                                .send((path.to_string_lossy().to_string(), Err(e)))
-                                .unwrap(),
+                            Err(e) => tx_thread.send((path.to_owned(), Err(e))).unwrap(),
                         };
                         continue;
                     }
                 }
                 let song = Song::from_path(&path);
-                tx_thread
-                    .send((path.to_string_lossy().to_string(), song))
-                    .unwrap();
+                tx_thread.send((path.to_owned(), song)).unwrap();
             }
         });
         handles.push(child);
@@ -218,55 +262,75 @@ mod tests {
     #[test]
     fn test_analyze_paths() {
         let paths = vec![
-            String::from("./data/s16_mono_22_5kHz.flac"),
-            String::from("./data/testcue.cue"),
-            String::from("./data/white_noise.flac"),
-            String::from("definitely-not-existing.foo"),
-            String::from("not-existing.foo"),
+            PathBuf::from("./data/s16_mono_22_5kHz.flac"),
+            PathBuf::from("./data/testcue.cue"),
+            PathBuf::from("./data/white_noise.flac"),
+            PathBuf::from("definitely-not-existing.foo"),
+            PathBuf::from("not-existing.foo"),
         ];
         let mut results = analyze_paths(&paths)
             .map(|x| match &x.1 {
-                Ok(s) => (true, s.path.to_string_lossy().to_string(), None),
+                Ok(s) => (true, s.path.to_owned(), None),
                 Err(e) => (false, x.0.to_owned(), Some(e.to_string())),
             })
             .collect::<Vec<_>>();
         results.sort();
-        assert_eq!(
-            results,
-            vec![
-                (
-                    false,
-                    String::from("./data/testcue.cue"),
-                    Some(String::from(
-                        "error happened while decoding file – while \
+        let expected_results = vec![
+            (
+                false,
+                PathBuf::from("./data/testcue.cue"),
+                Some(String::from(
+                    "error happened while decoding file – while \
                             opening format for file './data/not-existing.wav': \
-                            ffmpeg::Error(2: No such file or directory)."
-                    ),),
-                ),
-                (
-                    false,
-                    String::from("definitely-not-existing.foo"),
-                    Some(String::from(
-                        "error happened while decoding file – while \
+                            ffmpeg::Error(2: No such file or directory).",
+                )),
+            ),
+            (
+                false,
+                PathBuf::from("definitely-not-existing.foo"),
+                Some(String::from(
+                    "error happened while decoding file – while \
                             opening format for file 'definitely-not-existing\
-                            .foo': ffmpeg::Error(2: No such file or directory)."
-                    ),),
-                ),
-                (
-                    false,
-                    String::from("not-existing.foo"),
-                    Some(String::from(
-                        "error happened while decoding file – \
+                            .foo': ffmpeg::Error(2: No such file or directory).",
+                )),
+            ),
+            (
+                false,
+                PathBuf::from("not-existing.foo"),
+                Some(String::from(
+                    "error happened while decoding file – \
                             while opening format for file 'not-existing.foo': \
-                            ffmpeg::Error(2: No such file or directory)."
-                    ),),
-                ),
-                (true, String::from("./data/s16_mono_22_5kHz.flac"), None),
-                (true, String::from("./data/testcue.flac/CUE_TRACK001"), None),
-                (true, String::from("./data/testcue.flac/CUE_TRACK002"), None),
-                (true, String::from("./data/testcue.flac/CUE_TRACK003"), None),
-                (true, String::from("./data/white_noise.flac"), None),
-            ],
-        );
+                            ffmpeg::Error(2: No such file or directory).",
+                )),
+            ),
+            (true, PathBuf::from("./data/s16_mono_22_5kHz.flac"), None),
+            (
+                true,
+                PathBuf::from("./data/testcue.flac/CUE_TRACK001"),
+                None,
+            ),
+            (
+                true,
+                PathBuf::from("./data/testcue.flac/CUE_TRACK002"),
+                None,
+            ),
+            (
+                true,
+                PathBuf::from("./data/testcue.flac/CUE_TRACK003"),
+                None,
+            ),
+            (true, PathBuf::from("./data/white_noise.flac"), None),
+        ];
+
+        assert_eq!(results, expected_results);
+
+        let mut results = analyze_paths_with_cores(&paths, 1)
+            .map(|x| match &x.1 {
+                Ok(s) => (true, s.path.to_owned(), None),
+                Err(e) => (false, x.0.to_owned(), Some(e.to_string())),
+            })
+            .collect::<Vec<_>>();
+        results.sort();
+        assert_eq!(results, expected_results);
     }
 }

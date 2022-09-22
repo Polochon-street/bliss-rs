@@ -150,7 +150,7 @@ impl BlissCueFile {
     // located using the sample_array and the timestamp delimiter.
     fn get_songs(&self) -> Vec<BlissResult<Song>> {
         let mut songs = Vec::new();
-        for (index, tuple) in (&self.tracks[..]).windows(2).enumerate() {
+        for (index, tuple) in (self.tracks[..]).windows(2).enumerate() {
             let (current_track, next_track) = (tuple[0].to_owned(), tuple[1].to_owned());
             if let Some((_, start_current)) = current_track.indices.get(0) {
                 if let Some((_, end_current)) = next_track.indices.get(0) {

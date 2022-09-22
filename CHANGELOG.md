@@ -1,8 +1,12 @@
 #Changelog
 
-## bliss 5.2.3
-* Fix a bug with some broken MP3 files
-* Bump ffmpeg to 5.1.0
+## bliss 0.6.0
+* Change String to PathBuf in `analyze_paths`.
+* Add `analyze_paths_with_cores`.
+
+## bliss 0.5.2
+* Fix a bug with some broken MP3 files.
+* Bump ffmpeg to 5.1.0.
 
 ## bliss 0.5.0
 * Add support for CUE files.
