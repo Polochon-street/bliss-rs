@@ -23,6 +23,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::fs::create_dir_all;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -111,16 +112,15 @@ pub struct BaseConfig {
 
 impl BaseConfig {
     pub(crate) fn get_default_data_folder() -> Result<PathBuf> {
-        match env::var("XDG_DATA_HOME") {
-            Ok(path) => Ok(Path::new(&path).join("bliss-rs")),
+        let path = match env::var("XDG_DATA_HOME") {
+            Ok(path) => Path::new(&path).join("bliss-rs"),
             Err(_) => {
-                Ok(
                     data_local_dir()
                     .with_context(|| "No suitable path found to store bliss' song database. Consider specifying such a path.")?
                     .join("bliss-rs")
-                )
             },
-        }
+        };
+        Ok(path)
     }
 
     /// Create a new, basic config. Upon calls of `Config.write()`, it will be
@@ -146,6 +146,7 @@ impl BaseConfig {
                 Self::get_default_data_folder()?.join(Path::new("songs.db"))
             }
         };
+
         Ok(Self {
             config_path,
             database_path,
@@ -211,7 +212,9 @@ pub struct LibrarySong<T: Serialize + DeserializeOwned> {
 // TODO example LibrarySong without any extra_info
 // TODO maybe return number of elements updated / deleted / whatev in analysis
 //      functions?
-// TODO add a CUE song to the library, test that getting out CUE songs work
+// TODO add full rescan
+// TODO a song_from_path with custom filters
+// TODO "smart" playlist
 impl<Config: ConfigTrait> Library<Config> {
     /// Create a new [Library] object from the given [Config] struct,
     /// writing the configuration to the file given in
@@ -221,6 +224,20 @@ impl<Config: ConfigTrait> Library<Config> {
     /// create a completely new "library".
     /// Otherwise, load an existing library file using [Library::from_config].
     pub fn new(config: Config) -> Result<Self> {
+        if !config
+            .base_config()
+            .config_path
+            .parent()
+            .ok_or_else(|| {
+                BlissError::ProviderError(format!(
+                    "specified path {} is not a valid file path.",
+                    config.base_config().config_path.display()
+                ))
+            })?
+            .is_dir()
+        {
+            create_dir_all(config.base_config().config_path.parent().unwrap())?;
+        }
         let sqlite_conn = Connection::open(&config.base_config().database_path)?;
         sqlite_conn.execute(
             "
@@ -365,6 +382,7 @@ impl<Config: ConfigTrait> Library<Config> {
     /// Example:
     /// `library.playlist_from_song_custom(song_path, 20, euclidean_distance,
     /// closest_to_first_song_by_key, true)`.
+    /// TODO path here too
     pub fn playlist_from_custom<F, G, T: Serialize + DeserializeOwned + std::fmt::Debug>(
         &self,
         song_path: &str,
@@ -377,7 +395,9 @@ impl<Config: ConfigTrait> Library<Config> {
         F: FnMut(&LibrarySong<T>, &mut Vec<LibrarySong<T>>, G, fn(&LibrarySong<T>) -> Song),
         G: DistanceMetric + Copy,
     {
-        let first_song: LibrarySong<T> = self.song_from_path(song_path)?;
+        let first_song: LibrarySong<T> = self.song_from_path(song_path).map_err(|_| {
+            BlissError::ProviderError(format!("song '{}' has not been analyzed", song_path))
+        })?;
         let mut songs = self.songs_from_library()?;
         sort_by(&first_song, &mut songs, distance, |s: &LibrarySong<T>| {
             s.bliss_song.to_owned()
@@ -475,7 +495,7 @@ impl<Config: ConfigTrait> Library<Config> {
     ///
     /// `convert_extra_info` is a function that you should specify
     /// to convert that extra info to something serializable.
-    ///
+    // TODO have a `delete` option
     pub fn update_library_convert_extra_info<
         T: Serialize + DeserializeOwned,
         U,
@@ -662,7 +682,6 @@ impl<Config: ConfigTrait> Library<Config> {
                             convert_extra_info(extra, &song, self)
                         }
                     };
-
                     let library_song = LibrarySong::<T> {
                         bliss_song: song,
                         extra_info: extra,
@@ -817,6 +836,7 @@ impl<Config: ConfigTrait> Library<Config> {
     }
 
     /// Get a LibrarySong from a given file path.
+    /// TODO pathbuf here too
     pub fn song_from_path<T: Serialize + DeserializeOwned>(
         &self,
         song_path: &str,
@@ -896,7 +916,8 @@ impl<Config: ConfigTrait> Library<Config> {
             cue_info,
         };
 
-        let serialized: String = row.get(9).unwrap();
+        let serialized: Option<String> = row.get(9).unwrap();
+        let serialized = serialized.unwrap_or_else(|| "null".into());
         let extra_info = serde_json::from_str(&serialized).unwrap();
         Ok(LibrarySong {
             bliss_song: song,
@@ -1094,6 +1115,8 @@ mod test {
             LibrarySong<ExtraInfo>,
             LibrarySong<ExtraInfo>,
             LibrarySong<ExtraInfo>,
+            LibrarySong<ExtraInfo>,
+            LibrarySong<ExtraInfo>,
         ),
     ) {
         let config_dir = TempDir::new("coucou").unwrap();
@@ -1242,6 +1265,70 @@ mod test {
             },
         };
 
+        let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
+            .map(|x| x as f32 * 100.)
+            .collect::<Vec<f32>>()
+            .try_into()
+            .unwrap();
+
+        let song = Song {
+            path: "/path/to/cuetrack.cue/CUE_TRACK001".into(),
+            artist: Some("CUE Artist".into()),
+            title: Some("CUE Title 01".into()),
+            album: Some("CUE Album".into()),
+            album_artist: Some("CUE Album Artist".into()),
+            track_number: Some("01".into()),
+            genre: None,
+            analysis: Analysis {
+                internal_analysis: analysis_vector,
+            },
+            duration: Duration::from_secs(810),
+            features_version: 1,
+            cue_info: Some(CueInfo {
+                cue_path: PathBuf::from("/path/to/cuetrack.cue"),
+                audio_file_path: PathBuf::from("/path/to/cuetrack.flac"),
+            }),
+        };
+        let sixth_song = LibrarySong {
+            bliss_song: song,
+            extra_info: ExtraInfo {
+                ignore: false,
+                metadata_bliss_does_not_have: String::from("/path/to/charlie7001"),
+            },
+        };
+
+        let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
+            .map(|x| x as f32 * 101.)
+            .collect::<Vec<f32>>()
+            .try_into()
+            .unwrap();
+
+        let song = Song {
+            path: "/path/to/cuetrack.cue/CUE_TRACK002".into(),
+            artist: Some("CUE Artist".into()),
+            title: Some("CUE Title 02".into()),
+            album: Some("CUE Album".into()),
+            album_artist: Some("CUE Album Artist".into()),
+            track_number: Some("02".into()),
+            genre: None,
+            analysis: Analysis {
+                internal_analysis: analysis_vector,
+            },
+            duration: Duration::from_secs(910),
+            features_version: 1,
+            cue_info: Some(CueInfo {
+                cue_path: PathBuf::from("/path/to/cuetrack.cue"),
+                audio_file_path: PathBuf::from("/path/to/cuetrack.flac"),
+            }),
+        };
+        let seventh_song = LibrarySong {
+            bliss_song: song,
+            extra_info: ExtraInfo {
+                ignore: false,
+                metadata_bliss_does_not_have: String::from("/path/to/charlie7001"),
+            },
+        };
+
         {
             let connection = library.sqlite_conn.lock().unwrap();
             connection
@@ -1249,59 +1336,75 @@ mod test {
                     "
                     insert into song (
                         id, path, artist, title, album, album_artist, track_number,
-                        genre, duration, analyzed, version, extra_info
+                        genre, duration, analyzed, version, extra_info,
+                        cue_path, audio_file_path
                     ) values (
                         1001, '/path/to/song1001', 'Artist1001', 'Title1001', 'An Album1001',
                         'An Album Artist1001', '03', 'Electronica1001', 310, true,
                         1, '{\"ignore\": true, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie1001\"}'
+                        \"/path/to/charlie1001\"}', null, null
                     ),
                     (
                         2001, '/path/to/song2001', 'Artist2001', 'Title2001', 'An Album2001',
                         'An Album Artist2001', '02', 'Electronica2001', 410, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie2001\"}'
+                        \"/path/to/charlie2001\"}', null, null
                     ),
                     (
                         3001, '/path/to/song3001', null, null, null,
-                        null, null, null, null, false,
-                        1, '{}'
+                        null, null, null, null, false, 1, '{}', null, null
                     ),
                     (
                         4001, '/path/to/song4001', 'Artist4001', 'Title4001', 'An Album4001',
                         'An Album Artist4001', '01', 'Electronica4001', 510, true,
                         0, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie4001\"}'
+                        \"/path/to/charlie4001\"}', null, null
                     ),
                     (
                         5001, '/path/to/song5001', 'Artist5001', 'Title5001', 'An Album1001',
                         'An Album Artist5001', '01', 'Electronica5001', 610, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie5001\"}'
+                        \"/path/to/charlie5001\"}', null, null
                     ),
                     (
                         6001, '/path/to/song6001', 'Artist6001', 'Title6001', 'An Album2001',
                         'An Album Artist6001', '01', 'Electronica6001', 710, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie6001\"}'
+                        \"/path/to/charlie6001\"}', null, null
                     ),
                     (
                         7001, '/path/to/song7001', 'Artist7001', 'Title7001', 'An Album7001',
                         'An Album Artist7001', '01', 'Electronica7001', 810, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie7001\"}'
+                        \"/path/to/charlie7001\"}', null, null
+                    ),
+                    (
+                        7002, '/path/to/cuetrack.cue/CUE_TRACK001', 'CUE Artist',
+                        'CUE Title 01', 'CUE Album',
+                        'CUE Album Artist', '01', null, 810, true,
+                        1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie7001\"}', '/path/to/cuetrack.cue',
+                        '/path/to/cuetrack.flac'
+                    ),
+                    (
+                        7003, '/path/to/cuetrack.cue/CUE_TRACK002', 'CUE Artist',
+                        'CUE Title 02', 'CUE Album',
+                        'CUE Album Artist', '02', null, 910, true,
+                        1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie7001\"}', '/path/to/cuetrack.cue',
+                        '/path/to/cuetrack.flac'
                     ),
                     (
                         8001, '/path/to/song8001', 'Artist8001', 'Title8001', 'An Album1001',
                         'An Album Artist8001', '03', 'Electronica8001', 910, true,
                         0, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie8001\"}'
+                        \"/path/to/charlie8001\"}', null, null
                     ),
                     (
                         9001, './data/s16_stereo_22_5kHz.flac', 'Artist9001', 'Title9001',
                         'An Album9001', 'An Album Artist8001', '03', 'Electronica8001',
                         1010, true, 0, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie7001\"}'
+                        \"/path/to/charlie7001\"}', null, null
                     );
                     ",
                     [],
@@ -1318,7 +1421,9 @@ mod test {
                                 (3001, ?4, ?1),
                                 (5001, ?5, ?1),
                                 (6001, ?6, ?1),
-                                (7001, ?7, ?1);
+                                (7001, ?7, ?1),
+                                (7002, ?8, ?1),
+                                (7003, ?9, ?1);
                             ",
                         params![
                             index,
@@ -1328,6 +1433,8 @@ mod test {
                             index as f32 / 2.,
                             index as f32 * 0.9,
                             index as f32 * 50.,
+                            index as f32 * 100.,
+                            index as f32 * 101.,
                         ],
                     )
                     .unwrap();
@@ -1350,7 +1457,15 @@ mod test {
         (
             library,
             config_dir,
-            (first_song, second_song, third_song, fourth_song, fifth_song),
+            (
+                first_song,
+                second_song,
+                third_song,
+                fourth_song,
+                fifth_song,
+                sixth_song,
+                seventh_song,
+            ),
         )
     }
 
@@ -1403,7 +1518,7 @@ mod test {
                     })
                 },
             )
-            .expect("Song probably does not exist in the db.");
+            .expect("Song does not exist in the db.");
         let mut stmt = connection
             .prepare(
                 "
@@ -1545,6 +1660,8 @@ mod test {
                 "/path/to/song5001",
                 "/path/to/song1001",
                 "/path/to/song7001",
+                "/path/to/cuetrack.cue/CUE_TRACK001",
+                "/path/to/cuetrack.cue/CUE_TRACK002",
             ],
             songs
                 .into_iter()
@@ -1574,6 +1691,8 @@ mod test {
                 "/path/to/song5001",
                 "/path/to/song1001",
                 "/path/to/song7001",
+                "/path/to/cuetrack.cue/CUE_TRACK001",
+                "/path/to/cuetrack.cue/CUE_TRACK002",
             ],
             songs
                 .into_iter()
@@ -1583,15 +1702,14 @@ mod test {
     }
 
     fn custom_sort<F>(
-        first_song: &LibrarySong<ExtraInfo>,
+        _: &LibrarySong<ExtraInfo>,
         songs: &mut Vec<LibrarySong<ExtraInfo>>,
         _distance: impl DistanceMetric,
         key_fn: F,
     ) where
         F: Fn(&LibrarySong<ExtraInfo>) -> Song,
     {
-        let first_song = key_fn(first_song);
-        songs.sort_by_cached_key(|song| (&key_fn(song).path).cmp(&first_song.path));
+        songs.sort_by_key(|song| key_fn(song).path);
     }
 
     #[test]
@@ -1608,6 +1726,8 @@ mod test {
             .unwrap();
         assert_eq!(
             vec![
+                "/path/to/cuetrack.cue/CUE_TRACK001",
+                "/path/to/cuetrack.cue/CUE_TRACK002",
                 "/path/to/song1001",
                 "/path/to/song2001",
                 "/path/to/song5001",
@@ -1637,7 +1757,11 @@ mod test {
             )
             .unwrap();
         assert_eq!(
-            vec!["/path/to/song1001", "/path/to/song7001"],
+            vec![
+                "/path/to/song1001",
+                "/path/to/song7001",
+                "/path/to/cuetrack.cue/CUE_TRACK001"
+            ],
             songs
                 .into_iter()
                 .map(|s| s.bliss_song.path.to_string_lossy().to_string())
@@ -1662,6 +1786,8 @@ mod test {
                 "/path/to/song5001",
                 "/path/to/song1001",
                 "/path/to/song7001",
+                "/path/to/cuetrack.cue/CUE_TRACK001",
+                "/path/to/cuetrack.cue/CUE_TRACK002",
             ],
             songs
                 .into_iter()
@@ -1686,6 +1812,9 @@ mod test {
                 "/path/to/song2001".to_string(),
                 // Third album.
                 "/path/to/song7001".to_string(),
+                // Fourth album.
+                "/path/to/cuetrack.cue/CUE_TRACK001".to_string(),
+                "/path/to/cuetrack.cue/CUE_TRACK002".to_string(),
             ],
             album
                 .into_iter()
@@ -1845,9 +1974,9 @@ mod test {
         library.analyze_paths(paths.to_owned(), false).unwrap();
         let expected_analyzed_paths = vec![
             "./data/s16_mono_22_5kHz.flac",
-            "./data/testcue.flac/CUE_TRACK001",
-            "./data/testcue.flac/CUE_TRACK002",
-            "./data/testcue.flac/CUE_TRACK003",
+            "./data/testcue.cue/CUE_TRACK001",
+            "./data/testcue.cue/CUE_TRACK002",
+            "./data/testcue.cue/CUE_TRACK003",
         ];
         {
             let connection = library.sqlite_conn.lock().unwrap();
@@ -1871,7 +2000,7 @@ mod test {
         {
             let connection = library.sqlite_conn.lock().unwrap();
             let song: LibrarySong<()> =
-                _library_song_from_database(connection, "./data/testcue.flac/CUE_TRACK001");
+                _library_song_from_database(connection, "./data/testcue.cue/CUE_TRACK001");
             assert!(song.bliss_song.cue_info.is_some());
         }
     }
@@ -2376,7 +2505,7 @@ mod test {
         let (library, _temp_dir, expected_library_songs) = setup_test_library();
 
         let library_songs = library.songs_from_library::<ExtraInfo>().unwrap();
-        assert_eq!(library_songs.len(), 5);
+        assert_eq!(library_songs.len(), 7);
         assert_eq!(
             expected_library_songs,
             (
@@ -2385,6 +2514,8 @@ mod test {
                 library_songs[2].to_owned(),
                 library_songs[3].to_owned(),
                 library_songs[4].to_owned(),
+                library_songs[5].to_owned(),
+                library_songs[6].to_owned(),
             )
         );
     }
@@ -2600,5 +2731,19 @@ mod test {
                 .unwrap();
         }
         assert!(library.version_sanity_check().unwrap());
+    }
+
+    #[test]
+    fn test_library_create_all_dirs() {
+        let config_dir = TempDir::new("coucou")
+            .unwrap()
+            .path()
+            .join("path")
+            .join("to");
+        assert!(!config_dir.is_dir());
+        let config_file = config_dir.join("config.json");
+        let database_file = config_dir.join("bliss.db");
+        Library::<BaseConfig>::new_from_base(Some(config_file), Some(database_file)).unwrap();
+        assert!(config_dir.is_dir());
     }
 }

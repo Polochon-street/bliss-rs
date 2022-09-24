@@ -131,7 +131,7 @@ impl BlissCueFile {
             let song = Song {
                 path: PathBuf::from(format!(
                     "{}/CUE_TRACK{:03}",
-                    self.audio_file_path.to_string_lossy(),
+                    self.cue_path.to_string_lossy(),
                     index,
                 )),
                 album: self.album.to_owned(),
@@ -210,7 +210,7 @@ mod tests {
         let songs = BlissCue::songs_from_path("data/testcue.cue").unwrap();
         let expected = vec![
             Ok(Song {
-                path: Path::new("data/testcue.flac/CUE_TRACK001").to_path_buf(),
+                path: Path::new("data/testcue.cue/CUE_TRACK001").to_path_buf(),
                 analysis: Analysis {
                     internal_analysis: [
                         0.38463724,
@@ -250,7 +250,7 @@ mod tests {
                 ..Default::default()
             }),
             Ok(Song {
-                path: Path::new("data/testcue.flac/CUE_TRACK002").to_path_buf(),
+                path: Path::new("data/testcue.cue/CUE_TRACK002").to_path_buf(),
                 analysis: Analysis {
                     internal_analysis: [
                         0.18622077,
@@ -290,7 +290,7 @@ mod tests {
                 ..Default::default()
             }),
             Ok(Song {
-                path: Path::new("data/testcue.flac/CUE_TRACK003").to_path_buf(),
+                path: Path::new("data/testcue.cue/CUE_TRACK003").to_path_buf(),
                 analysis: Analysis {
                     internal_analysis: [
                         0.0024261475,

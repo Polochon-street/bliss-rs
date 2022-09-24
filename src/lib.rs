@@ -306,21 +306,9 @@ mod tests {
                 )),
             ),
             (true, PathBuf::from("./data/s16_mono_22_5kHz.flac"), None),
-            (
-                true,
-                PathBuf::from("./data/testcue.flac/CUE_TRACK001"),
-                None,
-            ),
-            (
-                true,
-                PathBuf::from("./data/testcue.flac/CUE_TRACK002"),
-                None,
-            ),
-            (
-                true,
-                PathBuf::from("./data/testcue.flac/CUE_TRACK003"),
-                None,
-            ),
+            (true, PathBuf::from("./data/testcue.cue/CUE_TRACK001"), None),
+            (true, PathBuf::from("./data/testcue.cue/CUE_TRACK002"), None),
+            (true, PathBuf::from("./data/testcue.cue/CUE_TRACK003"), None),
             (true, PathBuf::from("./data/white_noise.flac"), None),
         ];
 
