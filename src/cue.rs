@@ -55,7 +55,15 @@ impl BlissCue {
         let mut songs = Vec::new();
         for cue_file in cue_files.into_iter() {
             match cue_file {
-                Ok(f) => songs.extend_from_slice(&f.get_songs()),
+                Ok(f) => {
+                    if !f.sample_array.is_empty() {
+                        songs.extend_from_slice(&f.get_songs());
+                    } else {
+                        songs.push(Err(BlissError::DecodingError(
+                            "empty audio file associated to CUE sheet".into(),
+                        )));
+                    }
+                }
                 Err(e) => songs.push(Err(e)),
             }
         }
@@ -186,6 +194,16 @@ impl BlissCueFile {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_empty_cue() {
+        let songs = BlissCue::songs_from_path("data/empty.cue").unwrap();
+        let error = songs[0].to_owned().unwrap_err();
+        assert_eq!(
+            error,
+            BlissError::DecodingError("empty audio file associated to CUE sheet".to_string())
+        );
+    }
 
     #[test]
     fn test_cue_analysis() {
