@@ -1,5 +1,8 @@
 #Changelog
 
+## bliss 0.6.1
+* Fix a decoding bug while decoding certain WAV files.
+
 ## bliss 0.6.0
 * Change String to PathBuf in `analyze_paths`.
 * Add `analyze_paths_with_cores`.

@@ -26,7 +26,6 @@ use ::log::warn;
 use core::ops::Index;
 use crossbeam::thread;
 use ffmpeg_next::codec::threading::{Config, Type as ThreadingType};
-use ffmpeg_next::util;
 use ffmpeg_next::util::channel_layout::ChannelLayout;
 use ffmpeg_next::util::error::Error;
 use ffmpeg_next::util::error::EINVAL;
@@ -34,6 +33,7 @@ use ffmpeg_next::util::format::sample::{Sample, Type};
 use ffmpeg_next::util::frame::audio::Audio;
 use ffmpeg_next::util::log;
 use ffmpeg_next::util::log::level::Level;
+use ffmpeg_next::{media, util};
 use ndarray::{arr1, Array1};
 use std::convert::TryInto;
 use std::fmt;
@@ -433,24 +433,21 @@ impl Song {
             path: path.into(),
             ..Default::default()
         };
-        let mut format = ffmpeg::format::input(&path).map_err(|e| {
+        let mut ictx = ffmpeg::format::input(&path).map_err(|e| {
             BlissError::DecodingError(format!(
                 "while opening format for file '{}': {:?}.",
                 path.display(),
                 e
             ))
         })?;
-        let (mut codec, stream, expected_sample_number) = {
-            let stream = format
-                .streams()
-                .find(|s| s.parameters().medium() == ffmpeg::media::Type::Audio)
-                .ok_or_else(|| {
-                    BlissError::DecodingError(format!(
-                        "No audio stream found for file '{}'.",
-                        path.display()
-                    ))
-                })?;
-            let mut context = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
+        let (mut decoder, stream, expected_sample_number) = {
+            let input = ictx.streams().best(media::Type::Audio).ok_or_else(|| {
+                BlissError::DecodingError(format!(
+                    "No audio stream found for file '{}'.",
+                    path.display()
+                ))
+            })?;
+            let mut context = ffmpeg::codec::context::Context::from_parameters(input.parameters())
                 .map_err(|e| {
                     BlissError::DecodingError(format!(
                         "Could not load the codec context for file '{}': {:?}",
@@ -463,13 +460,14 @@ impl Song {
                 count: 0,
                 safe: true,
             });
-            let codec = context.decoder().audio().map_err(|e| {
+            let decoder = context.decoder().audio().map_err(|e| {
                 BlissError::DecodingError(format!(
-                    "when finding codec for file '{}': {:?}.",
+                    "when finding decoder for file '{}': {:?}.",
                     path.display(),
                     e
                 ))
             })?;
+
             // Add SAMPLE_RATE to have one second margin to avoid reallocating if
             // the duration is slightly more than estimated
             // TODO>1.0 another way to get the exact number of samples is to decode
@@ -477,62 +475,61 @@ impl Song {
             // allocate the array with that number, and decode again. Check
             // what's faster between reallocating, and just have one second
             // leeway.
-            let expected_sample_number = (SAMPLE_RATE as f32 * stream.duration() as f32
-                / stream.time_base().denominator() as f32)
+            let expected_sample_number = (SAMPLE_RATE as f32 * input.duration() as f32
+                / input.time_base().denominator() as f32)
                 .ceil()
                 + SAMPLE_RATE as f32;
-            (codec, stream.index(), expected_sample_number)
+            (decoder, input.index(), expected_sample_number)
         };
         let sample_array: Vec<f32> = Vec::with_capacity(expected_sample_number as usize);
-        if let Some(title) = format.metadata().get("title") {
+        if let Some(title) = ictx.metadata().get("title") {
             song.title = match title {
                 "" => None,
                 t => Some(t.to_string()),
             };
         };
-        if let Some(artist) = format.metadata().get("artist") {
+        if let Some(artist) = ictx.metadata().get("artist") {
             song.artist = match artist {
                 "" => None,
                 a => Some(a.to_string()),
             };
         };
-        if let Some(album) = format.metadata().get("album") {
+        if let Some(album) = ictx.metadata().get("album") {
             song.album = match album {
                 "" => None,
                 a => Some(a.to_string()),
             };
         };
-        if let Some(genre) = format.metadata().get("genre") {
+        if let Some(genre) = ictx.metadata().get("genre") {
             song.genre = match genre {
                 "" => None,
                 g => Some(g.to_string()),
             };
         };
-        if let Some(track_number) = format.metadata().get("track") {
+        if let Some(track_number) = ictx.metadata().get("track") {
             song.track_number = match track_number {
                 "" => None,
                 t => Some(t.to_string()),
             };
         };
-        if let Some(album_artist) = format.metadata().get("album_artist") {
+        if let Some(album_artist) = ictx.metadata().get("album_artist") {
             song.album_artist = match album_artist {
                 "" => None,
                 t => Some(t.to_string()),
             };
         };
-
         let in_channel_layout = {
-            if codec.channel_layout() == ChannelLayout::empty() {
-                ChannelLayout::default(codec.channels().into())
+            if decoder.channel_layout() == ChannelLayout::empty() {
+                ChannelLayout::default(decoder.channels().into())
             } else {
-                codec.channel_layout()
+                decoder.channel_layout()
             }
         };
-        codec.set_channel_layout(in_channel_layout);
+        decoder.set_channel_layout(in_channel_layout);
 
         let (tx, rx) = mpsc::channel();
-        let in_codec_format = codec.format();
-        let in_codec_rate = codec.rate();
+        let in_codec_format = decoder.format();
+        let in_codec_rate = decoder.rate();
         let child = std_thread::spawn(move || {
             resample_frame(
                 rx,
@@ -542,11 +539,11 @@ impl Song {
                 sample_array,
             )
         });
-        for (s, packet) in format.packets() {
+        for (s, packet) in ictx.packets() {
             if s.index() != stream {
                 continue;
             }
-            match codec.send_packet(&packet) {
+            match decoder.send_packet(&packet) {
                 Ok(_) => (),
                 Err(Error::Other { errno: EINVAL }) => {
                     return Err(BlissError::DecodingError(format!(
@@ -568,7 +565,7 @@ impl Song {
 
             loop {
                 let mut decoded = ffmpeg::frame::Audio::empty();
-                match codec.receive_frame(&mut decoded) {
+                match decoder.receive_frame(&mut decoded) {
                     Ok(_) => {
                         tx.send(decoded).map_err(|e| {
                             BlissError::DecodingError(format!(
@@ -585,7 +582,7 @@ impl Song {
 
         // Flush the stream
         let packet = ffmpeg::codec::packet::Packet::empty();
-        match codec.send_packet(&packet) {
+        match decoder.send_packet(&packet) {
             Ok(_) => (),
             Err(Error::Other { errno: EINVAL }) => {
                 return Err(BlissError::DecodingError(format!(
@@ -607,7 +604,7 @@ impl Song {
 
         loop {
             let mut decoded = ffmpeg::frame::Audio::empty();
-            match codec.receive_frame(&mut decoded) {
+            match decoder.receive_frame(&mut decoded) {
                 Ok(_) => {
                     tx.send(decoded).map_err(|e| {
                         BlissError::DecodingError(format!(
@@ -667,7 +664,11 @@ fn resample_frame(
     let mut something_happened = false;
     for decoded in rx.iter() {
         if in_codec_format != decoded.format()
-            || in_channel_layout != decoded.channel_layout()
+            || (in_channel_layout != decoded.channel_layout())
+                // If the decoded layout is empty, it means we forced the
+                // "in_channel_layout" to something default, not that
+                // the format is wrong.
+                && (decoded.channel_layout() != ChannelLayout::empty())
             || in_rate != decoded.rate()
         {
             warn!("received decoded packet with wrong format; file might be corrupted.");
@@ -943,6 +944,15 @@ mod tests {
         let song = Song::from_path("data/s16_mono_22_5kHz.flac").unwrap();
         assert_eq!(song.analysis[AnalysisIndex::Tempo], 0.3846389);
         assert_eq!(song.analysis[AnalysisIndex::Chroma10], -0.95968974);
+    }
+
+    #[test]
+    fn test_decode_wav() {
+        let expected_hash = [
+            0xf0, 0xe0, 0x85, 0x4e, 0xf6, 0x53, 0x76, 0xfa, 0x7a, 0xa5, 0x65, 0x76, 0xf9, 0xe1,
+            0xe8, 0xe0, 0x81, 0xc8, 0xdc, 0x61,
+        ];
+        _test_decode(Path::new("data/piano.wav"), &expected_hash);
     }
 
     #[test]
