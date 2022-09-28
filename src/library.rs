@@ -52,10 +52,11 @@
 //!             music_library_path: PathBuf,
 //!             config_path: Option<PathBuf>,
 //!             database_path: Option<PathBuf>,
+//!             number_cores: Option<usize>,
 //!         ) -> Result<Self> {
 //!             // Note that by passing `(None, None)` here, the paths will
 //!             // be inferred automatically using user data dirs.
-//!             let base_config = BaseConfig::new(config_path, database_path)?;
+//!             let base_config = BaseConfig::new(config_path, database_path, number_cores)?;
 //!             Ok(Self {
 //!                 base_config,
 //!                 music_library_path,
@@ -73,7 +74,7 @@
 //!
 //!     let config_path = Some(PathBuf::from("path/to/config/config.json"));
 //!     let database_path = Some(PathBuf::from("path/to/config/bliss.db"));
-//!     let config = BaseConfig::new(config_path, database_path)?;
+//!     let config = BaseConfig::new(config_path, database_path, None)?;
 //!     let library: Library<BaseConfig> = Library::new(config)?;
 //!     # Ok::<(), Error>(())
 //!   ```
@@ -203,9 +204,18 @@ pub trait AppConfigTrait: Serialize + Sized + DeserializeOwned {
 /// The minimum configuration an application needs to work with
 /// a [Library].
 pub struct BaseConfig {
+    /// The path to where the configuration file should be stored,
+    /// e.g. `/home/foo/.local/share/bliss-rs/config.json`
     config_path: PathBuf,
+    /// The path to where the database file should be stored,
+    /// e.g. `/home/foo/.local/share/bliss-rs/bliss.db`
     database_path: PathBuf,
+    /// The latest features version a song has been analyzed
+    /// with.
     features_version: u16,
+    /// The number of CPU cores an analysis will be performed with.
+    /// Defaults to the number of CPUs in the user's computer.
+    number_cores: usize,
 }
 
 impl BaseConfig {
@@ -225,8 +235,14 @@ impl BaseConfig {
     /// written to `config_path`.
     //
     /// Any path omitted will instead default to a "clever" path using
-    /// data directory inference.
-    pub fn new(config_path: Option<PathBuf>, database_path: Option<PathBuf>) -> Result<Self> {
+    /// data directory inference. The number of cores is the number of cores
+    /// that should be used for any analysis. If not provided, it will default
+    /// to the computer's number of cores.
+    pub fn new(
+        config_path: Option<PathBuf>,
+        database_path: Option<PathBuf>,
+        number_cores: Option<usize>,
+    ) -> Result<Self> {
         let config_path = {
             // User provided a path; let the future file creation determine
             // whether it points to something valid or not
@@ -245,10 +261,13 @@ impl BaseConfig {
             }
         };
 
+        let number_cores = number_cores.unwrap_or_else(num_cpus::get);
+
         Ok(Self {
             config_path,
             database_path,
             features_version: FEATURES_VERSION,
+            number_cores,
         })
     }
 }
@@ -387,7 +406,7 @@ impl<Config: AppConfigTrait> Library<Config> {
     /// set using default data folder path.
     pub fn from_config_path(config_path: Option<PathBuf>) -> Result<Self> {
         let config_path: Result<PathBuf> =
-            config_path.map_or_else(|| Ok(BaseConfig::new(None, None)?.config_path), Ok);
+            config_path.map_or_else(|| Ok(BaseConfig::new(None, None, None)?.config_path), Ok);
         let config_path = config_path?;
         let data = fs::read_to_string(config_path)?;
         let config = Config::deserialize_config(&data)?;
@@ -430,11 +449,12 @@ impl<Config: AppConfigTrait> Library<Config> {
     pub fn new_from_base(
         config_path: Option<PathBuf>,
         database_path: Option<PathBuf>,
+        number_cores: Option<usize>,
     ) -> Result<Self>
     where
         BaseConfig: Into<Config>,
     {
-        let base = BaseConfig::new(config_path, database_path)?;
+        let base = BaseConfig::new(config_path, database_path, number_cores)?;
         let config = base.into();
         Self::new(config)
     }
@@ -1224,7 +1244,8 @@ mod test {
         let config_file = config_dir.path().join("config.json");
         let database_file = config_dir.path().join("bliss.db");
         let library =
-            Library::<BaseConfig>::new_from_base(Some(config_file), Some(database_file)).unwrap();
+            Library::<BaseConfig>::new_from_base(Some(config_file), Some(database_file), None)
+                .unwrap();
 
         let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
             .map(|x| x as f32 / 10.)
@@ -2684,10 +2705,11 @@ mod test {
         assert_eq!(
             config_content,
             format!(
-                "{{\"config_path\":\"{}\",\"database_path\":\"{}\",\"features_version\":{}}}",
+                "{{\"config_path\":\"{}\",\"database_path\":\"{}\",\"features_version\":{},\"number_cores\":{}}}",
                 library.config.base_config().config_path.display(),
                 library.config.base_config().database_path.display(),
                 FEATURES_VERSION,
+                num_cpus::get(),
             )
         );
     }
@@ -2766,7 +2788,7 @@ mod test {
         // In reality, someone would just do that with `(None, None)` to get the default
         // paths.
         let base_config =
-            BaseConfig::new(Some(config_file.to_owned()), Some(database_file)).unwrap();
+            BaseConfig::new(Some(config_file.to_owned()), Some(database_file), Some(1)).unwrap();
 
         let config = CustomConfig {
             base_config,
@@ -2800,7 +2822,7 @@ mod test {
         // In reality, someone would just do that with `(None, None)` to get the default
         // paths.
         let base_config =
-            BaseConfig::new(Some(config_file.to_owned()), Some(database_file)).unwrap();
+            BaseConfig::new(Some(config_file.to_owned()), Some(database_file), Some(1)).unwrap();
 
         let config = CustomConfig {
             base_config,
@@ -2844,7 +2866,8 @@ mod test {
         assert!(!config_dir.is_dir());
         let config_file = config_dir.join("config.json");
         let database_file = config_dir.join("bliss.db");
-        Library::<BaseConfig>::new_from_base(Some(config_file), Some(database_file)).unwrap();
+        Library::<BaseConfig>::new_from_base(Some(config_file), Some(database_file), Some(1))
+            .unwrap();
         assert!(config_dir.is_dir());
     }
 }
