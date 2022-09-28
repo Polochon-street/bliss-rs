@@ -11,7 +11,7 @@ keywords = ["audio", "analysis", "MIR", "playlist", "similarity"]
 readme = "README.md"
 
 [package.metadata.docs.rs]
-features = ["bliss-audio-aubio-rs/rustdoc"]
+features = ["bliss-audio-aubio-rs/rustdoc", "library"]
 no-default-features = true
 
 [features]
@@ -23,6 +23,12 @@ ffmpeg-static = ["ffmpeg-next/static"]
 python-bindings = ["bliss-audio-aubio-rs/fftw3"]
 # Enable the benchmarks with `cargo +nightly bench --features=bench`
 bench = []
+library = [
+    "serde", "dep:rusqlite", "dep:dirs", "dep:tempdir",
+    "dep:anyhow", "dep:serde_ini", "dep:serde_json",
+    "dep:indicatif",
+]
+serde = ["dep:serde"]
 
 [dependencies]
 ripemd160 = "0.9.0"
@@ -44,13 +50,35 @@ thiserror = "1.0.24"
 bliss-audio-aubio-rs = "0.2.0"
 strum = "0.21"
 strum_macros = "0.21"
-serde = { version = "1.0", optional = true, features = ["derive"] }
 rcue = "0.1.1"
+
+# Deps for the library feature
+serde = { version = "1.0", optional = true, features = ["derive"] }
+serde_json = { version = "1.0.59", optional = true }
+serde_ini = { version = "0.2.0", optional = true }
+tempdir = { version = "0.3.7", optional = true }
+rusqlite = { version = "0.27.0", optional = true }
+dirs = { version = "4.0.0", optional = true }
+anyhow = { version = "1.0.58", optional = true }
+indicatif = { version = "0.17.0", optional = true }
 
 [dev-dependencies]
 mime_guess = "2.0.3"
 glob = "0.3.0"
 anyhow = "1.0.45"
-serde_json = "1.0.59"
 clap = "2.33.3"
 pretty_assertions = "1.2.1"
+serde_json = "1.0.59"
+
+[[example]]
+name = "library"
+required-features = ["library"]
+
+[[example]]
+name = "library_extra_info"
+required-features = ["library"]
+
+
+[[example]]
+name = "playlist"
+required-features = ["serde"]

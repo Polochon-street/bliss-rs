@@ -7,6 +7,8 @@
 //! They will yield different styles of playlists, so don't hesitate to
 //! experiment with them if the default (euclidean distance for now) doesn't
 //! suit you.
+// TODO on the `by_key` functions: maybe Fn(&T) -> &Song is enough? Compared
+// to -> Song
 use crate::{BlissError, BlissResult, Song, NUMBER_FEATURES};
 use ndarray::{Array, Array1, Array2, Axis};
 use ndarray_stats::QuantileExt;
@@ -47,6 +49,23 @@ pub fn closest_to_first_song(
     songs.sort_by_cached_key(|song| n32(first_song.custom_distance(song, &distance)));
 }
 
+/// Sort `songs` in place by putting songs close to `first_song` first
+/// using the `distance` metric.
+///
+/// Sort songs with a key extraction function, useful for when you have a
+/// structure like `CustomSong { bliss_song: Song, something_else: bool }`
+pub fn closest_to_first_song_by_key<F, T>(
+    first_song: &T,
+    #[allow(clippy::ptr_arg)] songs: &mut Vec<T>,
+    distance: impl DistanceMetric,
+    key_fn: F,
+) where
+    F: Fn(&T) -> Song,
+{
+    let first_song = key_fn(first_song);
+    songs.sort_by_cached_key(|song| n32(first_song.custom_distance(&key_fn(song), &distance)));
+}
+
 /// Sort `songs` in place using the `distance` metric and ordering by
 /// the smallest distance between each song.
 ///
@@ -71,6 +90,43 @@ pub fn song_to_song(first_song: &Song, songs: &mut Vec<Song>, distance: impl Dis
     *songs = new_songs;
 }
 
+/// Sort `songs` in place using the `distance` metric and ordering by
+/// the smallest distance between each song.
+///
+/// If the generated playlist is `[song1, song2, song3, song4]`, it means
+/// song2 is closest to song1, song3 is closest to song2, and song4 is closest
+/// to song3.
+///
+/// Note that this has a tendency to go from one style to the other very fast,
+/// and it can be slow on big libraries.
+///
+/// Sort songs with a key extraction function, useful for when you have a
+/// structure like `CustomSong { bliss_song: Song, something_else: bool }`
+// TODO: maybe Clone is not needed?
+pub fn song_to_song_by_key<F, T: std::cmp::PartialEq + Clone>(
+    first_song: &T,
+    songs: &mut Vec<T>,
+    distance: impl DistanceMetric,
+    key_fn: F,
+) where
+    F: Fn(&T) -> Song,
+{
+    let mut new_songs: Vec<T> = Vec::with_capacity(songs.len());
+    let mut bliss_song = key_fn(&first_song.to_owned());
+
+    while !songs.is_empty() {
+        let distances: Array1<f32> = Array::from_shape_fn(songs.len(), |i| {
+            bliss_song.custom_distance(&key_fn(&songs[i]), &distance)
+        });
+        let idx = distances.argmin().unwrap();
+        let song = songs[idx].to_owned();
+        bliss_song = key_fn(&songs[idx]).to_owned();
+        new_songs.push(song.to_owned());
+        songs.retain(|s| s != &song);
+    }
+    *songs = new_songs;
+}
+
 /// Remove duplicate songs from a playlist, in place.
 ///
 /// Two songs are considered duplicates if they either have the same,
@@ -84,6 +140,29 @@ pub fn song_to_song(first_song: &Song, songs: &mut Vec<Song>, distance: impl Dis
 ///   considered identical. If `None`, a default value of 0.05 will be used.
 pub fn dedup_playlist(songs: &mut Vec<Song>, distance_threshold: Option<f32>) {
     dedup_playlist_custom_distance(songs, distance_threshold, euclidean_distance);
+}
+
+/// Remove duplicate songs from a playlist, in place.
+///
+/// Two songs are considered duplicates if they either have the same,
+/// non-empty title and artist name, or if they are close enough in terms
+/// of distance.
+///
+/// Dedup songs with a key extraction function, useful for when you have a
+/// structure like `CustomSong { bliss_song: Song, something_else: bool }` you
+/// want to deduplicate.
+///
+/// # Arguments
+///
+/// * `songs`: The playlist to remove duplicates from.
+/// * `distance_threshold`: The distance threshold under which two songs are
+///   considered identical. If `None`, a default value of 0.05 will be used.
+/// * `key_fn`: A function used to retrieve the bliss [Song] from `T`.
+pub fn dedup_playlist_by_key<T, F>(songs: &mut Vec<T>, distance_threshold: Option<f32>, key_fn: F)
+where
+    F: Fn(&T) -> Song,
+{
+    dedup_playlist_custom_distance_by_key(songs, distance_threshold, euclidean_distance, key_fn);
 }
 
 /// Remove duplicate songs from a playlist, in place, using a custom distance
@@ -106,6 +185,45 @@ pub fn dedup_playlist_custom_distance(
 ) {
     songs.dedup_by(|s1, s2| {
         n32(s1.custom_distance(s2, &distance)) < distance_threshold.unwrap_or(0.05)
+            || (s1.title.is_some()
+                && s2.title.is_some()
+                && s1.artist.is_some()
+                && s2.artist.is_some()
+                && s1.title == s2.title
+                && s1.artist == s2.artist)
+    });
+}
+
+/// Remove duplicate songs from a playlist, in place, using a custom distance
+/// metric.
+///
+/// Two songs are considered duplicates if they either have the same,
+/// non-empty title and artist name, or if they are close enough in terms
+/// of distance.
+///
+/// Dedup songs with a key extraction function, useful for when you have a
+/// structure like `CustomSong { bliss_song: Song, something_else: bool }`
+/// you want to deduplicate.
+///
+/// # Arguments
+///
+/// * `songs`: The playlist to remove duplicates from.
+/// * `distance_threshold`: The distance threshold under which two songs are
+///   considered identical. If `None`, a default value of 0.05 will be used.
+/// * `distance`: A custom distance metric.
+/// * `key_fn`: A function used to retrieve the bliss [Song] from `T`.
+pub fn dedup_playlist_custom_distance_by_key<F, T>(
+    songs: &mut Vec<T>,
+    distance_threshold: Option<f32>,
+    distance: impl DistanceMetric,
+    key_fn: F,
+) where
+    F: Fn(&T) -> Song,
+{
+    songs.dedup_by(|s1, s2| {
+        let s1 = key_fn(s1);
+        let s2 = key_fn(s2);
+        n32(s1.custom_distance(&s2, &distance)) < distance_threshold.unwrap_or(0.05)
             || (s1.title.is_some()
                 && s2.title.is_some()
                 && s1.artist.is_some()
@@ -203,12 +321,126 @@ pub fn closest_album_to_group(group: Vec<Song>, pool: Vec<Song>) -> BlissResult<
     Ok(playlist)
 }
 
+/// Return a list of albums in a `pool` of songs that are similar to
+/// songs in `group`, discarding songs that don't belong to an album.
+/// It basically makes an "album" playlist from the `pool` of songs.
+///
+/// `group` should be ordered by track number.
+///
+/// Songs from `group` would usually just be songs from an album, but not
+/// necessarily - they are discarded from `pool` no matter what.
+///
+/// Order songs with a key extraction function, useful for when you have a
+/// structure like `CustomSong { bliss_song: Song, something_else: bool }`
+/// you want to order.
+///
+/// # Arguments
+///
+/// * `group` - A small group of songs, e.g. an album.
+/// * `pool` - A pool of songs to find similar songs in, e.g. a user's song
+/// library.
+/// * `key_fn`: A function used to retrieve the bliss [Song] from `T`.
+///
+/// # Returns
+///
+/// A vector of T, including `group` at the beginning, that you
+/// most likely want to plug in your audio player by using something like
+/// `ret.map(|song| song.path.to_owned()).collect::<Vec<String>>()`.
+// TODO: maybe Clone is not needed?
+pub fn closest_album_to_group_by_key<T: PartialEq + Clone, F>(
+    group: Vec<T>,
+    pool: Vec<T>,
+    key_fn: F,
+) -> BlissResult<Vec<T>>
+where
+    F: Fn(&T) -> Song,
+{
+    let mut albums_analysis: HashMap<String, Array2<f32>> = HashMap::new();
+    let mut albums = Vec::new();
+
+    // Remove songs from the group from the pool.
+    let pool = pool
+        .into_iter()
+        .filter(|s| !group.contains(s))
+        .collect::<Vec<_>>();
+    for song in &pool {
+        let song = key_fn(song);
+        if let Some(album) = song.album {
+            if let Some(analysis) = albums_analysis.get_mut(&album as &str) {
+                analysis
+                    .push_row(song.analysis.as_arr1().view())
+                    .map_err(|e| {
+                        BlissError::ProviderError(format!("while computing distances: {}", e))
+                    })?;
+            } else {
+                let mut array = Array::zeros((1, song.analysis.as_arr1().len()));
+                array.assign(&song.analysis.as_arr1());
+                albums_analysis.insert(album.to_owned(), array);
+            }
+        }
+    }
+    let mut group_analysis = Array::zeros((group.len(), NUMBER_FEATURES));
+    for (song, mut column) in group.iter().zip(group_analysis.axis_iter_mut(Axis(0))) {
+        let song = key_fn(song);
+        column.assign(&song.analysis.as_arr1());
+    }
+    let first_analysis = group_analysis
+        .mean_axis(Axis(0))
+        .ok_or_else(|| BlissError::ProviderError(String::from("Mean of empty slice")))?;
+    for (album, analysis) in albums_analysis.iter() {
+        let mean_analysis = analysis
+            .mean_axis(Axis(0))
+            .ok_or_else(|| BlissError::ProviderError(String::from("Mean of empty slice")))?;
+        let album = album.to_owned();
+        albums.push((album, mean_analysis.to_owned()));
+    }
+
+    albums.sort_by_key(|(_, analysis)| n32(euclidean_distance(&first_analysis, analysis)));
+    let mut playlist = group;
+    for (album, _) in albums {
+        let mut al = pool
+            .iter()
+            .filter(|s| {
+                let s = key_fn(s);
+                s.album.is_some() && s.album.as_ref().unwrap() == &album.to_string()
+            })
+            .map(|s| s.to_owned())
+            .collect::<Vec<T>>();
+        al.sort_by(|s1, s2| {
+            let s1 = key_fn(s1);
+            let s2 = key_fn(s2);
+            let track_number1 = s1
+                .track_number
+                .to_owned()
+                .unwrap_or_else(|| String::from(""));
+            let track_number2 = s2
+                .track_number
+                .to_owned()
+                .unwrap_or_else(|| String::from(""));
+            if let Ok(x) = track_number1.parse::<i32>() {
+                if let Ok(y) = track_number2.parse::<i32>() {
+                    return x.cmp(&y);
+                }
+            }
+            s1.track_number.cmp(&s2.track_number)
+        });
+        playlist.extend_from_slice(&al);
+    }
+    Ok(playlist)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::Analysis;
     use ndarray::arr1;
     use std::path::Path;
+
+    #[derive(Debug, Clone, PartialEq)]
+    struct CustomSong {
+        something: bool,
+        bliss_song: Song,
+    }
 
     #[test]
     fn test_dedup_playlist_custom_distance() {
@@ -316,6 +548,91 @@ mod test {
                 fourth_song.to_owned(),
             ]
         );
+
+        let first_song = CustomSong {
+            bliss_song: first_song,
+            something: true,
+        };
+        let second_song = CustomSong {
+            bliss_song: second_song,
+            something: true,
+        };
+        let first_song_dupe = CustomSong {
+            bliss_song: first_song_dupe,
+            something: true,
+        };
+        let third_song = CustomSong {
+            bliss_song: third_song,
+            something: true,
+        };
+        let fourth_song = CustomSong {
+            bliss_song: fourth_song,
+            something: true,
+        };
+
+        let fifth_song = CustomSong {
+            bliss_song: fifth_song,
+            something: true,
+        };
+
+        let mut playlist = vec![
+            first_song.to_owned(),
+            first_song_dupe.to_owned(),
+            second_song.to_owned(),
+            third_song.to_owned(),
+            fourth_song.to_owned(),
+            fifth_song.to_owned(),
+        ];
+        dedup_playlist_custom_distance_by_key(&mut playlist, None, euclidean_distance, |s| {
+            s.bliss_song.to_owned()
+        });
+        assert_eq!(
+            playlist,
+            vec![
+                first_song.to_owned(),
+                second_song.to_owned(),
+                fourth_song.to_owned(),
+            ],
+        );
+        let mut playlist = vec![
+            first_song.to_owned(),
+            first_song_dupe.to_owned(),
+            second_song.to_owned(),
+            third_song.to_owned(),
+            fourth_song.to_owned(),
+            fifth_song.to_owned(),
+        ];
+        dedup_playlist_custom_distance_by_key(&mut playlist, Some(20.), cosine_distance, |s| {
+            s.bliss_song.to_owned()
+        });
+        assert_eq!(playlist, vec![first_song.to_owned()]);
+        let mut playlist = vec![
+            first_song.to_owned(),
+            first_song_dupe.to_owned(),
+            second_song.to_owned(),
+            third_song.to_owned(),
+            fourth_song.to_owned(),
+            fifth_song.to_owned(),
+        ];
+        dedup_playlist_by_key(&mut playlist, Some(20.), |s| s.bliss_song.to_owned());
+        assert_eq!(playlist, vec![first_song.to_owned()]);
+        let mut playlist = vec![
+            first_song.to_owned(),
+            first_song_dupe.to_owned(),
+            second_song.to_owned(),
+            third_song.to_owned(),
+            fourth_song.to_owned(),
+            fifth_song.to_owned(),
+        ];
+        dedup_playlist_by_key(&mut playlist, None, |s| s.bliss_song.to_owned());
+        assert_eq!(
+            playlist,
+            vec![
+                first_song.to_owned(),
+                second_song.to_owned(),
+                fourth_song.to_owned(),
+            ]
+        );
     }
 
     #[test]
@@ -358,20 +675,64 @@ mod test {
         };
         let mut songs = vec![
             first_song.to_owned(),
+            third_song.to_owned(),
             first_song_dupe.to_owned(),
             second_song.to_owned(),
-            third_song.to_owned(),
             fourth_song.to_owned(),
         ];
         song_to_song(&first_song, &mut songs, euclidean_distance);
         assert_eq!(
             songs,
             vec![
-                first_song,
+                first_song.to_owned(),
                 first_song_dupe.to_owned(),
+                second_song.to_owned(),
+                third_song.to_owned(),
+                fourth_song.to_owned(),
+            ],
+        );
+
+        let first_song = CustomSong {
+            bliss_song: first_song,
+            something: true,
+        };
+        let second_song = CustomSong {
+            bliss_song: second_song,
+            something: true,
+        };
+        let first_song_dupe = CustomSong {
+            bliss_song: first_song_dupe,
+            something: true,
+        };
+        let third_song = CustomSong {
+            bliss_song: third_song,
+            something: true,
+        };
+        let fourth_song = CustomSong {
+            bliss_song: fourth_song,
+            something: true,
+        };
+
+        let mut songs: Vec<CustomSong> = vec![
+            first_song.to_owned(),
+            first_song_dupe.to_owned(),
+            third_song.to_owned(),
+            fourth_song.to_owned(),
+            second_song.to_owned(),
+        ];
+
+        song_to_song_by_key(&first_song, &mut songs, euclidean_distance, |s| {
+            s.bliss_song.to_owned()
+        });
+
+        assert_eq!(
+            songs,
+            vec![
+                first_song,
+                first_song_dupe,
                 second_song,
                 third_song,
-                fourth_song
+                fourth_song,
             ],
         );
     }
@@ -431,6 +792,46 @@ mod test {
             fifth_song.to_owned(),
         ];
         closest_to_first_song(&first_song, &mut songs, euclidean_distance);
+
+        let first_song = CustomSong {
+            bliss_song: first_song,
+            something: true,
+        };
+        let second_song = CustomSong {
+            bliss_song: second_song,
+            something: true,
+        };
+        let first_song_dupe = CustomSong {
+            bliss_song: first_song_dupe,
+            something: true,
+        };
+        let third_song = CustomSong {
+            bliss_song: third_song,
+            something: true,
+        };
+        let fourth_song = CustomSong {
+            bliss_song: fourth_song,
+            something: true,
+        };
+
+        let fifth_song = CustomSong {
+            bliss_song: fifth_song,
+            something: true,
+        };
+
+        let mut songs: Vec<CustomSong> = vec![
+            first_song.to_owned(),
+            first_song_dupe.to_owned(),
+            second_song.to_owned(),
+            third_song.to_owned(),
+            fourth_song.to_owned(),
+            fifth_song.to_owned(),
+        ];
+
+        closest_to_first_song_by_key(&first_song, &mut songs, euclidean_distance, |s| {
+            s.bliss_song.to_owned()
+        });
+
         assert_eq!(
             songs,
             vec![
@@ -537,6 +938,47 @@ mod test {
                 second_song.to_owned()
             ],
             closest_album_to_group(group, pool.to_owned()).unwrap(),
+        );
+
+        let first_song = CustomSong {
+            bliss_song: first_song,
+            something: true,
+        };
+        let second_song = CustomSong {
+            bliss_song: second_song,
+            something: true,
+        };
+        let third_song = CustomSong {
+            bliss_song: third_song,
+            something: true,
+        };
+        let fourth_song = CustomSong {
+            bliss_song: fourth_song,
+            something: true,
+        };
+
+        let fifth_song = CustomSong {
+            bliss_song: fifth_song,
+            something: true,
+        };
+
+        let pool = vec![
+            first_song.to_owned(),
+            fourth_song.to_owned(),
+            third_song.to_owned(),
+            second_song.to_owned(),
+            fifth_song.to_owned(),
+        ];
+        let group = vec![first_song.to_owned(), third_song.to_owned()];
+        assert_eq!(
+            vec![
+                first_song.to_owned(),
+                third_song.to_owned(),
+                fourth_song.to_owned(),
+                second_song.to_owned()
+            ],
+            closest_album_to_group_by_key(group, pool.to_owned(), |s| s.bliss_song.to_owned())
+                .unwrap(),
         );
     }
 }

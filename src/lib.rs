@@ -15,6 +15,14 @@
 //! is as easy as computing distances between that song and the rest, and ordering
 //! the songs by distance, ascending.
 //!
+//! If you want to implement a bliss plugin for an already existing audio
+//! player, the [Library] struct is a collection of goodies that should prove
+//! useful (it contains utilities to store analyzed songs in a self-contained
+//! database file, to make playlists directly from the database, etc).
+//! [blissify](https://github.com/Polochon-street/blissify-rs/) for both
+//! an example of how the [Library] struct works, and a real-life demo of bliss
+//! implemented for [MPD](https://www.musicpd.org/).
+//!
 //! # Examples
 //!
 //! ### Analyze & compute the distance between two songs
@@ -59,6 +67,8 @@
 #![warn(rustdoc::missing_doc_code_examples)]
 mod chroma;
 pub mod cue;
+#[cfg(feature = "library")]
+pub mod library;
 mod misc;
 pub mod playlist;
 mod song;
@@ -262,11 +272,11 @@ mod tests {
     #[test]
     fn test_analyze_paths() {
         let paths = vec![
-            PathBuf::from("./data/s16_mono_22_5kHz.flac"),
-            PathBuf::from("./data/testcue.cue"),
-            PathBuf::from("./data/white_noise.flac"),
-            PathBuf::from("definitely-not-existing.foo"),
-            PathBuf::from("not-existing.foo"),
+            "./data/s16_mono_22_5kHz.flac",
+            "./data/testcue.cue",
+            "./data/white_noise.flac",
+            "definitely-not-existing.foo",
+            "not-existing.foo",
         ];
         let mut results = analyze_paths(&paths)
             .map(|x| match &x.1 {
@@ -304,21 +314,9 @@ mod tests {
                 )),
             ),
             (true, PathBuf::from("./data/s16_mono_22_5kHz.flac"), None),
-            (
-                true,
-                PathBuf::from("./data/testcue.flac/CUE_TRACK001"),
-                None,
-            ),
-            (
-                true,
-                PathBuf::from("./data/testcue.flac/CUE_TRACK002"),
-                None,
-            ),
-            (
-                true,
-                PathBuf::from("./data/testcue.flac/CUE_TRACK003"),
-                None,
-            ),
+            (true, PathBuf::from("./data/testcue.cue/CUE_TRACK001"), None),
+            (true, PathBuf::from("./data/testcue.cue/CUE_TRACK002"), None),
+            (true, PathBuf::from("./data/testcue.cue/CUE_TRACK003"), None),
             (true, PathBuf::from("./data/white_noise.flac"), None),
         ];
 
