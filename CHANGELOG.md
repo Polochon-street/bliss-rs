@@ -1,5 +1,8 @@
 #Changelog
 
+## bliss 0.6.2
+* Add a `library` module, that greatly helps when making player plug-ins.
+
 ## bliss 0.6.1
 * Fix a decoding bug while decoding certain WAV files.
 
