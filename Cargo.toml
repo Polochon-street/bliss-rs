@@ -11,7 +11,7 @@ keywords = ["audio", "analysis", "MIR", "playlist", "similarity"]
 readme = "README.md"
 
 [package.metadata.docs.rs]
-features = ["bliss-audio-aubio-rs/rustdoc"]
+features = ["bliss-audio-aubio-rs/rustdoc", "library"]
 no-default-features = true
 
 [features]

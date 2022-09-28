@@ -1,4 +1,111 @@
-//! Module containing utilities to manage a SQLite library of [Song]s.
+//! Module containing utilities to properly manage a library of [Song]s,
+//! for people wanting to e.g. implement a bliss plugin for an existing
+//! audio player. A good resource to look at for inspiration is
+//! [blissify](https://github.com/Polochon-street/blissify-rs)'s source code.
+//!
+//! Useful to have direct and easy access to functions that analyze
+//! and store analysis of songs in a SQLite database, as well as retrieve it,
+//! and make playlists directly from analyzed songs. All functions are as
+//! thoroughly tested as possible, so you don't have to do it yourself,
+//! including for instance bliss features version handling, etc.
+//!
+//! It works in three parts:
+//! * The first part is the configuration part, which allows you to
+//!   specify extra information that your plugin might need that will
+//!   be automatically stored / retrieved when you instanciate a
+//!   [Library] (the core of your plugin).
+//!
+//!   To do so implies specifying a configuration struct, that will implement
+//!   [AppConfigTrait], i.e. implement `Serialize`, `Deserialize`, and a
+//!   function to retrieve the [BaseConfig] (which is just a structure
+//!   holding the path to the configuration file and the path to the database).
+//!
+//!   The most straightforward way to do so is to have something like this (
+//!   in this example, we assume that `path_to_extra_information` is something
+//!   you would want stored in your configuration file, path to a second music
+//!   folder for instance:
+//!   ```
+//!     use anyhow::Result;
+//!     use serde::{Deserialize, Serialize};
+//!     use std::path::PathBuf;
+//!     use bliss_audio::BlissError;
+//!     use bliss_audio::library::{AppConfigTrait, BaseConfig};
+//!
+//!     #[derive(Serialize, Deserialize, Clone, Debug)]
+//!     pub struct Config {
+//!         #[serde(flatten)]
+//!         pub base_config: BaseConfig,
+//!         pub music_library_path: PathBuf,
+//!     }
+//!
+//!     impl AppConfigTrait for Config {
+//!         fn base_config(&self) -> &BaseConfig {
+//!             &self.base_config
+//!         }
+//!
+//!         fn base_config_mut(&mut self) -> &mut BaseConfig {
+//!             &mut self.base_config
+//!         }
+//!     }
+//!     impl Config {
+//!         pub fn new(
+//!             music_library_path: PathBuf,
+//!             config_path: Option<PathBuf>,
+//!             database_path: Option<PathBuf>,
+//!         ) -> Result<Self> {
+//!             // Note that by passing `(None, None)` here, the paths will
+//!             // be inferred automatically using user data dirs.
+//!             let base_config = BaseConfig::new(config_path, database_path)?;
+//!             Ok(Self {
+//!                 base_config,
+//!                 music_library_path,
+//!             })
+//!         }
+//!     }
+//!   ```
+//! * The second part is the actual [Library] structure, that makes the
+//!   bulk of the plug-in. To initialize a library once with a given config,
+//!   you can do (here with a base configuration):
+//!   ```no_run
+//!     use anyhow::{Error, Result};
+//!     use bliss_audio::library::{BaseConfig, Library};
+//!     use std::path::PathBuf;
+//!
+//!     let config_path = Some(PathBuf::from("path/to/config/config.json"));
+//!     let database_path = Some(PathBuf::from("path/to/config/bliss.db"));
+//!     let config = BaseConfig::new(config_path, database_path)?;
+//!     let library: Library<BaseConfig> = Library::new(config)?;
+//!     # Ok::<(), Error>(())
+//!   ```
+//!   Once this is done, you can simply load the library by doing
+//!   `Library::from_config_path(config_path);`
+//! * The third part is using the [Library] itself: it provides you with
+//!   utilies such as [Library::analyze_paths], which analyzes all songs
+//!   in given paths and stores it in the databases, as well as
+//!   [Library::playlist_from], which allows you to generate a playlist
+//!   from any given analyzed song.
+//!
+//!   The [Library] structure also comes with a [LibrarySong] song struct,
+//!   which represents a song stored in the database.
+//!
+//!   It is made of a `bliss_song` field, containing the analyzed bliss
+//!   song (with the normal metatada such as the artist, etc), and an
+//!   `extra_info` field, which can be any user-defined serialized struct.
+//!   For most use cases, it would just be the unit type `()` (which is no
+//!   extra info), that would be used like
+//!   `library.playlist_from<()>(song, path, playlist_length)`,
+//!   but functions such as [Library::analyze_paths_extra_info] and
+//!   [Library::analyze_paths_convert_extra_info] let you customize what
+//!   information you store for each song.
+//!
+//! The files in
+//! [examples/library.rs](https://github.com/Polochon-street/bliss-rs/blob/master/examples/library.rs)
+//! and
+//! [examples/libray_extra_info.rs](https://github.com/Polochon-street/bliss-rs/blob/master/examples/library_extra_info.rs)
+//! should provide the user with enough information to start with. For a more
+//! "real-life" example, the
+//! [blissify](https://github.com/Polochon-street/blissify-rs)'s code is using
+//! [Library] to implement bliss for a MPD player.
 use crate::analyze_paths;
 use crate::cue::CueInfo;
 use crate::playlist::closest_album_to_group_by_key;
@@ -92,15 +199,6 @@ pub trait AppConfigTrait: Serialize + Sized + DeserializeOwned {
     }
 }
 
-/// Actual configuration trait that will be used.
-pub trait ConfigTrait: AppConfigTrait {
-    /// Do some specific configuration things.
-    fn do_config_things(&self) {
-        let config = self.base_config();
-        config.do_config_things()
-    }
-}
-
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 /// The minimum configuration an application needs to work with
 /// a [Library].
@@ -153,11 +251,8 @@ impl BaseConfig {
             features_version: FEATURES_VERSION,
         })
     }
-
-    fn do_config_things(&self) {}
 }
 
-impl<App: AppConfigTrait> ConfigTrait for App {}
 impl AppConfigTrait for BaseConfig {
     fn base_config(&self) -> &BaseConfig {
         self
@@ -215,14 +310,17 @@ pub struct LibrarySong<T: Serialize + DeserializeOwned> {
 // TODO add full rescan
 // TODO a song_from_path with custom filters
 // TODO "smart" playlist
-impl<Config: ConfigTrait> Library<Config> {
-    /// Create a new [Library] object from the given [Config] struct,
+// TODO should it really use anyhow errors?
+impl<Config: AppConfigTrait> Library<Config> {
+    /// Create a new [Library] object from the given Config struct that
+    /// implements the [AppConfigTrait].
     /// writing the configuration to the file given in
     /// `config.config_path`.
     ///
     /// This function should only be called once, when a user wishes to
     /// create a completely new "library".
-    /// Otherwise, load an existing library file using [Library::from_config].
+    /// Otherwise, load an existing library file using
+    /// [Library::from_config_path].
     pub fn new(config: Config) -> Result<Self> {
         if !config
             .base_config()
@@ -373,11 +471,12 @@ impl<Config: ConfigTrait> Library<Config> {
     /// `true`.
     ///
     /// You can use ready to use distance metrics such as
-    /// [playlist::euclidean_distance], and ready to use sorting functions like
-    /// [playlist::closest_to_first_song_by_key].
+    /// [euclidean_distance], and ready to use sorting functions like
+    /// [closest_to_first_song_by_key].
     ///
-    /// In most cases, you just want to use [playlist_from]. Use this if you want
-    /// to experiment with different distance metrics / sorting functions.
+    /// In most cases, you just want to use [Library::playlist_from].
+    /// Use `playlist_from_custom` if you want to experiment with different
+    /// distance metrics / sorting functions.
     ///
     /// Example:
     /// `library.playlist_from_song_custom(song_path, 20, euclidean_distance,
@@ -484,7 +583,9 @@ impl<Config: ConfigTrait> Library<Config> {
     /// that can't directly be serializable,
     /// or that need input from the analyzed Song to be processed. If you
     /// just want to analyze and store songs along with some directly
-    /// serializable values, consider using [update_library_extra_info].
+    /// serializable values, consider using [Library::update_library_extra_info],
+    /// or [Library::update_library] if you just want the analyzed songs
+    /// stored as is.
     ///
     /// `paths_extra_info` is a tuple made out of song paths, along
     /// with any extra info you want to store for each song.
@@ -493,7 +594,7 @@ impl<Config: ConfigTrait> Library<Config> {
     /// CUE track names: passing `vec![file.cue]` will add
     /// individual tracks with the `cue_info` field set in the database.
     ///
-    /// `convert_extra_info` is a function that you should specify
+    /// `convert_extra_info` is a function that you should specify how
     /// to convert that extra info to something serializable.
     // TODO have a `delete` option
     pub fn update_library_convert_extra_info<
@@ -590,8 +691,8 @@ impl<Config: ConfigTrait> Library<Config> {
     /// or that need input from the analyzed Song to be processed.
     /// If you just want to analyze and store songs, along with some
     /// directly serializable metadata values, consider using
-    /// [analyze_paths_extra_info], or [analyze_paths] for the simpler
-    /// use cases.
+    /// [Library::analyze_paths_extra_info], or [Library::analyze_paths] for
+    /// the simpler use cases.
     ///
     /// Updates the value of `features_version` in the config, using bliss'
     /// latest version.

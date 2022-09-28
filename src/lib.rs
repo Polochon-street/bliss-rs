@@ -15,6 +15,14 @@
 //! is as easy as computing distances between that song and the rest, and ordering
 //! the songs by distance, ascending.
 //!
+//! If you want to implement a bliss plugin for an already existing audio
+//! player, the [Library] struct is a collection of goodies that should prove
+//! useful (it contains utilities to store analyzed songs in a self-contained
+//! database file, to make playlists directly from the database, etc).
+//! [blissify](https://github.com/Polochon-street/blissify-rs/) for both
+//! an example of how the [Library] struct works, and a real-life demo of bliss
+//! implemented for [MPD](https://www.musicpd.org/).
+//!
 //! # Examples
 //!
 //! ### Analyze & compute the distance between two songs

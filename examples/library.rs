@@ -12,9 +12,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+// A config structure, that will be serialized as a
+// JSON file upon Library creation.
 pub struct Config {
     #[serde(flatten)]
+    // The base configuration, containing both the config file
+    // path, as well as the database path.
     pub base_config: BaseConfig,
+    // An extra field, to store the music library path. Any number
+    // of arbitrary fields (even Serializable structures) can
+    // of course be added.
     pub music_library_path: PathBuf,
 }
 
@@ -32,6 +39,7 @@ impl Config {
     }
 }
 
+// The AppConfigTrait must know how to access the base config.
 impl AppConfigTrait for Config {
     fn base_config(&self) -> &BaseConfig {
         &self.base_config
@@ -42,6 +50,18 @@ impl AppConfigTrait for Config {
     }
 }
 
+// A trait allowing to implement methods for the Library,
+// useful if you don't need to store extra information in fields.
+// Otherwise, doing
+// ```
+// struct CustomLibrary {
+//    library: Library<Config>,
+//    extra_field: ...,
+// }
+// ```
+// and implementing functions for that struct would be the way to go.
+// That's what the [reference](https://github.com/Polochon-street/blissify-rs)
+// implementation does.
 trait CustomLibrary {
     fn song_paths(&self) -> Result<Vec<String>>;
 }
@@ -63,6 +83,10 @@ impl CustomLibrary for Library<Config> {
     }
 }
 
+// A simple example of what a CLI-app would look.
+//
+// Note that `Library::new` is used only on init, and subsequent
+// commands use `Library::from_path`.
 fn main() -> Result<()> {
     let matches = App::new("library-example")
         .version(env!("CARGO_PKG_VERSION"))
