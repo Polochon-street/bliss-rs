@@ -1,5 +1,8 @@
 #Changelog
 
+## bliss 0.6.3
+* Add customizable CPU number in the `library` module.
+
 ## bliss 0.6.2
 * Add a `library` module, that greatly helps when making player plug-ins.
 

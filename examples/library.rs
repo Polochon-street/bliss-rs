@@ -30,8 +30,9 @@ impl Config {
         music_library_path: PathBuf,
         config_path: Option<PathBuf>,
         database_path: Option<PathBuf>,
+        number_cores: Option<usize>,
     ) -> Result<Self> {
-        let base_config = BaseConfig::new(config_path, database_path)?;
+        let base_config = BaseConfig::new(config_path, database_path, number_cores)?;
         Ok(Self {
             base_config,
             music_library_path,
@@ -172,7 +173,7 @@ fn main() -> Result<()> {
         let config_path = sub_m.value_of("config-path").map(PathBuf::from);
         let database_path = sub_m.value_of("database-path").map(PathBuf::from);
 
-        let config = Config::new(folder, config_path, database_path)?;
+        let config = Config::new(folder, config_path, database_path, None)?;
         let mut library = Library::new(config)?;
 
         library.analyze_paths(library.song_paths()?, true)?;
