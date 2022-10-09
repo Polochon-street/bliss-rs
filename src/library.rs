@@ -28,6 +28,7 @@
 //!     use anyhow::Result;
 //!     use serde::{Deserialize, Serialize};
 //!     use std::path::PathBuf;
+//!     use std::num::NonZeroUsize;
 //!     use bliss_audio::BlissError;
 //!     use bliss_audio::library::{AppConfigTrait, BaseConfig};
 //!
@@ -52,7 +53,7 @@
 //!             music_library_path: PathBuf,
 //!             config_path: Option<PathBuf>,
 //!             database_path: Option<PathBuf>,
-//!             number_cores: Option<usize>,
+//!             number_cores: Option<NonZeroUsize>,
 //!         ) -> Result<Self> {
 //!             // Note that by passing `(None, None)` here, the paths will
 //!             // be inferred automatically using user data dirs.
@@ -107,7 +108,7 @@
 //! "real-life" example, the
 //! [blissify](https://github.com/Polochon-street/blissify-rs)'s code is using
 //! [Library] to implement bliss for a MPD player.
-use crate::analyze_paths;
+use crate::analyze_paths_with_cores;
 use crate::cue::CueInfo;
 use crate::playlist::closest_album_to_group_by_key;
 use crate::playlist::closest_to_first_song_by_key;
@@ -132,6 +133,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::fs::create_dir_all;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -165,6 +167,19 @@ pub trait AppConfigTrait: Serialize + Sized + DeserializeOwned {
     /// just overwrite this method.
     fn serialize_config(&self) -> Result<String> {
         Ok(serde_json::to_string(&self)?)
+    }
+
+    /// Set the number of desired cores for analysis, and write it to the
+    /// configuration file.
+    fn set_number_cores(&mut self, number_cores: NonZeroUsize) -> Result<()> {
+        self.base_config_mut().number_cores = number_cores;
+        self.write()
+    }
+
+    /// Get the number of desired cores for analysis, and write it to the
+    /// configuration file.
+    fn get_number_cores(&self) -> NonZeroUsize {
+        self.base_config().number_cores
     }
 
     /// Default implementation to load a config from a JSON file.
@@ -215,7 +230,7 @@ pub struct BaseConfig {
     features_version: u16,
     /// The number of CPU cores an analysis will be performed with.
     /// Defaults to the number of CPUs in the user's computer.
-    number_cores: usize,
+    number_cores: NonZeroUsize,
 }
 
 impl BaseConfig {
@@ -241,7 +256,7 @@ impl BaseConfig {
     pub fn new(
         config_path: Option<PathBuf>,
         database_path: Option<PathBuf>,
-        number_cores: Option<usize>,
+        number_cores: Option<NonZeroUsize>,
     ) -> Result<Self> {
         let config_path = {
             // User provided a path; let the future file creation determine
@@ -261,7 +276,8 @@ impl BaseConfig {
             }
         };
 
-        let number_cores = number_cores.unwrap_or_else(num_cpus::get);
+        let number_cores =
+            number_cores.unwrap_or_else(|| NonZeroUsize::new(num_cpus::get()).unwrap());
 
         Ok(Self {
             config_path,
@@ -449,7 +465,7 @@ impl<Config: AppConfigTrait> Library<Config> {
     pub fn new_from_base(
         config_path: Option<PathBuf>,
         database_path: Option<PathBuf>,
-        number_cores: Option<usize>,
+        number_cores: Option<NonZeroUsize>,
     ) -> Result<Self>
     where
         BaseConfig: Into<Config>,
@@ -760,7 +776,10 @@ impl<Config: AppConfigTrait> Library<Config> {
             .collect();
         let mut cue_extra_info: HashMap<PathBuf, String> = HashMap::new();
 
-        let results = analyze_paths(paths_extra_info.keys());
+        let results = analyze_paths_with_cores(
+            paths_extra_info.keys(),
+            self.config.base_config().number_cores,
+        );
         let mut success_count = 0;
         let mut failure_count = 0;
         for (path, result) in results {
@@ -1220,6 +1239,10 @@ mod test {
         fn base_config_mut(&mut self) -> &mut BaseConfig {
             &mut self.base_config
         }
+    }
+
+    fn nzus(i: usize) -> NonZeroUsize {
+        NonZeroUsize::new(i).unwrap()
     }
 
     // Returning the TempDir here, so it doesn't go out of scope, removing
@@ -2787,8 +2810,12 @@ mod test {
 
         // In reality, someone would just do that with `(None, None)` to get the default
         // paths.
-        let base_config =
-            BaseConfig::new(Some(config_file.to_owned()), Some(database_file), Some(1)).unwrap();
+        let base_config = BaseConfig::new(
+            Some(config_file.to_owned()),
+            Some(database_file),
+            Some(nzus(1)),
+        )
+        .unwrap();
 
         let config = CustomConfig {
             base_config,
@@ -2821,8 +2848,12 @@ mod test {
 
         // In reality, someone would just do that with `(None, None)` to get the default
         // paths.
-        let base_config =
-            BaseConfig::new(Some(config_file.to_owned()), Some(database_file), Some(1)).unwrap();
+        let base_config = BaseConfig::new(
+            Some(config_file.to_owned()),
+            Some(database_file),
+            Some(nzus(1)),
+        )
+        .unwrap();
 
         let config = CustomConfig {
             base_config,
@@ -2857,6 +2888,39 @@ mod test {
     }
 
     #[test]
+    fn test_config_number_cpus() {
+        let config_dir = TempDir::new("coucou").unwrap();
+        let config_file = config_dir.path().join("config.json");
+        let database_file = config_dir.path().join("bliss.db");
+
+        let base_config = BaseConfig::new(
+            Some(config_file.to_owned()),
+            Some(database_file.to_owned()),
+            None,
+        )
+        .unwrap();
+        let config = CustomConfig {
+            base_config,
+            second_path_to_music_library: "/path/to/somewhere".into(),
+            ignore_wav_files: true,
+        };
+
+        assert_eq!(config.get_number_cores().get(), num_cpus::get());
+
+        let base_config =
+            BaseConfig::new(Some(config_file), Some(database_file), Some(nzus(1))).unwrap();
+        let mut config = CustomConfig {
+            base_config,
+            second_path_to_music_library: "/path/to/somewhere".into(),
+            ignore_wav_files: true,
+        };
+
+        assert_eq!(config.get_number_cores().get(), 1);
+        config.set_number_cores(nzus(2)).unwrap();
+        assert_eq!(config.get_number_cores().get(), 2);
+    }
+
+    #[test]
     fn test_library_create_all_dirs() {
         let config_dir = TempDir::new("coucou")
             .unwrap()
@@ -2866,7 +2930,7 @@ mod test {
         assert!(!config_dir.is_dir());
         let config_file = config_dir.join("config.json");
         let database_file = config_dir.join("bliss.db");
-        Library::<BaseConfig>::new_from_base(Some(config_file), Some(database_file), Some(1))
+        Library::<BaseConfig>::new_from_base(Some(config_file), Some(database_file), Some(nzus(1)))
             .unwrap();
         assert!(config_dir.is_dir());
     }
