@@ -10,6 +10,7 @@ use clap::{App, Arg, SubCommand};
 use glob::glob;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -31,7 +32,7 @@ impl Config {
         music_library_path: PathBuf,
         config_path: Option<PathBuf>,
         database_path: Option<PathBuf>,
-        number_cores: Option<usize>,
+        number_cores: Option<NonZeroUsize>,
     ) -> Result<Self> {
         let base_config = BaseConfig::new(config_path, database_path, number_cores)?;
         Ok(Self {

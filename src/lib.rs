@@ -83,6 +83,7 @@ extern crate num_cpus;
 extern crate serde;
 use crate::cue::BlissCue;
 use log::info;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
@@ -155,7 +156,7 @@ pub type BlissResult<T> = Result<T, BlissError>;
 pub fn analyze_paths<P: Into<PathBuf>, F: IntoIterator<Item = P>>(
     paths: F,
 ) -> mpsc::IntoIter<(PathBuf, BlissResult<Song>)> {
-    let cores = num_cpus::get();
+    let cores = NonZeroUsize::new(num_cpus::get()).unwrap();
     analyze_paths_with_cores(paths, cores)
 }
 
@@ -186,11 +187,11 @@ pub fn analyze_paths<P: Into<PathBuf>, F: IntoIterator<Item = P>>(
 ///
 /// # Example:
 /// ```no_run
-/// use bliss_audio::{analyze_paths_with_cores, BlissResult};
+/// use bliss_audio::{analyze_paths, BlissResult};
 ///
 /// fn main() -> BlissResult<()> {
 ///     let paths = vec![String::from("/path/to/song1"), String::from("/path/to/song2")];
-///     for (path, result) in analyze_paths_with_cores(&paths, 2) {
+///     for (path, result) in analyze_paths(&paths) {
 ///         match result {
 ///             Ok(song) => println!("Do something with analyzed song {} with title {:?}", song.path.display(), song.title),
 ///             Err(e) => println!("Song at {} could not be analyzed. Failed with: {}", path.display(), e),
@@ -201,9 +202,9 @@ pub fn analyze_paths<P: Into<PathBuf>, F: IntoIterator<Item = P>>(
 /// ```
 pub fn analyze_paths_with_cores<P: Into<PathBuf>, F: IntoIterator<Item = P>>(
     paths: F,
-    number_cores: usize,
+    number_cores: NonZeroUsize,
 ) -> mpsc::IntoIter<(PathBuf, BlissResult<Song>)> {
-    let mut cores = num_cpus::get();
+    let mut cores = NonZeroUsize::new(num_cpus::get()).unwrap();
     if cores > number_cores {
         cores = number_cores;
     }
@@ -322,7 +323,7 @@ mod tests {
 
         assert_eq!(results, expected_results);
 
-        let mut results = analyze_paths_with_cores(&paths, 1)
+        let mut results = analyze_paths_with_cores(&paths, NonZeroUsize::new(1).unwrap())
             .map(|x| match &x.1 {
                 Ok(s) => (true, s.path.to_owned(), None),
                 Err(e) => (false, x.0.to_owned(), Some(e.to_string())),

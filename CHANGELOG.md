@@ -1,5 +1,8 @@
 #Changelog
 
+## bliss 0.6.4
+* Fix a bug in the customizable CPU number option in `library`.
+
 ## bliss 0.6.3
 * Add customizable CPU number in the `library` module.
 
