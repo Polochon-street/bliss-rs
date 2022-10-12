@@ -86,13 +86,10 @@ fn main() -> Result<(), BlissError> {
 ## Further use
 
 Instead of reinventing ways to fetch a user library, play songs, etc,
-and embed that into bliss, it is easier to look at the 
-[Library](https://docs.rs/bliss-audio/0.4.1/bliss_audio/library/trait.Library.html)
-trait.
-
-By implementing a few functions to get songs from a media library, and store
-the resulting analysis, you get access to functions to analyze an entire
-library (with multithreading), and to make playlists easily.
+and embed that into bliss, it is easier to look at the
+[library](https://docs.rs/bliss-audio/latest/bliss_audio/library/index.html) module.
+It implements common analysis functions, and allows analyzed songs to be put
+in a sqlite database seamlessly.
 
 See [blissify](https://crates.io/crates/blissify) for a reference
 implementation.
