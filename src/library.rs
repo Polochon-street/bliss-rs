@@ -129,7 +129,7 @@ use rusqlite::Params;
 use rusqlite::Row;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::fs::create_dir_all;
@@ -661,7 +661,7 @@ impl<Config: AppConfigTrait> Library<Config> {
                     Ok(row.get_unwrap::<usize, String>(0))
                 })?
                 .map(|x| PathBuf::from(x.unwrap()))
-                .collect::<Vec<PathBuf>>();
+                .collect::<HashSet<PathBuf>>();
             return_value
         };
 
