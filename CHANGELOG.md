@@ -1,6 +1,7 @@
 #Changelog
 
 ## bliss 0.6.5
+* Fix library update performance issues.
 * Pretty-print JSON in the config file.
 
 ## bliss 0.6.4
