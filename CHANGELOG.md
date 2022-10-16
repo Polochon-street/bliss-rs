@@ -1,5 +1,8 @@
 #Changelog
 
+## bliss 0.6.5
+* Pretty-print JSON in the config file.
+
 ## bliss 0.6.4
 * Fix a bug in the customizable CPU number option in `library`.
 

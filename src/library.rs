@@ -166,7 +166,7 @@ pub trait AppConfigTrait: Serialize + Sized + DeserializeOwned {
     /// using for example the various Serde libraries (`serde_yaml`, etc) -
     /// just overwrite this method.
     fn serialize_config(&self) -> Result<String> {
-        Ok(serde_json::to_string(&self)?)
+        Ok(serde_json::to_string_pretty(&self)?)
     }
 
     /// Set the number of desired cores for analysis, and write it to the
@@ -2724,7 +2724,10 @@ mod test {
     #[test]
     fn test_library_new_default_write() {
         let (library, _temp_dir, _) = setup_test_library();
-        let config_content = fs::read_to_string(&library.config.base_config().config_path).unwrap();
+        let config_content = fs::read_to_string(&library.config.base_config().config_path)
+            .unwrap()
+            .replace(' ', "")
+            .replace('\n', "");
         assert_eq!(
             config_content,
             format!(
