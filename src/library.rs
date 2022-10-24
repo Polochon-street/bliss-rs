@@ -2151,6 +2151,17 @@ mod test {
     }
 
     #[test]
+    fn test_no_tags() {
+        let (mut library, _temp_dir, _) = setup_test_library();
+        library.config.base_config_mut().features_version = 0;
+
+        let paths = vec!["./data/no_tags.flac"];
+        library.analyze_paths(paths.to_owned(), false).unwrap();
+        let song = library.song_from_path::<()>("./data/no_tags.flac").unwrap();
+        assert_eq!(None, song.bliss_song.title);
+    }
+
+    #[test]
     fn test_analyze_paths() {
         let (mut library, _temp_dir, _) = setup_test_library();
         library.config.base_config_mut().features_version = 0;
@@ -2168,7 +2179,7 @@ mod test {
                 _library_song_from_database(connection, path)
             })
             .collect::<Vec<LibrarySong<()>>>();
-        let expected_songs = paths[..2]
+        let expected_songs = paths[..3]
             .iter()
             .zip(vec![(), ()].into_iter())
             .map(|(path, expected_extra_info)| LibrarySong {
