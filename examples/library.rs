@@ -181,7 +181,7 @@ fn main() -> Result<()> {
     } else if let Some(sub_m) = matches.subcommand_matches("update") {
         let config_path = sub_m.value_of("config-path").map(PathBuf::from);
         let mut library: Library<Config> = Library::from_config_path(config_path)?;
-        library.update_library(library.song_paths()?, true)?;
+        library.update_library(library.song_paths()?, true, true)?;
     } else if let Some(sub_m) = matches.subcommand_matches("playlist") {
         let song_path = sub_m.value_of("SONG_PATH").unwrap();
         let config_path = sub_m.value_of("config-path").map(PathBuf::from);

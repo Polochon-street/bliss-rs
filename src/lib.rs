@@ -64,7 +64,6 @@
 //! ```
 #![cfg_attr(feature = "bench", feature(test))]
 #![warn(missing_docs)]
-#![warn(rustdoc::missing_doc_code_examples)]
 mod chroma;
 pub mod cue;
 #[cfg(feature = "library")]

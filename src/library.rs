@@ -123,6 +123,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use log::warn;
 use noisy_float::prelude::*;
 use rusqlite::params;
+use rusqlite::params_from_iter;
 use rusqlite::Connection;
 use rusqlite::OptionalExtension;
 use rusqlite::Params;
@@ -346,6 +347,8 @@ pub struct LibrarySong<T: Serialize + DeserializeOwned> {
 // TODO a song_from_path with custom filters
 // TODO "smart" playlist
 // TODO should it really use anyhow errors?
+// TODO make sure that the path to string is consistent
+// TODO make a function that returns a list of all analyzed songs in the db
 impl<Config: AppConfigTrait> Library<Config> {
     /// Create a new [Library] object from the given Config struct that
     /// implements the [AppConfigTrait].
@@ -586,6 +589,12 @@ impl<Config: AppConfigTrait> Library<Config> {
     ///
     /// Use this function if you don't have any extra data to bundle with each song.
     ///
+    /// Setting `delete_everything_else` to true will delete the paths that are
+    /// not mentionned in `paths_extra_info` from the database. If you do not
+    /// use it, because you only pass the new paths that need to be analyzed to
+    /// this function, make sure to delete yourself from the database the songs
+    /// that have been deleted from storage.
+    ///
     /// If your library
     /// contains CUE files, pass the CUE file path only, and not individual
     /// CUE track names: passing `vec![file.cue]` will add
@@ -593,22 +602,36 @@ impl<Config: AppConfigTrait> Library<Config> {
     pub fn update_library<P: Into<PathBuf>>(
         &mut self,
         paths: Vec<P>,
+        delete_everything_else: bool,
         show_progress_bar: bool,
     ) -> Result<()> {
         let paths_extra_info = paths.into_iter().map(|path| (path, ())).collect::<Vec<_>>();
-        self.update_library_convert_extra_info(paths_extra_info, show_progress_bar, |x, _, _| x)
+        self.update_library_convert_extra_info(
+            paths_extra_info,
+            delete_everything_else,
+            show_progress_bar,
+            |x, _, _| x,
+        )
     }
 
     /// Analyze and store all songs in `paths_extra_info` that haven't already
     /// been analyzed, along with some extra metadata serializable, and known
     /// before song analysis.
+    ///
+    /// Setting `delete_everything_else` to true will delete the paths that are
+    /// not mentionned in `paths_extra_info` from the database. If you do not
+    /// use it, because you only pass the new paths that need to be analyzed to
+    /// this function, make sure to delete yourself from the database the songs
+    /// that have been deleted from storage.
     pub fn update_library_extra_info<T: Serialize + DeserializeOwned, P: Into<PathBuf>>(
         &mut self,
         paths_extra_info: Vec<(P, T)>,
+        delete_everything_else: bool,
         show_progress_bar: bool,
     ) -> Result<()> {
         self.update_library_convert_extra_info(
             paths_extra_info,
+            delete_everything_else,
             show_progress_bar,
             |extra_info, _, _| extra_info,
         )
@@ -630,9 +653,15 @@ impl<Config: AppConfigTrait> Library<Config> {
     /// CUE track names: passing `vec![file.cue]` will add
     /// individual tracks with the `cue_info` field set in the database.
     ///
+    /// Setting `delete_everything_else` to true will delete the paths that are
+    /// not mentionned in `paths_extra_info` from the database. If you do not
+    /// use it, because you only pass the new paths that need to be analyzed to
+    /// this function, make sure to delete yourself from the database the songs
+    /// that have been deleted from storage.
+    ///
     /// `convert_extra_info` is a function that you should specify how
     /// to convert that extra info to something serializable.
-    // TODO have a `delete` option
+    // FIXME implement a `delete_non_included` boolean option (maybe come up with a better name?)
     pub fn update_library_convert_extra_info<
         T: Serialize + DeserializeOwned,
         U,
@@ -640,6 +669,7 @@ impl<Config: AppConfigTrait> Library<Config> {
     >(
         &mut self,
         paths_extra_info: Vec<(P, U)>,
+        delete_everything_else: bool,
         show_progress_bar: bool,
         convert_extra_info: fn(U, &Song, &Self) -> T,
     ) -> Result<()> {
@@ -665,9 +695,22 @@ impl<Config: AppConfigTrait> Library<Config> {
             return_value
         };
 
-        let paths_to_analyze = paths_extra_info
+        let paths_extra_info: Vec<_> = paths_extra_info
             .into_iter()
             .map(|(x, y)| (x.into(), y))
+            .collect();
+        let paths: HashSet<_> = paths_extra_info.iter().map(|(p, _)| p.to_owned()).collect();
+
+        if delete_everything_else {
+            let paths_to_delete = existing_paths.difference(&paths);
+
+            self.delete_paths(paths_to_delete)?;
+        }
+
+        // Can't use hashsets because we need the extra info here too,
+        // and U might not be hashable.
+        let paths_to_analyze = paths_extra_info
+            .into_iter()
             .filter(|(path, _)| !existing_paths.contains(path))
             .collect::<Vec<(PathBuf, U)>>();
 
@@ -1179,7 +1222,7 @@ impl<Config: AppConfigTrait> Library<Config> {
     /// Delete a song with path `song_path` from the database.
     ///
     /// Errors out if the song is not in the database.
-    pub fn delete_song<P: Into<PathBuf>>(&mut self, song_path: P) -> Result<()> {
+    pub fn delete_path<P: Into<PathBuf>>(&mut self, song_path: P) -> Result<()> {
         let song_path = song_path.into();
         let count = self
             .sqlite_conn
@@ -1200,6 +1243,45 @@ impl<Config: AppConfigTrait> Library<Config> {
         }
         Ok(())
     }
+
+    /// Delete a set of songs with paths `song_paths` from the database.
+    ///
+    /// Will return Ok(count) even if less songs than expected were deleted from the database.
+    pub fn delete_paths<P: Into<PathBuf>, I: IntoIterator<Item = P>>(
+        &mut self,
+        paths: I,
+    ) -> Result<usize> {
+        let song_paths: Vec<String> = paths
+            .into_iter()
+            .map(|x| x.into().to_string_lossy().to_string())
+            .collect();
+        if song_paths.is_empty() {
+            return Ok(0);
+        };
+        let count = self
+            .sqlite_conn
+            .lock()
+            .unwrap()
+            .execute(
+                &format!(
+                    "delete from song where path in ({})",
+                    repeat_vars(song_paths.len()),
+                ),
+                params_from_iter(song_paths),
+            )
+            .map_err(|e| BlissError::ProviderError(e.to_string()))?;
+        Ok(count)
+    }
+}
+
+// Copied from
+// https://docs.rs/rusqlite/latest/rusqlite/struct.ParamsFromIter.html#realistic-use-case
+fn repeat_vars(count: usize) -> String {
+    assert_ne!(count, 0);
+    let mut s = "?,".repeat(count);
+    // Remove trailing comma
+    s.pop();
+    s
 }
 
 #[cfg(test)]
@@ -1208,6 +1290,7 @@ fn data_local_dir() -> Option<PathBuf> {
 }
 
 #[cfg(test)]
+// TODO refactor (especially the helper functions)
 mod test {
     use super::*;
     use crate::{Analysis, NUMBER_FEATURES};
@@ -1663,7 +1746,7 @@ mod test {
                     })
                 },
             )
-            .expect("Song does not exist in the db.");
+            .expect("Song does not exist in the database");
         let mut stmt = connection
             .prepare(
                 "
@@ -2031,7 +2114,7 @@ mod test {
     }
 
     #[test]
-    fn test_library_delete_song_non_existing() {
+    fn test_library_delete_path_non_existing() {
         let (mut library, _temp_dir, _) = setup_test_library();
         {
             let connection = library.sqlite_conn.lock().unwrap();
@@ -2052,11 +2135,11 @@ mod test {
                 .unwrap();
             assert_eq!(count, 0);
         }
-        assert!(library.delete_song("not-existing").is_err());
+        assert!(library.delete_path("not-existing").is_err());
     }
 
     #[test]
-    fn test_library_delete_song() {
+    fn test_library_delete_path() {
         let (mut library, _temp_dir, _) = setup_test_library();
         {
             let connection = library.sqlite_conn.lock().unwrap();
@@ -2078,7 +2161,7 @@ mod test {
             assert!(count >= 1);
         }
 
-        library.delete_song("/path/to/song1001").unwrap();
+        library.delete_path("/path/to/song1001").unwrap();
 
         {
             let connection = library.sqlite_conn.lock().unwrap();
@@ -2099,6 +2182,75 @@ mod test {
                 .unwrap();
             assert_eq!(0, count);
         }
+    }
+
+    #[test]
+    fn test_library_delete_paths() {
+        let (mut library, _temp_dir, _) = setup_test_library();
+        {
+            let connection = library.sqlite_conn.lock().unwrap();
+            let count: u32 = connection
+                    .query_row(
+                        "select count(*) from feature join song on song.id = feature.song_id where song.path in (?1, ?2)",
+                        ["/path/to/song1001", "/path/to/song2001"],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+            assert!(count >= 1);
+            let count: u32 = connection
+                .query_row(
+                    "select count(*) from song where path in (?1, ?2)",
+                    ["/path/to/song1001", "/path/to/song2001"],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(count >= 1);
+        }
+
+        library
+            .delete_paths(vec!["/path/to/song1001", "/path/to/song2001"])
+            .unwrap();
+
+        {
+            let connection = library.sqlite_conn.lock().unwrap();
+            let count: u32 = connection
+                .query_row(
+                    "select count(*) from feature join song on song.id = feature.song_id where song.path in (?1, ?2)",
+                    ["/path/to/song1001", "/path/to/song2001"],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(0, count);
+            let count: u32 = connection
+                .query_row(
+                    "select count(*) from song where path in (?1, ?2)",
+                    ["/path/to/song1001", "/path/to/song2001"],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(0, count);
+            // Make sure we did not delete everything else
+            let count: u32 = connection
+                .query_row("select count(*) from feature", [], |row| row.get(0))
+                .unwrap();
+            assert!(count >= 1);
+            let count: u32 = connection
+                .query_row("select count(*) from song", [], |row| row.get(0))
+                .unwrap();
+            assert!(count >= 1);
+        }
+    }
+
+    #[test]
+    fn test_library_delete_paths_empty() {
+        let (mut library, _temp_dir, _) = setup_test_library();
+        assert_eq!(library.delete_paths::<String, _>([]).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_library_delete_paths_non_existing() {
+        let (mut library, _temp_dir, _) = setup_test_library();
+        assert_eq!(library.delete_paths(["not-existing"]).unwrap(), 0);
     }
 
     #[test]
@@ -2307,15 +2459,17 @@ mod test {
 
         for input in vec![
             ("./data/s16_mono_22_5kHz.flac", true),
-            ("./data/s16_mono_22_5khz.flac", false),
+            ("./data/s16_mono_22_5kHz.flac", false),
         ]
         .into_iter()
         {
             let paths = vec![input.to_owned()];
             library
-                .update_library_convert_extra_info(paths.to_owned(), false, |b, _, _| ExtraInfo {
-                    ignore: b,
-                    metadata_bliss_does_not_have: String::from("coucou"),
+                .update_library_convert_extra_info(paths.to_owned(), true, false, |b, _, _| {
+                    ExtraInfo {
+                        ignore: b,
+                        metadata_bliss_does_not_have: String::from("coucou"),
+                    }
                 })
                 .unwrap();
             let song = {
@@ -2339,17 +2493,18 @@ mod test {
         }
     }
 
-    fn _get_song_analyzed(connection: MutexGuard<Connection>, path: String) -> bool {
-        let mut stmt = connection
-            .prepare(
-                "
+    fn _get_song_analyzed(
+        connection: MutexGuard<Connection>,
+        path: String,
+    ) -> Result<bool, RusqliteError> {
+        let mut stmt = connection.prepare(
+            "
                 select
                     analyzed from song
                     where song.path = ?
                 ",
-            )
-            .unwrap();
-        stmt.query_row([path], |row| row.get(0)).unwrap()
+        )?;
+        stmt.query_row([path], |row| (row.get(0)))
     }
 
     #[test]
@@ -2381,7 +2536,7 @@ mod test {
         }
 
         library
-            .update_library(vec![path.to_owned()], false)
+            .update_library(vec![path.to_owned()], true, false)
             .unwrap();
 
         let connection = library.sqlite_conn.lock().unwrap();
@@ -2416,7 +2571,7 @@ mod test {
         {
             let connection = library.sqlite_conn.lock().unwrap();
             // Make sure that we tried to "update" song4001 with the new features.
-            assert!(_get_song_analyzed(connection, "/path/to/song4001".into()));
+            assert!(_get_song_analyzed(connection, "/path/to/song4001".into()).unwrap());
         }
 
         let paths = vec![
@@ -2425,8 +2580,12 @@ mod test {
             "/path/to/song4001",
             "non-existing",
         ];
-        library.update_library(paths.to_owned(), false).unwrap();
-        library.update_library(paths.to_owned(), true).unwrap();
+        library
+            .update_library(paths.to_owned(), true, false)
+            .unwrap();
+        library
+            .update_library(paths.to_owned(), true, true)
+            .unwrap();
 
         let songs = paths[..2]
             .iter()
@@ -2448,7 +2607,7 @@ mod test {
         {
             let connection = library.sqlite_conn.lock().unwrap();
             // Make sure that we tried to "update" song4001 with the new features.
-            assert!(!_get_song_analyzed(connection, "/path/to/song4001".into()));
+            assert!(!_get_song_analyzed(connection, "/path/to/song4001".into()).unwrap());
         }
         assert_eq!(
             library.config.base_config_mut().features_version,
@@ -2464,7 +2623,7 @@ mod test {
         {
             let connection = library.sqlite_conn.lock().unwrap();
             // Make sure that we tried to "update" song4001 with the new features.
-            assert!(_get_song_analyzed(connection, "/path/to/song4001".into()));
+            assert!(_get_song_analyzed(connection, "/path/to/song4001".into()).unwrap());
         }
 
         let paths = vec![
@@ -2474,7 +2633,7 @@ mod test {
             ("non-existing", false),
         ];
         library
-            .update_library_extra_info(paths.to_owned(), false)
+            .update_library_extra_info(paths.to_owned(), true, false)
             .unwrap();
         let songs = paths[..2]
             .iter()
@@ -2495,7 +2654,7 @@ mod test {
         {
             let connection = library.sqlite_conn.lock().unwrap();
             // Make sure that we tried to "update" song4001 with the new features.
-            assert!(!_get_song_analyzed(connection, "/path/to/song4001".into()));
+            assert!(!_get_song_analyzed(connection, "/path/to/song4001".into()).unwrap());
         }
         assert_eq!(
             library.config.base_config_mut().features_version,
@@ -2511,7 +2670,12 @@ mod test {
         {
             let connection = library.sqlite_conn.lock().unwrap();
             // Make sure that we tried to "update" song4001 with the new features.
-            assert!(_get_song_analyzed(connection, "/path/to/song4001".into()));
+            assert!(_get_song_analyzed(connection, "/path/to/song4001".into()).unwrap());
+        }
+        {
+            let connection = library.sqlite_conn.lock().unwrap();
+            // Make sure that all the starting songs are there
+            assert!(_get_song_analyzed(connection, "/path/to/song2001".into()).unwrap());
         }
 
         let paths = vec![
@@ -2521,7 +2685,7 @@ mod test {
             ("non-existing", false),
         ];
         library
-            .update_library_convert_extra_info(paths.to_owned(), false, |b, _, _| ExtraInfo {
+            .update_library_convert_extra_info(paths.to_owned(), true, false, |b, _, _| ExtraInfo {
                 ignore: b,
                 metadata_bliss_does_not_have: String::from("coucou"),
             })
@@ -2557,7 +2721,90 @@ mod test {
         {
             let connection = library.sqlite_conn.lock().unwrap();
             // Make sure that we tried to "update" song4001 with the new features.
-            assert!(!_get_song_analyzed(connection, "/path/to/song4001".into()));
+            assert!(!_get_song_analyzed(connection, "/path/to/song4001".into()).unwrap());
+        }
+        {
+            let connection = library.sqlite_conn.lock().unwrap();
+            // Make sure that we deleted older songs
+            assert_eq!(
+                rusqlite::Error::QueryReturnedNoRows,
+                _get_song_analyzed(connection, "/path/to/song2001".into()).unwrap_err(),
+            );
+        }
+        assert_eq!(
+            library.config.base_config_mut().features_version,
+            FEATURES_VERSION
+        );
+    }
+
+    #[test]
+    // TODO maybe we can merge / DRY this and the function ⬆
+    fn test_update_convert_extra_info_do_not_delete() {
+        let (mut library, _temp_dir, _) = setup_test_library();
+        library.config.base_config_mut().features_version = 0;
+
+        {
+            let connection = library.sqlite_conn.lock().unwrap();
+            // Make sure that we tried to "update" song4001 with the new features.
+            assert!(_get_song_analyzed(connection, "/path/to/song4001".into()).unwrap());
+        }
+        {
+            let connection = library.sqlite_conn.lock().unwrap();
+            // Make sure that all the starting songs are there
+            assert!(_get_song_analyzed(connection, "/path/to/song2001".into()).unwrap());
+        }
+
+        let paths = vec![
+            ("./data/s16_mono_22_5kHz.flac", true),
+            ("./data/s16_stereo_22_5kHz.flac", false),
+            ("/path/to/song4001", false),
+            ("non-existing", false),
+        ];
+        library
+            .update_library_convert_extra_info(paths.to_owned(), false, false, |b, _, _| {
+                ExtraInfo {
+                    ignore: b,
+                    metadata_bliss_does_not_have: String::from("coucou"),
+                }
+            })
+            .unwrap();
+        let songs = paths[..2]
+            .iter()
+            .map(|(path, _)| {
+                let connection = library.sqlite_conn.lock().unwrap();
+                _library_song_from_database(connection, path)
+            })
+            .collect::<Vec<LibrarySong<ExtraInfo>>>();
+        let expected_songs = paths[..2]
+            .iter()
+            .zip(
+                vec![
+                    ExtraInfo {
+                        ignore: true,
+                        metadata_bliss_does_not_have: String::from("coucou"),
+                    },
+                    ExtraInfo {
+                        ignore: false,
+                        metadata_bliss_does_not_have: String::from("coucou"),
+                    },
+                ]
+                .into_iter(),
+            )
+            .map(|((path, _extra_info), expected_extra_info)| LibrarySong {
+                bliss_song: Song::from_path(path).unwrap(),
+                extra_info: expected_extra_info,
+            })
+            .collect::<Vec<LibrarySong<ExtraInfo>>>();
+        assert_eq!(songs, expected_songs);
+        {
+            let connection = library.sqlite_conn.lock().unwrap();
+            // Make sure that we tried to "update" song4001 with the new features.
+            assert!(!_get_song_analyzed(connection, "/path/to/song4001".into()).unwrap());
+        }
+        {
+            let connection = library.sqlite_conn.lock().unwrap();
+            // Make sure that we did not delete older songs
+            assert!(_get_song_analyzed(connection, "/path/to/song2001".into()).unwrap());
         }
         assert_eq!(
             library.config.base_config_mut().features_version,
