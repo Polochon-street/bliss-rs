@@ -53,13 +53,7 @@ impl ChromaDesc {
      */
     pub fn do_(&mut self, signal: &[f32]) -> BlissResult<()> {
         let mut stft = stft(signal, ChromaDesc::WINDOW_SIZE, 2205);
-        let tuning = estimate_tuning(
-            self.sample_rate as u32,
-            &stft,
-            ChromaDesc::WINDOW_SIZE,
-            0.01,
-            12,
-        )?;
+        let tuning = estimate_tuning(self.sample_rate, &stft, ChromaDesc::WINDOW_SIZE, 0.01, 12)?;
         let chroma = chroma_stft(
             self.sample_rate,
             &mut stft,
@@ -162,7 +156,7 @@ fn chroma_filter(
     let n_chroma2 = (n_chroma_float / 2.0).round() as u32;
     let n_chroma2_float = f64::from(n_chroma2);
 
-    let frequencies = Array::linspace(0., f64::from(sample_rate), (n_fft + 1) as usize);
+    let frequencies = Array::linspace(0., f64::from(sample_rate), n_fft + 1);
 
     let mut freq_bins = frequencies;
     hz_to_octs_inplace(&mut freq_bins, tuning, n_chroma);
@@ -213,12 +207,12 @@ fn chroma_filter(
     }
     let mut b = Array::from(uninit)
         .into_shape(wts.dim())
-        .map_err(|e| BlissError::AnalysisError(format!("in chroma: {}", e)))?;
+        .map_err(|e| BlissError::AnalysisError(format!("in chroma: {e}")))?;
     b.slice_mut(s![-3.., ..]).assign(&wts.slice(s![..3, ..]));
     b.slice_mut(s![..-3, ..]).assign(&wts.slice(s![3.., ..]));
 
     wts = b;
-    let non_aliased = (1 + n_fft / 2) as usize;
+    let non_aliased = 1 + n_fft / 2;
     Ok(wts.slice_move(s![.., ..non_aliased]))
 }
 
@@ -308,7 +302,7 @@ fn pitch_tuning(
     }
     let max_index = counts
         .argmax()
-        .map_err(|e| BlissError::AnalysisError(format!("in chroma: {}", e)))?;
+        .map_err(|e| BlissError::AnalysisError(format!("in chroma: {e}")))?;
 
     // Return the bin with the most reoccuring frequency.
     Ok((-50. + (100. * resolution * max_index as f64)) / 100.)
@@ -336,7 +330,7 @@ fn estimate_tuning(
 
     let threshold: N64 = Array::from(filtered_mag.to_vec())
         .quantile_axis_mut(Axis(0), n64(0.5), &Midpoint)
-        .map_err(|e| BlissError::AnalysisError(format!("in chroma: {}", e)))?
+        .map_err(|e| BlissError::AnalysisError(format!("in chroma: {e}")))?
         .into_scalar();
     let mut pitch = filtered_pitch
         .iter()

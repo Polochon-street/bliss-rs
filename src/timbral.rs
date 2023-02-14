@@ -125,23 +125,20 @@ impl SpectralDesc {
             centroid_aubio_desc: SpecDesc::new(SpecShape::Centroid, SpectralDesc::WINDOW_SIZE)
                 .map_err(|e| {
                     BlissError::AnalysisError(format!(
-                        "error while loading aubio centroid object: {}",
-                        e
+                        "error while loading aubio centroid object: {e}",
                     ))
                 })?,
             rolloff_aubio_desc: SpecDesc::new(SpecShape::Rolloff, SpectralDesc::WINDOW_SIZE)
                 .map_err(|e| {
                     BlissError::AnalysisError(format!(
-                        "error while loading aubio rolloff object: {}",
-                        e
+                        "error while loading aubio rolloff object: {e}",
                     ))
                 })?,
             phase_vocoder: PVoc::new(SpectralDesc::WINDOW_SIZE, SpectralDesc::HOP_SIZE).map_err(
                 |e| {
-                    BlissError::AnalysisError(format!(
-                        "error while loading aubio pvoc object: {}",
-                        e
-                    ))
+                    BlissError::AnalysisError(
+                        format!("error while loading aubio pvoc object: {e}",),
+                    )
                 },
             )?,
             values_centroid: Vec::new(),
@@ -163,7 +160,7 @@ impl SpectralDesc {
         self.phase_vocoder
             .do_(chunk, fftgrain.as_mut_slice())
             .map_err(|e| {
-                BlissError::AnalysisError(format!("error while processing aubio pv object: {}", e))
+                BlissError::AnalysisError(format!("error while processing aubio pv object: {e}"))
             })?;
 
         let bin = self
@@ -171,8 +168,7 @@ impl SpectralDesc {
             .do_result(fftgrain.as_slice())
             .map_err(|e| {
                 BlissError::AnalysisError(format!(
-                    "error while processing aubio centroid object: {}",
-                    e
+                    "error while processing aubio centroid object: {e}",
                 ))
             })?;
 
