@@ -196,7 +196,7 @@ fn main() -> Result<()> {
             .map(|s| s.bliss_song.path.to_string_lossy().to_string())
             .collect::<Vec<String>>();
         for song in song_paths {
-            println!("{:?}", song);
+            println!("{song:?}");
         }
     }
 

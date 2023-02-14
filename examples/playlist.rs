@@ -89,7 +89,7 @@ fn main() -> Result<()> {
     if let Some(m) = matches.value_of("output-playlist") {
         fs::write(m, playlist)?;
     } else {
-        println!("{}", playlist);
+        println!("{playlist}");
     }
     Ok(())
 }

@@ -26,6 +26,8 @@ jobs:
       run: sudo apt-get update && sudo apt-get install build-essential yasm libavutil-dev libavcodec-dev libavformat-dev libavfilter-dev libavfilter-dev libavdevice-dev libswresample-dev libfftw3-dev ffmpeg
     - name: Check format
       run: cargo fmt -- --check
+    - name: Lint
+      run: cargo clippy --examples --features=serde,library -- -D warnings
     - name: Build
       run: cargo build --verbose
     - name: Run tests
@@ -38,8 +40,6 @@ jobs:
       run: cargo +nightly-2022-02-16 bench --verbose --features=bench --no-run
     - name: Build examples
       run: cargo build --examples --verbose --features=serde,library
-    - name: Lint
-      run: cargo clippy --examples --features=serde,library -- -D warnings
 
   build-test-lint-windows:
     name: Windows - build, test and lint
@@ -70,11 +70,11 @@ jobs:
           toolchain: stable
           override: true
           components: rustfmt, clippy
-      - name: Build
-        run: cargo build --examples
-      - name: Test
-        run: cargo test --examples --features=serde
       - name: Lint
         run: cargo clippy --examples --features=serde -- -D warnings
       - name: Check format
         run: cargo fmt -- --check
+      - name: Build
+        run: cargo build --examples
+      - name: Test
+        run: cargo test --examples --features=serde

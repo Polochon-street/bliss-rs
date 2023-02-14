@@ -534,7 +534,7 @@ impl<Config: AppConfigTrait> Library<Config> {
         G: DistanceMetric + Copy,
     {
         let first_song: LibrarySong<T> = self.song_from_path(song_path).map_err(|_| {
-            BlissError::ProviderError(format!("song '{}' has not been analyzed", song_path))
+            BlissError::ProviderError(format!("song '{song_path}' has not been analyzed"))
         })?;
         let mut songs = self.songs_from_library()?;
         sort_by(&first_song, &mut songs, distance, |s: &LibrarySong<T>| {
@@ -886,8 +886,7 @@ impl<Config: AppConfigTrait> Library<Config> {
             pb.inc(1);
         }
         pb.finish_with_message(format!(
-            "Analyzed {} song(s) successfully. {} Failure(s).",
-            success_count, failure_count
+            "Analyzed {success_count} song(s) successfully. {failure_count} Failure(s).",
         ));
 
         log::info!(
@@ -1059,8 +1058,7 @@ impl<Config: AppConfigTrait> Library<Config> {
                 .try_into()
                 .map_err(|_| {
                     BlissError::ProviderError(format!(
-                        "song has more or less than {} features",
-                        NUMBER_FEATURES
+                        "song has more or less than {NUMBER_FEATURES} features",
                     ))
                 })?,
         };

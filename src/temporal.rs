@@ -48,7 +48,7 @@ impl BPMDesc {
                 sample_rate,
             )
             .map_err(|e| {
-                BlissError::AnalysisError(format!("error while loading aubio tempo object: {}", e))
+                BlissError::AnalysisError(format!("error while loading aubio tempo object: {e}"))
             })?,
             bpms: Vec::new(),
         })
@@ -56,7 +56,7 @@ impl BPMDesc {
 
     pub fn do_(&mut self, chunk: &[f32]) -> BlissResult<()> {
         let result = self.aubio_obj.do_result(chunk).map_err(|e| {
-            BlissError::AnalysisError(format!("aubio error while computing tempo {}", e))
+            BlissError::AnalysisError(format!("aubio error while computing tempo {e}"))
         })?;
 
         if result > 0. {

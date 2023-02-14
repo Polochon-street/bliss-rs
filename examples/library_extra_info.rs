@@ -219,7 +219,7 @@ fn main() -> Result<()> {
             })
             .collect::<Vec<(String, String)>>();
         for (path, mime_type) in playlist {
-            println!("{} <{}>", path, mime_type,);
+            println!("{path} <{mime_type}>");
         }
     }
 

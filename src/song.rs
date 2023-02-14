@@ -158,7 +158,7 @@ impl fmt::Debug for Analysis {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut debug_struct = f.debug_struct("Analysis");
         for feature in AnalysisIndex::iter() {
-            debug_struct.field(&format!("{:?}", feature), &self[feature]);
+            debug_struct.field(&format!("{feature:?}"), &self[feature]);
         }
         debug_struct.finish()?;
         f.write_str(&format!(" /* {:?} */", &self.as_vec()))
@@ -657,8 +657,7 @@ fn resample_frame(
     )
     .map_err(|e| {
         BlissError::DecodingError(format!(
-            "while trying to allocate resampling context: {:?}",
-            e
+            "while trying to allocate resampling context: {e:?}",
         ))
     })?;
     let mut resampled = ffmpeg::frame::Audio::empty();
@@ -680,7 +679,7 @@ fn resample_frame(
         resample_context
             .run(&decoded, &mut resampled)
             .map_err(|e| {
-                BlissError::DecodingError(format!("while trying to resample song: {:?}", e))
+                BlissError::DecodingError(format!("while trying to resample song: {e:?}"))
             })?;
         push_to_sample_array(&resampled, &mut sample_array);
     }
@@ -691,7 +690,7 @@ fn resample_frame(
     // `resampled` again?
     loop {
         match resample_context.flush(&mut resampled).map_err(|e| {
-            BlissError::DecodingError(format!("while trying to resample song: {:?}", e))
+            BlissError::DecodingError(format!("while trying to resample song: {e:?}"))
         })? {
             Some(_) => {
                 push_to_sample_array(&resampled, &mut sample_array);

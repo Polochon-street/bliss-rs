@@ -268,7 +268,7 @@ pub fn closest_album_to_group(group: Vec<Song>, pool: Vec<Song>) -> BlissResult<
                 analysis
                     .push_row(song.analysis.as_arr1().view())
                     .map_err(|e| {
-                        BlissError::ProviderError(format!("while computing distances: {}", e))
+                        BlissError::ProviderError(format!("while computing distances: {e}"))
                     })?;
             } else {
                 let mut array = Array::zeros((1, song.analysis.as_arr1().len()));
@@ -370,7 +370,7 @@ where
                 analysis
                     .push_row(song.analysis.as_arr1().view())
                     .map_err(|e| {
-                        BlissError::ProviderError(format!("while computing distances: {}", e))
+                        BlissError::ProviderError(format!("while computing distances: {e}"))
                     })?;
             } else {
                 let mut array = Array::zeros((1, song.analysis.as_arr1().len()));

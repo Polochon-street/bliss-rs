@@ -63,7 +63,7 @@ pub(crate) fn stft(signal: &[f32], window_length: usize, hop_length: usize) -> A
 }
 
 pub(crate) fn mean<T: Clone + Into<f32>>(input: &[T]) -> f32 {
-    input.iter().map(|x| x.clone().into() as f32).sum::<f32>() / input.len() as f32
+    input.iter().map(|x| x.clone().into()).sum::<f32>() / input.len() as f32
 }
 
 pub(crate) trait Normalize {
@@ -112,8 +112,7 @@ pub(crate) fn geometric_mean(input: &[f32]) -> f32 {
     }
 
     let n = input.len() as u32;
-    ((((mantissas as f32).log2() + exponents as f32) as f32) / n as f32 - (1023. + 500.) / 8.)
-        .exp2()
+    (((mantissas as f32).log2() + exponents as f32) / n as f32 - (1023. + 500.) / 8.).exp2()
 }
 
 pub(crate) fn hz_to_octs_inplace(
@@ -121,7 +120,7 @@ pub(crate) fn hz_to_octs_inplace(
     tuning: f64,
     bins_per_octave: u32,
 ) -> &mut Array1<f64> {
-    let a440 = 440.0 * (2_f64.powf(tuning / f64::from(bins_per_octave)) as f64);
+    let a440 = 440.0 * 2_f64.powf(tuning / f64::from(bins_per_octave));
 
     *frequencies /= a440 / 16.;
     frequencies.mapv_inplace(f64::log2);
