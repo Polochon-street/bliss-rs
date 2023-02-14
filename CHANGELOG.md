@@ -1,5 +1,9 @@
 #Changelog
 
+## bliss 0.6.6
+* Add a `delete_everything_else` function in `library`'s update functions.
+* Use Rust 2021
+
 ## bliss 0.6.5
 * Fix library update performance issues.
 * Pretty-print JSON in the config file.

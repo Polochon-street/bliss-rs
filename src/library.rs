@@ -661,7 +661,6 @@ impl<Config: AppConfigTrait> Library<Config> {
     ///
     /// `convert_extra_info` is a function that you should specify how
     /// to convert that extra info to something serializable.
-    // FIXME implement a `delete_non_included` boolean option (maybe come up with a better name?)
     pub fn update_library_convert_extra_info<
         T: Serialize + DeserializeOwned,
         U,
