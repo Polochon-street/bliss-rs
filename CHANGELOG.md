@@ -1,11 +1,12 @@
 #Changelog
 
 ## bliss 0.6.7
-* Fix compatibility for ffmpeg 6.0, and bump ffmpeg version to 6.0
+* Fix compatibility for ffmpeg 6.0, and bump ffmpeg version to 6.0.
+* Update and remove extraneous dependencies.
 
 ## bliss 0.6.6
 * Add a `delete_everything_else` function in `library`'s update functions.
-* Use Rust 2021
+* Use Rust 2021.
 
 ## bliss 0.6.5
 * Fix library update performance issues.
