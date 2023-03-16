@@ -1051,7 +1051,6 @@ impl<Config: AppConfigTrait> Library<Config> {
             internal_analysis: stmt
                 .query_map(params![song_path], |row| row.get(0))
                 .unwrap()
-                .into_iter()
                 .map(|x| x.unwrap())
                 .collect::<Vec<f32>>()
                 .try_into()

@@ -459,6 +459,7 @@ impl Song {
             context.set_threading(Config {
                 kind: ThreadingType::Frame,
                 count: 0,
+                #[cfg(not(feature = "ffmpeg_6_0"))]
                 safe: true,
             });
             let decoder = context.decoder().audio().map_err(|e| {
@@ -519,11 +520,11 @@ impl Song {
                 t => Some(t.to_string()),
             };
         };
-        let in_channel_layout = {
+        let (empty_in_channel_layout, in_channel_layout) = {
             if decoder.channel_layout() == ChannelLayout::empty() {
-                ChannelLayout::default(decoder.channels().into())
+                (true, ChannelLayout::default(decoder.channels().into()))
             } else {
-                decoder.channel_layout()
+                (false, decoder.channel_layout())
             }
         };
         decoder.set_channel_layout(in_channel_layout);
@@ -538,6 +539,7 @@ impl Song {
                 in_channel_layout,
                 in_codec_rate,
                 sample_array,
+                empty_in_channel_layout,
             )
         });
         for (s, packet) in ictx.packets() {
@@ -646,6 +648,7 @@ fn resample_frame(
     in_channel_layout: ChannelLayout,
     in_rate: u32,
     mut sample_array: Vec<f32>,
+    empty_in_channel_layout: bool,
 ) -> BlissResult<Vec<f32>> {
     let mut resample_context = ffmpeg::software::resampling::context::Context::get(
         in_codec_format,
@@ -660,15 +663,17 @@ fn resample_frame(
             "while trying to allocate resampling context: {e:?}",
         ))
     })?;
+
     let mut resampled = ffmpeg::frame::Audio::empty();
     let mut something_happened = false;
-    for decoded in rx.iter() {
-        if in_codec_format != decoded.format()
+    for mut decoded in rx.iter() {
+        // If the decoded layout is empty, it means we forced the
+        // "in_channel_layout" to something default, not that
+        // the format is wrong.
+        if empty_in_channel_layout && decoded.channel_layout() == ChannelLayout::empty() {
+            decoded.set_channel_layout(in_channel_layout);
+        } else if in_codec_format != decoded.format()
             || (in_channel_layout != decoded.channel_layout())
-                // If the decoded layout is empty, it means we forced the
-                // "in_channel_layout" to something default, not that
-                // the format is wrong.
-                && (decoded.channel_layout() != ChannelLayout::empty())
             || in_rate != decoded.rate()
         {
             warn!("received decoded packet with wrong format; file might be corrupted.");
