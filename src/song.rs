@@ -10,7 +10,6 @@
 extern crate crossbeam;
 extern crate ffmpeg_next as ffmpeg;
 extern crate ndarray;
-extern crate ndarray_npy;
 
 use crate::chroma::ChromaDesc;
 use crate::cue::CueInfo;
@@ -737,7 +736,7 @@ fn push_to_sample_array(frame: &ffmpeg::frame::Audio, sample_array: &mut Vec<f32
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
-    use ripemd160::{Digest, Ripemd160};
+    use ripemd::{Digest, Ripemd160};
     use std::path::Path;
 
     #[test]

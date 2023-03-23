@@ -1,6 +1,6 @@
 [package]
 name = "bliss-audio"
-version = "0.6.7"
+version = "0.6.8"
 build = "build.rs"
 authors = ["Polochon-street <polochonstreet@gmx.fr>"]
 edition = "2021"
@@ -32,44 +32,41 @@ library = [
 serde = ["dep:serde"]
 
 [dependencies]
-ripemd160 = "0.9.0"
-ndarray-npy = "0.8.0"
-ndarray = { version = "0.15.0", features = ["rayon"] }
-num_cpus = "1.13.0"
-ndarray-stats = "0.5.0"
-rustfft = "6.1.0"
-lazy_static = "1.4.0"
-rayon = "1.5.0"
-crossbeam = "0.8.0"
-noisy_float = "0.2.0"
-ffmpeg-next = "6.0.0"
-ffmpeg-sys-next = { version = "6.0.1", default-features = false }
-log = "0.4.14"
-env_logger = "0.8.3"
-thiserror = "1.0.24"
 # Until https://github.com/aubio/aubio/issues/336 is somehow solved
 # Hopefully we'll be able to use the official aubio-rs at some point.
-bliss-audio-aubio-rs = "0.2.0"
-strum = "0.21"
-strum_macros = "0.21"
-rcue = "0.1.1"
+bliss-audio-aubio-rs = "0.2.1"
+crossbeam = "0.8.2"
+ffmpeg-next = "6.0.0"
+ffmpeg-sys-next = { version = "6.0.1", default-features = false }
+log = "0.4.17"
+ndarray = { version = "0.15.6", features = ["rayon"] }
+num_cpus = "1.15.0"
+ndarray-stats = "0.5.1"
+noisy_float = "0.2.0"
+ripemd = "0.1.3"
+rustfft = "6.1.0"
+thiserror = "1.0.40"
+strum = "0.24.1"
+strum_macros = "0.24.3"
+rcue = "0.1.3"
 
 # Deps for the library feature
 serde = { version = "1.0", optional = true, features = ["derive"] }
 serde_json = { version = "1.0.59", optional = true }
 serde_ini = { version = "0.2.0", optional = true }
 tempdir = { version = "0.3.7", optional = true }
-rusqlite = { version = "0.27.0", optional = true }
-dirs = { version = "4.0.0", optional = true }
+rusqlite = { version = "0.28.0", optional = true }
+dirs = { version = "5.0.0", optional = true }
 anyhow = { version = "1.0.58", optional = true }
 indicatif = { version = "0.17.0", optional = true }
 
 [dev-dependencies]
+ndarray-npy = { version = "0.8.1", default-features = false }
 mime_guess = "2.0.3"
 glob = "0.3.0"
 anyhow = "1.0.45"
 clap = "2.33.3"
-pretty_assertions = "1.2.1"
+pretty_assertions = "1.3.0"
 serde_json = "1.0.59"
 
 [[example]]
