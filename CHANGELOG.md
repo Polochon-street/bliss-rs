@@ -1,5 +1,8 @@
 #Changelog
 
+## bliss 0.6.8
+* Add an `update-aubio-bindings` feature.
+
 ## bliss 0.6.7
 * Fix compatibility for ffmpeg 6.0, and bump ffmpeg version to 6.0.
 * Update and remove extraneous dependencies.
