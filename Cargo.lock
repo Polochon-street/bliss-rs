@@ -71,6 +71,7 @@ dependencies = [
  "clang-sys",
  "lazy_static 1.4.0",
  "lazycell",
+ "log",
  "peeking_take_while",
  "proc-macro2",
  "quote",
@@ -78,6 +79,7 @@ dependencies = [
  "rustc-hash",
  "shlex",
  "syn 1.0.109",
+ "which",
 ]
 
 [[package]]
@@ -135,6 +137,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bd4d47e7b82164c30a806717cf5562f87e5b136b79b3d942c9ad789134116f2f"
 dependencies = [
+ "bindgen",
  "cc",
  "fftw-sys",
 ]
@@ -1521,6 +1524,17 @@ name = "wasi"
 version = "0.11.0+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c8d87e72b64a3b4db28d11ce29237c246188f4f51057d65a7eab63b7987e423"
+
+[[package]]
+name = "which"
+version = "4.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2441c784c52b289a054b7201fc93253e288f094e2f4be9058343127c4226a269"
+dependencies = [
+ "either",
+ "libc",
+ "once_cell",
+]
 
 [[package]]
 name = "winapi"
