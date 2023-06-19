@@ -20,6 +20,8 @@ default = ["bliss-audio-aubio-rs/static"]
 # Build ffmpeg instead of using the host's.
 build-ffmpeg = ["ffmpeg-next/build"]
 ffmpeg-static = ["ffmpeg-next/static"]
+# Build for raspberry pis
+rpi = ["ffmpeg-next/rpi"]
 # Use if you get "No prebuilt bindings. Try use `bindgen` feature"
 update-aubio-bindings = ["bliss-audio-aubio-rs/bindgen"]
 # Use if you want to build python bindings with maturin.

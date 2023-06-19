@@ -1,5 +1,8 @@
 #Changelog
 
+## bliss 0.6.9
+* Add a feature flag for compilation on raspberry pis.
+
 ## bliss 0.6.8
 * Add an `update-aubio-bindings` feature.
 
