@@ -315,7 +315,11 @@ impl Song {
     }
 
     /**
-     * Analyze a song decoded in `sample_array`, with one channel @ 22050 Hz.
+     * Analyze a song decoded in `sample_array`. This function should NOT
+     * be used manually, unless you want to explore analyzing a sample array you
+     * already decoded yourself. Most people will want to use
+     * [Song::from_path](Song::from_path) instead to just analyze a file from
+     * its path.
      *
      * The current implementation doesn't make use of it,
      * but the song can also be streamed wrt.
@@ -324,8 +328,21 @@ impl Song {
      *
      * Useful in the rare cases where the full song is not
      * completely available.
+     *
+     * If you *do* want to use this with a song already decoded by yourself,
+     * the sample format of `sample_array` should be f32le, one channel, and
+     * the sampling rate 22050 Hz. Anything other thant that will yield aberrant
+     * results.
+     * To double-check that your sample array has the right format, you could run
+     * `ffmpeg -i path_to_your_song.flac -ar 22050 -ac 1 -c:a pcm_f32le -f hash -hash ripemd160 -`,
+     * which will give you the ripemd160 hash of the sample array if the song
+     * has been decoded properly. You can then compute the ripemd160 hash of your sample
+     * array (see `_test_decode` in the tests) and make sure both hashes are the same.
+     *
+     * (Running `ffmpeg -i path_to_your_song.flac -ar 22050 -ac 1 -c:a pcm_f32le` will simply give
+     * you the raw sample array as it should look like, if you're not into computing hashes)
      **/
-    pub(crate) fn analyze(sample_array: &[f32]) -> BlissResult<Analysis> {
+    pub fn analyze(sample_array: &[f32]) -> BlissResult<Analysis> {
         let largest_window = vec![
             BPMDesc::WINDOW_SIZE,
             ChromaDesc::WINDOW_SIZE,
