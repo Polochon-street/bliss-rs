@@ -7,6 +7,7 @@
 //! For implementation of plug-ins for already existing audio players,
 //! a look at Library is instead recommended.
 
+#[cfg(feature = "ffmpeg")]
 extern crate ffmpeg_next as ffmpeg;
 extern crate ndarray;
 
@@ -16,24 +17,38 @@ use crate::misc::LoudnessDesc;
 use crate::temporal::BPMDesc;
 use crate::timbral::{SpectralDesc, ZeroCrossingRateDesc};
 use crate::{BlissError, BlissResult, SAMPLE_RATE};
+#[cfg(feature = "ffmpeg")]
 use crate::{CHANNELS, FEATURES_VERSION};
+#[cfg(feature = "ffmpeg")]
 use ::log::warn;
 use core::ops::Index;
+#[cfg(feature = "ffmpeg")]
 use ffmpeg_next::codec::threading::{Config, Type as ThreadingType};
+#[cfg(feature = "ffmpeg")]
 use ffmpeg_next::util::channel_layout::ChannelLayout;
+#[cfg(feature = "ffmpeg")]
 use ffmpeg_next::util::error::Error;
+#[cfg(feature = "ffmpeg")]
 use ffmpeg_next::util::error::EINVAL;
+#[cfg(feature = "ffmpeg")]
 use ffmpeg_next::util::format::sample::{Sample, Type};
+#[cfg(feature = "ffmpeg")]
 use ffmpeg_next::util::frame::audio::Audio;
+#[cfg(feature = "ffmpeg")]
 use ffmpeg_next::util::log;
+#[cfg(feature = "ffmpeg")]
 use ffmpeg_next::util::log::level::Level;
+#[cfg(feature = "ffmpeg")]
 use ffmpeg_next::{media, util};
 use ndarray::{arr1, Array1};
 use std::convert::TryInto;
 use std::fmt;
+#[cfg(feature = "ffmpeg")]
 use std::path::Path;
 use std::path::PathBuf;
+#[cfg(feature = "ffmpeg")]
 use std::sync::mpsc;
+#[cfg(feature = "ffmpeg")]
 use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::Duration;
@@ -85,6 +100,9 @@ impl AsRef<Song> for Song {
 #[derive(Debug, EnumIter, EnumCount)]
 /// Indexes different fields of an [Analysis](Song::analysis).
 ///
+#[cfg_attr(
+    feature = "ffmpeg",
+    doc = r##"
 /// * Example:
 /// ```no_run
 /// use bliss_audio::{AnalysisIndex, BlissResult, Song};
@@ -95,7 +113,8 @@ impl AsRef<Song> for Song {
 ///     Ok(())
 /// }
 /// ```
-///
+"##
+)]
 /// Prints the tempo value of an analysis.
 ///
 /// Note that this should mostly be used for debugging / distance metric
@@ -184,7 +203,7 @@ impl Analysis {
         arr1(&self.internal_analysis)
     }
 
-    /// Return a Vec<f32> representing the analysis' features.
+    /// Return a `Vec<f32>` representing the analysis' features.
     ///
     /// Particularly useful if you want iterate through the values to store
     /// them somewhere.
@@ -214,6 +233,7 @@ impl Song {
     /// The error type returned should give a hint as to whether it was a
     /// decoding ([DecodingError](BlissError::DecodingError)) or an analysis
     /// ([AnalysisError](BlissError::AnalysisError)) error.
+    #[cfg(feature = "ffmpeg")]
     pub fn from_path<P: AsRef<Path>>(path: P) -> BlissResult<Self> {
         let raw_song = Song::decode(path.as_ref())?;
 
@@ -350,6 +370,7 @@ impl Song {
         })
     }
 
+    #[cfg(feature = "ffmpeg")]
     pub(crate) fn decode(path: &Path) -> BlissResult<InternalSong> {
         ffmpeg::init().map_err(|e| {
             BlissError::DecodingError(format!(
@@ -568,6 +589,7 @@ impl Song {
 }
 
 #[derive(Default, Debug)]
+#[cfg(feature = "ffmpeg")]
 pub(crate) struct InternalSong {
     pub path: PathBuf,
     pub artist: Option<String>,
@@ -580,6 +602,7 @@ pub(crate) struct InternalSong {
     pub sample_array: Vec<f32>,
 }
 
+#[cfg(feature = "ffmpeg")]
 fn resample_frame(
     rx: Receiver<Audio>,
     in_codec_format: Sample,
@@ -655,6 +678,7 @@ fn resample_frame(
     Ok(sample_array)
 }
 
+#[cfg(feature = "ffmpeg")]
 fn push_to_sample_array(frame: &ffmpeg::frame::Audio, sample_array: &mut Vec<f32>) {
     if frame.samples() == 0 {
         return;
@@ -680,6 +704,7 @@ fn push_to_sample_array(frame: &ffmpeg::frame::Audio, sample_array: &mut Vec<f32
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "ffmpeg")]
     use adler32::RollingAdler32;
     use pretty_assertions::assert_eq;
     use std::path::Path;
@@ -700,6 +725,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_analyze() {
         let song = Song::from_path(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let expected_analysis = vec![
@@ -730,6 +756,7 @@ mod tests {
         assert_eq!(FEATURES_VERSION, song.features_version);
     }
 
+    #[cfg(feature = "ffmpeg")]
     fn _test_decode(path: &Path, expected_hash: u32) {
         let song = Song::decode(path).unwrap();
         let mut hasher = RollingAdler32::new();
@@ -741,6 +768,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_tags() {
         let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         assert_eq!(song.artist, Some(String::from("David TMX")));
@@ -758,6 +786,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_empty_tags() {
         let song = Song::decode(Path::new("data/no_tags.flac")).unwrap();
         assert_eq!(song.artist, None);
@@ -768,6 +797,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_resample_multi() {
         let path = Path::new("data/s32_stereo_44_1_kHz.flac");
         let expected_hash = 0xbbcba1cf;
@@ -775,6 +805,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_resample_stereo() {
         let path = Path::new("data/s16_stereo_22_5kHz.flac");
         let expected_hash = 0x1d7b2d6d;
@@ -782,6 +813,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_decode_mono() {
         let path = Path::new("data/s16_mono_22_5kHz.flac");
         // Obtained through
@@ -792,6 +824,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_decode_mp3() {
         let path = Path::new("data/s32_stereo_44_1_kHz.mp3");
         // Obtained through
@@ -802,12 +835,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_dont_panic_no_channel_layout() {
         let path = Path::new("data/no_channel.wav");
         Song::decode(&path).unwrap();
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_decode_right_capacity_vec() {
         let path = Path::new("data/s16_mono_22_5kHz.flac");
         let song = Song::decode(&path).unwrap();
@@ -849,6 +884,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_index_analysis() {
         let song = Song::from_path("data/s16_mono_22_5kHz.flac").unwrap();
         assert_eq!(song.analysis[AnalysisIndex::Tempo], 0.3846389);
@@ -856,12 +892,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_decode_wav() {
         let expected_hash = 0xde831e82;
         _test_decode(Path::new("data/piano.wav"), expected_hash);
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_debug_analysis() {
         let song = Song::from_path("data/s16_mono_22_5kHz.flac").unwrap();
         assert_eq!(
@@ -882,7 +920,7 @@ mod tests {
     }
 }
 
-#[cfg(all(feature = "bench", test))]
+#[cfg(all(feature = "bench", feature = "ffmpeg", test))]
 mod bench {
     extern crate test;
     use crate::Song;

@@ -1213,7 +1213,7 @@ impl<Config: AppConfigTrait> Library<Config> {
         Ok(())
     }
 
-    /// Store an errored [Song](Song) in the SQLite database.
+    /// Store an errored [Song] in the SQLite database.
     ///
     /// If there already is an existing song with that path, replace it by
     /// the latest failed result.

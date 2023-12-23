@@ -1,17 +1,29 @@
 //! CUE-handling module.
 //!
 //! Using [BlissCue::songs_from_path] is most likely what you want.
+//!
+//! There are two main structures in this module, [BlissCue], used
+//! to extract and analyze songs from a cue file through [BlissCue::songs_from_path],
+//! and [CueInfo], which is a struct stored in [Song] to keep track of the CUE information
+//! the song was extracted from.
 
+#[cfg(feature = "ffmpeg")]
 use crate::{Analysis, BlissError, BlissResult, Song, FEATURES_VERSION, SAMPLE_RATE};
 use rcue::cue::{Cue, Track};
+#[cfg(feature = "ffmpeg")]
 use rcue::parser::parse_from_file;
-use std::path::{Path, PathBuf};
+#[cfg(feature = "ffmpeg")]
+use std::path::Path;
+use std::path::PathBuf;
+#[cfg(feature = "ffmpeg")]
 use std::time::Duration;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 /// A struct populated when the corresponding [Song] has been extracted from an
 /// audio file split with the help of a CUE sheet.
+/// It is mostly used to sit in [Song::cue_info], in order to know which file this song
+/// was extracted from, and from which CUE file the information was retrieved.
 pub struct CueInfo {
     /// The path of the original CUE sheet, e.g. `/path/to/album_name.cue`.
     pub cue_path: PathBuf,
@@ -49,6 +61,7 @@ impl BlissCue {
     /// Each returned [Song] has a populated [cue_info](Song::cue_info) object, that can be
     /// be used to retrieve which CUE sheet was used to extract it, as well
     /// as the corresponding audio file.
+    #[cfg(feature = "ffmpeg")]
     pub fn songs_from_path<P: AsRef<Path>>(path: P) -> BlissResult<Vec<BlissResult<Song>>> {
         let cue = BlissCue::from_path(&path)?;
         let cue_files = cue.files();
@@ -71,6 +84,7 @@ impl BlissCue {
     }
 
     // Extract a BlissCue from a given path.
+    #[cfg(feature = "ffmpeg")]
     fn from_path<P: AsRef<Path>>(path: P) -> BlissResult<Self> {
         let cue = parse_from_file(&path.as_ref().to_string_lossy(), false).map_err(|e| {
             BlissError::DecodingError(format!(
@@ -86,6 +100,7 @@ impl BlissCue {
     }
 
     // List all BlissCueFile from a BlissCue.
+    #[cfg(feature = "ffmpeg")]
     fn files(&self) -> Vec<BlissResult<BlissCueFile>> {
         let mut cue_files = Vec::new();
         for cue_file in self.cue.files.iter() {
@@ -119,6 +134,7 @@ impl BlissCue {
     }
 }
 
+#[cfg(feature = "ffmpeg")]
 impl BlissCueFile {
     fn create_song(
         &self,
@@ -192,10 +208,13 @@ impl BlissCueFile {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "ffmpeg")]
     use super::*;
+    #[cfg(feature = "ffmpeg")]
     use pretty_assertions::assert_eq;
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_empty_cue() {
         let songs = BlissCue::songs_from_path("data/empty.cue").unwrap();
         let error = songs[0].to_owned().unwrap_err();
@@ -206,6 +225,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_cue_analysis() {
         let songs = BlissCue::songs_from_path("data/testcue.cue").unwrap();
         let expected = vec![

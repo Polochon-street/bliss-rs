@@ -63,10 +63,13 @@ impl Normalize for LoudnessDesc {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "ffmpeg")]
     use crate::Song;
+    #[cfg(feature = "ffmpeg")]
     use std::path::Path;
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_loudness() {
         let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut loudness_desc = LoudnessDesc::default();
