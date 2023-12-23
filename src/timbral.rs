@@ -258,7 +258,9 @@ impl Normalize for ZeroCrossingRateDesc {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "ffmpeg")]
     use crate::Song;
+    #[cfg(feature = "ffmpeg")]
     use std::path::Path;
 
     #[test]
@@ -280,6 +282,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_zcr() {
         let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut zcr_desc = ZeroCrossingRateDesc::default();
@@ -290,6 +293,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_spectral_flatness_boundaries() {
         let mut spectral_desc = SpectralDesc::new(10).unwrap();
         let chunk = vec![0.; 1024];
@@ -320,6 +324,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_spectral_flatness() {
         let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut spectral_desc = SpectralDesc::new(SAMPLE_RATE).unwrap();
@@ -338,6 +343,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_spectral_roll_off_boundaries() {
         let mut spectral_desc = SpectralDesc::new(10).unwrap();
         let chunk = vec![0.; 512];
@@ -366,6 +372,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_spectral_roll_off() {
         let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut spectral_desc = SpectralDesc::new(SAMPLE_RATE).unwrap();
@@ -384,6 +391,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_spectral_centroid() {
         let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut spectral_desc = SpectralDesc::new(SAMPLE_RATE).unwrap();
@@ -402,6 +410,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_spectral_centroid_boundaries() {
         let mut spectral_desc = SpectralDesc::new(10).unwrap();
         let chunk = vec![0.; 512];

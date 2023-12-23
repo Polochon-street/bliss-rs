@@ -364,11 +364,14 @@ fn chroma_stft(
 #[cfg(test)]
 mod test {
     use super::*;
+    #[cfg(feature = "ffmpeg")]
     use crate::utils::stft;
+    #[cfg(feature = "ffmpeg")]
     use crate::{Song, SAMPLE_RATE};
     use ndarray::{arr1, arr2, Array2};
     use ndarray_npy::ReadNpyExt;
     use std::fs::File;
+    #[cfg(feature = "ffmpeg")]
     use std::path::Path;
 
     #[test]
@@ -434,6 +437,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_chroma_desc() {
         let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
@@ -456,6 +460,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_chroma_stft_decode() {
         let signal = Song::decode(Path::new("data/s16_mono_22_5kHz.flac"))
             .unwrap()
@@ -489,6 +494,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_estimate_tuning_decode() {
         let signal = Song::decode(Path::new("data/s16_mono_22_5kHz.flac"))
             .unwrap()
@@ -606,6 +612,7 @@ mod bench {
     }
 
     #[bench]
+    #[cfg(feature = "ffmpeg")]
     fn bench_chroma_desc(b: &mut Bencher) {
         let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
@@ -617,6 +624,7 @@ mod bench {
     }
 
     #[bench]
+    #[cfg(feature = "ffmpeg")]
     fn bench_chroma_stft(b: &mut Bencher) {
         let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
@@ -628,6 +636,7 @@ mod bench {
     }
 
     #[bench]
+    #[cfg(feature = "ffmpeg")]
     fn bench_chroma_stft_decode(b: &mut Bencher) {
         let signal = Song::decode(Path::new("data/s16_mono_22_5kHz.flac"))
             .unwrap()
