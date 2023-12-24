@@ -3,6 +3,7 @@
 ## bliss 0.6.10
 * Make the `analyze` function public, for people who don't want to use
   ffmpeg
+* Run `cargo update`
 
 ## bliss 0.6.9
 * Add a feature flag for compilation on raspberry pis.
