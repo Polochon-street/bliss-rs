@@ -20,7 +20,7 @@ jobs:
         submodules: recursive
     - uses: actions-rs/toolchain@v1
       with:
-        toolchain: nightly-2022-02-16
+        toolchain: nightly-2023-02-16
         override: false
     - name: Packages
       run: sudo apt-get update && sudo apt-get install build-essential yasm libavutil-dev libavcodec-dev libavformat-dev libavfilter-dev libavfilter-dev libavdevice-dev libswresample-dev libfftw3-dev ffmpeg
@@ -37,7 +37,7 @@ jobs:
     - name: Run example tests
       run: cargo test --verbose --examples
     - name: Build benches
-      run: cargo +nightly-2022-02-16 bench --verbose --features=bench --no-run
+      run: cargo +nightly-2023-02-16 bench --verbose --features=bench --no-run
     - name: Build examples
       run: cargo build --examples --verbose --features=serde,library
 
