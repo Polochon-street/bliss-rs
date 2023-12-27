@@ -3,7 +3,8 @@
 ## bliss 0.6.10
 * Make the `analyze` function public, for people who don't want to use
   ffmpeg
-* Run `cargo update`
+* Run `cargo update`, bump ffmpeg to 6.1
+* Fix the library module erroring when wrong UTF-8 ends up in the database.
 
 ## bliss 0.6.9
 * Add a feature flag for compilation on raspberry pis.

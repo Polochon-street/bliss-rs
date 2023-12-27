@@ -1081,12 +1081,42 @@ impl<Config: AppConfigTrait> Library<Config> {
 
         let song = Song {
             path: PathBuf::from(path),
-            artist: row.get(1).unwrap(),
-            title: row.get(2).unwrap(),
-            album: row.get(3).unwrap(),
-            album_artist: row.get(4).unwrap(),
-            track_number: row.get(5).unwrap(),
-            genre: row.get(6).unwrap(),
+            artist: row
+                .get_ref(1)
+                .unwrap()
+                .as_bytes_or_null()
+                .unwrap()
+                .map(|v| String::from_utf8_lossy(v).to_string()),
+            title: row
+                .get_ref(2)
+                .unwrap()
+                .as_bytes_or_null()
+                .unwrap()
+                .map(|v| String::from_utf8_lossy(v).to_string()),
+            album: row
+                .get_ref(3)
+                .unwrap()
+                .as_bytes_or_null()
+                .unwrap()
+                .map(|v| String::from_utf8_lossy(v).to_string()),
+            album_artist: row
+                .get_ref(4)
+                .unwrap()
+                .as_bytes_or_null()
+                .unwrap()
+                .map(|v| String::from_utf8_lossy(v).to_string()),
+            track_number: row
+                .get_ref(5)
+                .unwrap()
+                .as_bytes_or_null()
+                .unwrap()
+                .map(|v| String::from_utf8_lossy(v).to_string()),
+            genre: row
+                .get_ref(6)
+                .unwrap()
+                .as_bytes_or_null()
+                .unwrap()
+                .map(|v| String::from_utf8_lossy(v).to_string()),
             analysis: Analysis {
                 internal_analysis: [0.; NUMBER_FEATURES],
             },
@@ -1287,6 +1317,8 @@ fn data_local_dir() -> Option<PathBuf> {
 
 #[cfg(test)]
 // TODO refactor (especially the helper functions)
+// TODO the tests should really open a songs.db
+// TODO test with invalid UTF-8
 mod test {
     use super::*;
     use crate::{Analysis, NUMBER_FEATURES};
