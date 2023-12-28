@@ -7,7 +7,6 @@
 //! For implementation of plug-ins for already existing audio players,
 //! a look at Library is instead recommended.
 
-extern crate crossbeam;
 extern crate ffmpeg_next as ffmpeg;
 extern crate ndarray;
 
@@ -23,7 +22,6 @@ use crate::{BlissError, BlissResult, SAMPLE_RATE};
 use crate::{CHANNELS, FEATURES_VERSION};
 use ::log::warn;
 use core::ops::Index;
-use crossbeam::thread;
 use ffmpeg_next::codec::threading::{Config, Type as ThreadingType};
 use ffmpeg_next::util::channel_layout::ChannelLayout;
 use ffmpeg_next::util::error::Error;
@@ -40,7 +38,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::mpsc::Receiver;
-use std::thread as std_thread;
+use std::thread;
 use std::time::Duration;
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::{EnumCount, EnumIter};
@@ -331,16 +329,16 @@ impl Song {
      *
      * If you *do* want to use this with a song already decoded by yourself,
      * the sample format of `sample_array` should be f32le, one channel, and
-     * the sampling rate 22050 Hz. Anything other thant that will yield aberrant
+     * the sampling rate 22050 Hz. Anything other than that will yield aberrant
      * results.
      * To double-check that your sample array has the right format, you could run
-     * `ffmpeg -i path_to_your_song.flac -ar 22050 -ac 1 -c:a pcm_f32le -f hash -hash ripemd160 -`,
-     * which will give you the ripemd160 hash of the sample array if the song
-     * has been decoded properly. You can then compute the ripemd160 hash of your sample
-     * array (see `_test_decode` in the tests) and make sure both hashes are the same.
+     * `ffmpeg -i path_to_your_song.flac -ar 22050 -ac 1 -c:a pcm_f32le -f hash -hash addler32 -`,
+     * which will give you the addler32 checksum of the sample array if the song
+     * has been decoded properly. You can then compute the addler32 checksum of your sample
+     * array (see `_test_decode` in the tests) and make sure both are the same.
      *
      * (Running `ffmpeg -i path_to_your_song.flac -ar 22050 -ac 1 -c:a pcm_f32le` will simply give
-     * you the raw sample array as it should look like, if you're not into computing hashes)
+     * you the raw sample array as it should look like, if you're not into computing checksums)
      **/
     pub fn analyze(sample_array: &[f32]) -> BlissResult<Analysis> {
         let largest_window = vec![
@@ -358,8 +356,8 @@ impl Song {
             )));
         }
 
-        thread::scope(|s| {
-            let child_tempo: thread::ScopedJoinHandle<'_, BlissResult<f32>> = s.spawn(|_| {
+        thread::scope(|s| -> BlissResult<Analysis> {
+            let child_tempo = s.spawn(|| {
                 let mut tempo_desc = BPMDesc::new(SAMPLE_RATE)?;
                 let windows = sample_array
                     .windows(BPMDesc::WINDOW_SIZE)
@@ -371,17 +369,14 @@ impl Song {
                 Ok(tempo_desc.get_value())
             });
 
-            let child_chroma: thread::ScopedJoinHandle<'_, BlissResult<Vec<f32>>> = s.spawn(|_| {
+            let child_chroma = s.spawn(|| {
                 let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
                 chroma_desc.do_(sample_array)?;
                 Ok(chroma_desc.get_values())
             });
 
             #[allow(clippy::type_complexity)]
-            let child_timbral: thread::ScopedJoinHandle<
-                '_,
-                BlissResult<(Vec<f32>, Vec<f32>, Vec<f32>)>,
-            > = s.spawn(|_| {
+            let child_timbral = s.spawn(|| {
                 let mut spectral_desc = SpectralDesc::new(SAMPLE_RATE)?;
                 let windows = sample_array
                     .windows(SpectralDesc::WINDOW_SIZE)
@@ -395,22 +390,21 @@ impl Song {
                 Ok((centroid, rolloff, flatness))
             });
 
-            let child_zcr: thread::ScopedJoinHandle<'_, BlissResult<f32>> = s.spawn(|_| {
+            let child_zcr = s.spawn(|| {
                 let mut zcr_desc = ZeroCrossingRateDesc::default();
                 zcr_desc.do_(sample_array);
                 Ok(zcr_desc.get_value())
             });
 
-            let child_loudness: thread::ScopedJoinHandle<'_, BlissResult<Vec<f32>>> =
-                s.spawn(|_| {
-                    let mut loudness_desc = LoudnessDesc::default();
-                    let windows = sample_array.chunks(LoudnessDesc::WINDOW_SIZE);
+            let child_loudness = s.spawn(|| {
+                let mut loudness_desc = LoudnessDesc::default();
+                let windows = sample_array.chunks(LoudnessDesc::WINDOW_SIZE);
 
-                    for window in windows {
-                        loudness_desc.do_(window);
-                    }
-                    Ok(loudness_desc.get_value())
-                });
+                for window in windows {
+                    loudness_desc.do_(window);
+                }
+                Ok(loudness_desc.get_value())
+            });
 
             // Non-streaming approach for that one
             let tempo = child_tempo.join().unwrap()?;
@@ -434,7 +428,6 @@ impl Song {
             })?;
             Ok(Analysis::new(array))
         })
-        .unwrap()
     }
 
     pub(crate) fn decode(path: &Path) -> BlissResult<InternalSong> {
@@ -548,7 +541,7 @@ impl Song {
         let (tx, rx) = mpsc::channel();
         let in_codec_format = decoder.format();
         let in_codec_rate = decoder.rate();
-        let child = std_thread::spawn(move || {
+        let child = thread::spawn(move || {
             resample_frame(
                 rx,
                 in_codec_format,
@@ -752,8 +745,8 @@ fn push_to_sample_array(frame: &ffmpeg::frame::Audio, sample_array: &mut Vec<f32
 #[cfg(test)]
 mod tests {
     use super::*;
+    use adler32::RollingAdler32;
     use pretty_assertions::assert_eq;
-    use ripemd::{Digest, Ripemd160};
     use std::path::Path;
 
     #[test]
@@ -802,14 +795,14 @@ mod tests {
         assert_eq!(FEATURES_VERSION, song.features_version);
     }
 
-    fn _test_decode(path: &Path, expected_hash: &[u8]) {
+    fn _test_decode(path: &Path, expected_hash: u32) {
         let song = Song::decode(path).unwrap();
-        let mut hasher = Ripemd160::new();
+        let mut hasher = RollingAdler32::new();
         for sample in song.sample_array.iter() {
-            hasher.update(sample.to_le_bytes().to_vec());
+            hasher.update_buffer(&sample.to_le_bytes());
         }
 
-        assert_eq!(expected_hash, hasher.finalize().as_slice());
+        assert_eq!(expected_hash, hasher.hash());
     }
 
     #[test]
@@ -842,21 +835,15 @@ mod tests {
     #[test]
     fn test_resample_multi() {
         let path = Path::new("data/s32_stereo_44_1_kHz.flac");
-        let expected_hash = [
-            0xc5, 0xf8, 0x23, 0xce, 0x63, 0x2c, 0xf4, 0xa0, 0x72, 0x66, 0xbb, 0x49, 0xad, 0x84,
-            0xb6, 0xea, 0x48, 0x48, 0x9c, 0x50,
-        ];
-        _test_decode(&path, &expected_hash);
+        let expected_hash = 0xbbcba1cf;
+        _test_decode(&path, expected_hash);
     }
 
     #[test]
     fn test_resample_stereo() {
         let path = Path::new("data/s16_stereo_22_5kHz.flac");
-        let expected_hash = [
-            0x24, 0xed, 0x45, 0x58, 0x06, 0xbf, 0xfb, 0x05, 0x57, 0x5f, 0xdc, 0x4d, 0xb4, 0x9b,
-            0xa5, 0x2b, 0x05, 0x56, 0x10, 0x4f,
-        ];
-        _test_decode(&path, &expected_hash);
+        let expected_hash = 0x1d7b2d6d;
+        _test_decode(&path, expected_hash);
     }
 
     #[test]
@@ -864,12 +851,9 @@ mod tests {
         let path = Path::new("data/s16_mono_22_5kHz.flac");
         // Obtained through
         // ffmpeg -i data/s16_mono_22_5kHz.flac -ar 22050 -ac 1 -c:a pcm_f32le
-        // -f hash -hash ripemd160 -
-        let expected_hash = [
-            0x9d, 0x95, 0xa5, 0xf2, 0xd2, 0x9c, 0x68, 0xe8, 0x8a, 0x70, 0xcd, 0xf3, 0x54, 0x2c,
-            0x5b, 0x45, 0x98, 0xb4, 0xf3, 0xb4,
-        ];
-        _test_decode(&path, &expected_hash);
+        // -f hash -hash addler32 -
+        let expected_hash = 0x5e01930b;
+        _test_decode(&path, expected_hash);
     }
 
     #[test]
@@ -877,12 +861,9 @@ mod tests {
         let path = Path::new("data/s32_stereo_44_1_kHz.mp3");
         // Obtained through
         // ffmpeg -i data/s16_mono_22_5kHz.mp3 -ar 22050 -ac 1 -c:a pcm_f32le
-        // -f hash -hash ripemd160 -
-        let expected_hash = [
-            0x28, 0x25, 0x6b, 0x7b, 0x6e, 0x37, 0x1c, 0xcf, 0xc7, 0x06, 0xdf, 0x62, 0x8c, 0x0e,
-            0x91, 0xf7, 0xd6, 0x1f, 0xac, 0x5b,
-        ];
-        _test_decode(&path, &expected_hash);
+        // -f hash -hash addler32 -
+        let expected_hash = 0x69ca6906;
+        _test_decode(&path, expected_hash);
     }
 
     #[test]
@@ -969,11 +950,8 @@ mod tests {
 
     #[test]
     fn test_decode_wav() {
-        let expected_hash = [
-            0xf0, 0xe0, 0x85, 0x4e, 0xf6, 0x53, 0x76, 0xfa, 0x7a, 0xa5, 0x65, 0x76, 0xf9, 0xe1,
-            0xe8, 0xe0, 0x81, 0xc8, 0xdc, 0x61,
-        ];
-        _test_decode(Path::new("data/piano.wav"), &expected_hash);
+        let expected_hash = 0xde831e82;
+        _test_decode(Path::new("data/piano.wav"), expected_hash);
     }
 
     #[test]

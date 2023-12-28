@@ -138,6 +138,7 @@ use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::thread;
 
 use crate::Song;
 use crate::FEATURES_VERSION;
@@ -277,8 +278,9 @@ impl BaseConfig {
             }
         };
 
-        let number_cores =
-            number_cores.unwrap_or_else(|| NonZeroUsize::new(num_cpus::get()).unwrap());
+        let number_cores = number_cores.unwrap_or_else(|| {
+            thread::available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap())
+        });
 
         Ok(Self {
             config_path,
@@ -3010,7 +3012,7 @@ mod test {
                 library.config.base_config().config_path.display(),
                 library.config.base_config().database_path.display(),
                 FEATURES_VERSION,
-                num_cpus::get(),
+                thread::available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap()),
             )
         );
     }
@@ -3183,7 +3185,10 @@ mod test {
             ignore_wav_files: true,
         };
 
-        assert_eq!(config.get_number_cores().get(), num_cpus::get());
+        assert_eq!(
+            config.get_number_cores().get(),
+            usize::from(thread::available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap())),
+        );
 
         let base_config =
             BaseConfig::new(Some(config_file), Some(database_file), Some(nzus(1))).unwrap();
