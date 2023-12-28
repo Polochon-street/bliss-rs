@@ -303,13 +303,14 @@ mod tests {
             assert!(0.0000001 > (expected - actual).abs());
         }
 
-        let song = Song::decode(Path::new("data/white_noise.flac")).unwrap();
+        let song = Song::decode(Path::new("data/white_noise.mp3")).unwrap();
         let mut spectral_desc = SpectralDesc::new(22050).unwrap();
         for chunk in song.sample_array.chunks_exact(SpectralDesc::HOP_SIZE) {
             spectral_desc.do_(&chunk).unwrap();
         }
+        println!("{:?}", spectral_desc.get_flatness());
         // White noise - as close to 1 as possible
-        let expected_values = vec![0.6706717, -0.9685736];
+        let expected_values = vec![0.5785303, -0.9426308];
         for (expected, actual) in expected_values
             .iter()
             .zip(spectral_desc.get_flatness().iter())
