@@ -39,15 +39,15 @@ serde = ["dep:serde"]
 # Until https://github.com/aubio/aubio/issues/336 is somehow solved
 # Hopefully we'll be able to use the official aubio-rs at some point.
 bliss-audio-aubio-rs = "0.2.1"
-crossbeam = "0.8.2"
 ffmpeg-next = "6.1.0"
 ffmpeg-sys-next = { version = "6.1.0", default-features = false }
 log = "0.4.17"
+# `rayon` is used only by `par_mapv_inplace` in chroma.rs.
+# TODO: is the speed gain that substantial?
 ndarray = { version = "0.15.6", features = ["rayon"] }
-num_cpus = "1.15.0"
 ndarray-stats = "0.5.1"
 noisy_float = "0.2.0"
-ripemd = "0.1.3"
+adler32 = "1.0.2"
 rustfft = "6.1.0"
 thiserror = "1.0.40"
 strum = "0.24.1"

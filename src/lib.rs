@@ -75,8 +75,6 @@ mod temporal;
 mod timbral;
 mod utils;
 
-extern crate crossbeam;
-extern crate num_cpus;
 #[cfg(feature = "serde")]
 #[macro_use]
 extern crate serde;
@@ -155,7 +153,7 @@ pub type BlissResult<T> = Result<T, BlissError>;
 pub fn analyze_paths<P: Into<PathBuf>, F: IntoIterator<Item = P>>(
     paths: F,
 ) -> mpsc::IntoIter<(PathBuf, BlissResult<Song>)> {
-    let cores = NonZeroUsize::new(num_cpus::get()).unwrap();
+    let cores = thread::available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap());
     analyze_paths_with_cores(paths, cores)
 }
 
@@ -203,7 +201,7 @@ pub fn analyze_paths_with_cores<P: Into<PathBuf>, F: IntoIterator<Item = P>>(
     paths: F,
     number_cores: NonZeroUsize,
 ) -> mpsc::IntoIter<(PathBuf, BlissResult<Song>)> {
-    let mut cores = NonZeroUsize::new(num_cpus::get()).unwrap();
+    let mut cores = thread::available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap());
     if cores > number_cores {
         cores = number_cores;
     }

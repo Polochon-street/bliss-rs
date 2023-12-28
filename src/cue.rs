@@ -160,8 +160,8 @@ impl BlissCueFile {
         let mut songs = Vec::new();
         for (index, tuple) in (self.tracks[..]).windows(2).enumerate() {
             let (current_track, next_track) = (tuple[0].to_owned(), tuple[1].to_owned());
-            if let Some((_, start_current)) = current_track.indices.get(0) {
-                if let Some((_, end_current)) = next_track.indices.get(0) {
+            if let Some((_, start_current)) = current_track.indices.first() {
+                if let Some((_, end_current)) = next_track.indices.first() {
                     let start_current = (start_current.as_secs_f32() * SAMPLE_RATE as f32) as usize;
                     let end_current = (end_current.as_secs_f32() * SAMPLE_RATE as f32) as usize;
                     let duration = Duration::from_secs_f32(
@@ -176,7 +176,7 @@ impl BlissCueFile {
         }
         // Take care of the last track, since the windows iterator doesn't.
         if let Some(last_track) = self.tracks.last() {
-            if let Some((_, start_current)) = last_track.indices.get(0) {
+            if let Some((_, start_current)) = last_track.indices.first() {
                 let start_current = (start_current.as_secs_f32() * SAMPLE_RATE as f32) as usize;
                 let duration = Duration::from_secs_f32(
                     (self.sample_array.len() - start_current) as f32 / SAMPLE_RATE as f32,
