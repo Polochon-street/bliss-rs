@@ -10,6 +10,7 @@ homepage = "https://lelele.io/bliss.html"
 repository = "https://github.com/Polochon-street/bliss-rs"
 keywords = ["audio", "analysis", "MIR", "playlist", "similarity"]
 readme = "README.md"
+exclude = ["data/"]
 
 [package.metadata.docs.rs]
 features = ["bliss-audio-aubio-rs/rustdoc", "library"]
