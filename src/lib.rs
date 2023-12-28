@@ -274,7 +274,7 @@ mod tests {
         let paths = vec![
             "./data/s16_mono_22_5kHz.flac",
             "./data/testcue.cue",
-            "./data/white_noise.flac",
+            "./data/white_noise.mp3",
             "definitely-not-existing.foo",
             "not-existing.foo",
         ];
@@ -317,7 +317,7 @@ mod tests {
             (true, PathBuf::from("./data/testcue.cue/CUE_TRACK001"), None),
             (true, PathBuf::from("./data/testcue.cue/CUE_TRACK002"), None),
             (true, PathBuf::from("./data/testcue.cue/CUE_TRACK003"), None),
-            (true, PathBuf::from("./data/white_noise.flac"), None),
+            (true, PathBuf::from("./data/white_noise.mp3"), None),
         ];
 
         assert_eq!(results, expected_results);
