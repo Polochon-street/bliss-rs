@@ -1,5 +1,8 @@
 #Changelog
 
+## bliss 0.6.11
+* Bump rust-ffmpeg to 6.1.1 to fix build for raspberry pis.
+
 ## bliss 0.6.10
 * Make the `analyze` function public, for people who don't want to use
   ffmpeg
