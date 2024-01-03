@@ -1155,13 +1155,6 @@ impl<Config: AppConfigTrait> Library<Config> {
             ),
             None => (None, None),
         };
-        let x = vec![68, 105, 101, 32, 196, 114, 122, 116, 101, 101];
-        //println!("{}", String::from_utf8(x).unwrap());
-        println!(
-            "{}",
-            String::from_utf8(song.artist.clone().unwrap().as_bytes().to_vec()).unwrap()
-        );
-        println!("{:x?}", song.artist.clone().unwrap().as_bytes());
         tx.execute(
             "
             insert into song (
