@@ -16,16 +16,20 @@
 //! the songs by distance, ascending.
 //!
 //! If you want to implement a bliss plugin for an already existing audio
-//! player, the [Library] struct is a collection of goodies that should prove
+//! player, the [library::Library] struct is a collection of goodies that should prove
 //! useful (it contains utilities to store analyzed songs in a self-contained
 //! database file, to make playlists directly from the database, etc).
 //! [blissify](https://github.com/Polochon-street/blissify-rs/) for both
-//! an example of how the [Library] struct works, and a real-life demo of bliss
+//! an example of how the [library::Library] struct works, and a real-life demo of bliss
 //! implemented for [MPD](https://www.musicpd.org/).
 //!
+#![cfg_attr(
+    feature = "ffmpeg",
+    doc = r##"
 //! # Examples
 //!
 //! ### Analyze & compute the distance between two songs
+//!
 //! ```no_run
 //! use bliss_audio::{BlissResult, Song};
 //!
@@ -62,6 +66,8 @@
 //!     Ok(())
 //! }
 //! ```
+"##
+)]
 #![cfg_attr(feature = "bench", feature(test))]
 #![warn(missing_docs)]
 mod chroma;
@@ -78,16 +84,23 @@ mod utils;
 #[cfg(feature = "serde")]
 #[macro_use]
 extern crate serde;
+#[cfg(feature = "ffmpeg")]
 use crate::cue::BlissCue;
+#[cfg(feature = "ffmpeg")]
 use log::info;
+#[cfg(feature = "ffmpeg")]
 use std::num::NonZeroUsize;
+#[cfg(feature = "ffmpeg")]
 use std::path::{Path, PathBuf};
+#[cfg(feature = "ffmpeg")]
 use std::sync::mpsc;
+#[cfg(feature = "ffmpeg")]
 use std::thread;
 use thiserror::Error;
 
 pub use song::{Analysis, AnalysisIndex, Song, NUMBER_FEATURES};
 
+#[cfg(feature = "ffmpeg")]
 const CHANNELS: u16 = 1;
 const SAMPLE_RATE: u32 = 22050;
 /// Stores the current version of bliss-rs' features.
@@ -118,7 +131,7 @@ pub type BlissResult<T> = Result<T, BlissError>;
 ///
 /// Returns an iterator, whose items are a tuple made of
 /// the song path (to display to the user in case the analysis failed),
-/// and a Result<Song>.
+/// and a `Result<Song>`.
 ///
 /// # Note
 ///
@@ -150,6 +163,7 @@ pub type BlissResult<T> = Result<T, BlissError>;
 ///     Ok(())
 /// }
 /// ```
+#[cfg(feature = "ffmpeg")]
 pub fn analyze_paths<P: Into<PathBuf>, F: IntoIterator<Item = P>>(
     paths: F,
 ) -> mpsc::IntoIter<(PathBuf, BlissResult<Song>)> {
@@ -165,7 +179,7 @@ pub fn analyze_paths<P: Into<PathBuf>, F: IntoIterator<Item = P>>(
 ///
 /// Return an iterator, whose items are a tuple made of
 /// the song path (to display to the user in case the analysis failed),
-/// and a Result<Song>.
+/// and a `Result<Song>`.
 ///
 /// # Note
 ///
@@ -197,6 +211,7 @@ pub fn analyze_paths<P: Into<PathBuf>, F: IntoIterator<Item = P>>(
 ///     Ok(())
 /// }
 /// ```
+#[cfg(feature = "ffmpeg")]
 pub fn analyze_paths_with_cores<P: Into<PathBuf>, F: IntoIterator<Item = P>>(
     paths: F,
     number_cores: NonZeroUsize,
@@ -253,6 +268,7 @@ pub fn analyze_paths_with_cores<P: Into<PathBuf>, F: IntoIterator<Item = P>>(
 mod tests {
     use super::*;
     #[cfg(test)]
+    #[cfg(feature = "ffmpeg")]
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -268,6 +284,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_analyze_paths() {
         let paths = vec![
             "./data/s16_mono_22_5kHz.flac",
