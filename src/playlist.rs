@@ -10,6 +10,7 @@
 // TODO on the `by_key` functions: maybe Fn(&T) -> &Song is enough? Compared
 // to -> Song
 use crate::{BlissError, BlissResult, Song, NUMBER_FEATURES};
+use extended_isolation_forest::{Forest, ForestOptions};
 use ndarray::{Array, Array1, Array2, Axis};
 use ndarray_stats::QuantileExt;
 use noisy_float::prelude::*;
@@ -18,6 +19,15 @@ use std::collections::HashMap;
 /// Convenience trait for user-defined distance metrics.
 pub trait DistanceMetric: Fn(&Array1<f32>, &Array1<f32>) -> f32 {}
 impl<F> DistanceMetric for F where F: Fn(&Array1<f32>, &Array1<f32>) -> f32 {}
+
+/// Pre trained set distance metrics.
+pub trait PreTrainedSetDistanceMetric {
+    /// Train this distance metric on the set of vectors that it should measure distance from.
+    fn train(&mut self, vectors: &[Array1<f32>]);
+    /// Return the distance from the set of vectors that this metric was trained on. Must not be
+    /// called before train.
+    fn distance(&self, vector: &Array1<f32>) -> f32;
+}
 
 /// Return the [euclidean
 /// distance](https://en.wikipedia.org/wiki/Euclidean_distance#Higher_dimensions)
@@ -37,6 +47,48 @@ pub fn euclidean_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
 pub fn cosine_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
     let similarity = a.dot(b) / (a.dot(a).sqrt() * b.dot(b).sqrt());
     1. - similarity
+}
+
+fn feature_array1_to_array(f: &Array1<f32>) -> [f32; NUMBER_FEATURES] {
+    f.as_slice()
+        .expect("Couldn't convert feature vector to slice")
+        .try_into()
+        .expect("Couldn't convert slice to array")
+}
+
+/// Return the [extended isolation forest](https://ieeexplore.ieee.org/document/8888179)
+/// score between a set of vectors and a single vector.
+pub struct ExtendedIsolationForest {
+    forest: Option<Forest<f32, NUMBER_FEATURES>>,
+}
+
+impl Default for ExtendedIsolationForest {
+    /// Create an ExtendedIsolationForest with an empty state.
+    fn default() -> ExtendedIsolationForest {
+        ExtendedIsolationForest { forest: None }
+    }
+}
+
+impl PreTrainedSetDistanceMetric for ExtendedIsolationForest {
+    fn train(&mut self, vectors: &[Array1<f32>]) {
+        let opts = ForestOptions {
+            n_trees: 100,
+            sample_size: vectors.len().min(256),
+            max_tree_depth: None,
+            extension_level: 1,
+        };
+        let a = &*vectors
+            .iter()
+            .map(feature_array1_to_array)
+            .collect::<Vec<_>>();
+        self.forest = Some(Forest::from_slice(a, &opts).unwrap());
+    }
+    fn distance(&self, vector: &Array1<f32>) -> f32 {
+        self.forest
+            .as_ref()
+            .expect("distance() called before train()")
+            .score(&feature_array1_to_array(vector)) as f32
+    }
 }
 
 /// Sort `songs` in place by putting songs close to `first_song` first
@@ -64,6 +116,27 @@ pub fn closest_to_first_song_by_key<F, T>(
 {
     let first_song = key_fn(first_song);
     songs.sort_by_cached_key(|song| n32(first_song.custom_distance(&key_fn(song), &distance)));
+}
+
+/// Sort `all_songs` in place by putting songs close to `selected_songs` first
+/// using the `distance` metric.
+///
+/// Sort songs with a key extraction function, useful for when you have a
+/// structure like `CustomSong { bliss_song: Song, something_else: bool }`
+pub fn closest_to_selected_songs_by_key<F, T>(
+    selected_songs: &[T],
+    all_songs: &mut [T],
+    mut metric: impl PreTrainedSetDistanceMetric,
+    key_fn: F,
+) where
+    F: Fn(&T) -> Song,
+{
+    let selected_songs = selected_songs
+        .iter()
+        .map(|c| key_fn(c).analysis.as_arr1())
+        .collect::<Vec<_>>();
+    metric.train(&selected_songs);
+    all_songs.sort_by_cached_key(|song| n32(metric.distance(&key_fn(song).analysis.as_arr1())));
 }
 
 /// Sort `songs` in place using the `distance` metric and ordering by

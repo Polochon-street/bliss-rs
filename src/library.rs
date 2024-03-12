@@ -116,6 +116,7 @@ use crate::playlist::dedup_playlist_by_key;
 use crate::playlist::dedup_playlist_custom_distance_by_key;
 use crate::playlist::euclidean_distance;
 use crate::playlist::DistanceMetric;
+use crate::playlist::PreTrainedSetDistanceMetric;
 use anyhow::{bail, Context, Result};
 #[cfg(not(test))]
 use dirs::data_local_dir;
@@ -549,6 +550,50 @@ impl<Config: AppConfigTrait> Library<Config> {
                 distance,
                 |s: &LibrarySong<T>| s.bliss_song.to_owned(),
             );
+        }
+        songs.truncate(playlist_length);
+        Ok(songs)
+    }
+
+    /// Build a playlist of `playlist_length` items from a set of already analyzed
+    /// song in the library at `song_paths`, using distance metric `distance`,
+    /// the sorting function `sort_by` and deduplicating if `dedup` is set to
+    /// `true`.
+    ///
+    /// You can use ready to use distance metrics such as
+    /// [extended_isolation_forest], and ready to use sorting functions like
+    /// [closest_to_selected_songs_by_key].
+    pub fn playlist_from_many_custom<F, G, T: Serialize + DeserializeOwned + std::fmt::Debug>(
+        &self,
+        song_paths: &[&str],
+        playlist_length: usize,
+        distance: G,
+        mut sort_by: F,
+        dedup: bool,
+    ) -> Result<Vec<LibrarySong<T>>>
+    where
+        F: FnMut(&[LibrarySong<T>], &mut Vec<LibrarySong<T>>, G, fn(&LibrarySong<T>) -> Song),
+        G: PreTrainedSetDistanceMetric,
+    {
+        let initial_songs: Vec<LibrarySong<T>> = song_paths
+            .iter()
+            .map(|s| {
+                self.song_from_path(s).map_err(|_| {
+                    BlissError::ProviderError(format!("song '{s}' has not been analyzed"))
+                })
+            })
+            .collect::<Result<Vec<_>, BlissError>>()?;
+        let mut songs = self.songs_from_library()?;
+        sort_by(
+            &initial_songs,
+            &mut songs,
+            distance,
+            |s: &LibrarySong<T>| s.bliss_song.to_owned(),
+        );
+        if dedup {
+            dedup_playlist_by_key(&mut songs, None, |s: &LibrarySong<T>| {
+                s.bliss_song.to_owned()
+            });
         }
         songs.truncate(playlist_length);
         Ok(songs)
