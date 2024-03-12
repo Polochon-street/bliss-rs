@@ -79,6 +79,12 @@ pub struct Song {
     pub cue_info: Option<CueInfo>,
 }
 
+impl AsRef<Song> for Song {
+    fn as_ref(&self) -> &Song {
+        self
+    }
+}
+
 #[derive(Debug, EnumIter, EnumCount)]
 /// Indexes different fields of an [Analysis](Song::analysis).
 ///

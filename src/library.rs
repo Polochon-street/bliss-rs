@@ -110,10 +110,10 @@
 //! [Library] to implement bliss for a MPD player.
 use crate::analyze_paths_with_cores;
 use crate::cue::CueInfo;
-use crate::playlist::closest_album_to_group_by_key;
-use crate::playlist::closest_to_first_song_by_key;
-use crate::playlist::dedup_playlist_by_key;
-use crate::playlist::dedup_playlist_custom_distance_by_key;
+use crate::playlist::closest_album_to_group;
+use crate::playlist::closest_to_first_song;
+use crate::playlist::dedup_playlist;
+use crate::playlist::dedup_playlist_custom_distance;
 use crate::playlist::euclidean_distance;
 use crate::playlist::DistanceMetric;
 use crate::playlist::PreTrainedSetDistanceMetric;
@@ -341,6 +341,12 @@ pub struct LibrarySong<T: Serialize + DeserializeOwned> {
     pub extra_info: T,
 }
 
+impl<T: Serialize + DeserializeOwned> AsRef<Song> for LibrarySong<T> {
+    fn as_ref(&self) -> &Song {
+        &self.bliss_song
+    }
+}
+
 // TODO add logging statement
 // TODO concrete examples
 // TODO example LibrarySong without any extra_info
@@ -493,16 +499,14 @@ impl<Config: AppConfigTrait> Library<Config> {
     ) -> Result<Vec<LibrarySong<T>>> {
         let first_song: LibrarySong<T> = self.song_from_path(song_path)?;
         let mut songs = self.songs_from_library()?;
-        closest_to_first_song_by_key(
-            &first_song,
-            &mut songs,
-            euclidean_distance,
-            |s: &LibrarySong<T>| s.bliss_song.to_owned(),
-        );
-        songs.sort_by_cached_key(|song| n32(first_song.bliss_song.distance(&song.bliss_song)));
-        dedup_playlist_by_key(&mut songs, None, |s: &LibrarySong<T>| {
-            s.bliss_song.to_owned()
+        closest_to_first_song(&first_song, &mut songs, euclidean_distance);
+        songs.sort_by_cached_key(|song| {
+            n32(euclidean_distance(
+                &first_song.bliss_song.analysis.as_arr1(),
+                &song.bliss_song.analysis.as_arr1(),
+            ))
         });
+        dedup_playlist(&mut songs, None);
         songs.truncate(playlist_length);
         Ok(songs)
     }
@@ -514,7 +518,7 @@ impl<Config: AppConfigTrait> Library<Config> {
     ///
     /// You can use ready to use distance metrics such as
     /// [euclidean_distance], and ready to use sorting functions like
-    /// [closest_to_first_song_by_key].
+    /// [closest_to_first_song].
     ///
     /// In most cases, you just want to use [Library::playlist_from].
     /// Use `playlist_from_custom` if you want to experiment with different
@@ -522,7 +526,7 @@ impl<Config: AppConfigTrait> Library<Config> {
     ///
     /// Example:
     /// `library.playlist_from_song_custom(song_path, 20, euclidean_distance,
-    /// closest_to_first_song_by_key, true)`.
+    /// closest_to_first_song, true)`.
     /// TODO path here too
     pub fn playlist_from_custom<F, G, T: Serialize + DeserializeOwned + std::fmt::Debug>(
         &self,
@@ -533,23 +537,16 @@ impl<Config: AppConfigTrait> Library<Config> {
         dedup: bool,
     ) -> Result<Vec<LibrarySong<T>>>
     where
-        F: FnMut(&LibrarySong<T>, &mut Vec<LibrarySong<T>>, G, fn(&LibrarySong<T>) -> Song),
+        F: FnMut(&LibrarySong<T>, &mut [LibrarySong<T>], G),
         G: DistanceMetric + Copy,
     {
         let first_song: LibrarySong<T> = self.song_from_path(song_path).map_err(|_| {
             BlissError::ProviderError(format!("song '{song_path}' has not been analyzed"))
         })?;
         let mut songs = self.songs_from_library()?;
-        sort_by(&first_song, &mut songs, distance, |s: &LibrarySong<T>| {
-            s.bliss_song.to_owned()
-        });
+        sort_by(&first_song, &mut songs, distance);
         if dedup {
-            dedup_playlist_custom_distance_by_key(
-                &mut songs,
-                None,
-                distance,
-                |s: &LibrarySong<T>| s.bliss_song.to_owned(),
-            );
+            dedup_playlist_custom_distance(&mut songs, None, distance);
         }
         songs.truncate(playlist_length);
         Ok(songs)
@@ -562,7 +559,7 @@ impl<Config: AppConfigTrait> Library<Config> {
     ///
     /// You can use ready to use distance metrics such as
     /// [extended_isolation_forest], and ready to use sorting functions like
-    /// [closest_to_selected_songs_by_key].
+    /// [closest_to_selected_songs].
     pub fn playlist_from_many_custom<F, G, T: Serialize + DeserializeOwned + std::fmt::Debug>(
         &self,
         song_paths: &[&str],
@@ -572,7 +569,7 @@ impl<Config: AppConfigTrait> Library<Config> {
         dedup: bool,
     ) -> Result<Vec<LibrarySong<T>>>
     where
-        F: FnMut(&[LibrarySong<T>], &mut Vec<LibrarySong<T>>, G, fn(&LibrarySong<T>) -> Song),
+        F: FnMut(&[LibrarySong<T>], &mut Vec<LibrarySong<T>>, G),
         G: PreTrainedSetDistanceMetric,
     {
         let initial_songs: Vec<LibrarySong<T>> = song_paths
@@ -584,16 +581,9 @@ impl<Config: AppConfigTrait> Library<Config> {
             })
             .collect::<Result<Vec<_>, BlissError>>()?;
         let mut songs = self.songs_from_library()?;
-        sort_by(
-            &initial_songs,
-            &mut songs,
-            distance,
-            |s: &LibrarySong<T>| s.bliss_song.to_owned(),
-        );
+        sort_by(&initial_songs, &mut songs, distance);
         if dedup {
-            dedup_playlist_by_key(&mut songs, None, |s: &LibrarySong<T>| {
-                s.bliss_song.to_owned()
-            });
+            dedup_playlist(&mut songs, None);
         }
         songs.truncate(playlist_length);
         Ok(songs)
@@ -613,7 +603,7 @@ impl<Config: AppConfigTrait> Library<Config> {
         let album = self.songs_from_album(&album_title)?;
         // Every song should be from the same album. Hopefully...
         let songs = self.songs_from_library()?;
-        let playlist = closest_album_to_group_by_key(album, songs, |s| s.bliss_song.to_owned())?;
+        let playlist = closest_album_to_group(album, songs)?;
 
         let mut album_count = 0;
         let mut index = 0;
@@ -1983,7 +1973,7 @@ mod test {
                 "/path/to/song2001",
                 20,
                 distance,
-                closest_to_first_song_by_key,
+                closest_to_first_song,
                 true,
             )
             .unwrap();
@@ -2004,15 +1994,12 @@ mod test {
         )
     }
 
-    fn custom_sort<F>(
+    fn custom_sort(
         _: &LibrarySong<ExtraInfo>,
-        songs: &mut Vec<LibrarySong<ExtraInfo>>,
+        songs: &mut [LibrarySong<ExtraInfo>],
         _distance: impl DistanceMetric,
-        key_fn: F,
-    ) where
-        F: Fn(&LibrarySong<ExtraInfo>) -> Song,
-    {
-        songs.sort_by_key(|song| key_fn(song).path);
+    ) {
+        songs.sort_by(|s1, s2| s1.bliss_song.path.cmp(&s2.bliss_song.path));
     }
 
     #[test]
@@ -2055,7 +2042,7 @@ mod test {
                 "/path/to/song2001",
                 20,
                 distance,
-                closest_to_first_song_by_key,
+                closest_to_first_song,
                 true,
             )
             .unwrap();
@@ -2078,7 +2065,7 @@ mod test {
                 "/path/to/song2001",
                 20,
                 distance,
-                closest_to_first_song_by_key,
+                closest_to_first_song,
                 false,
             )
             .unwrap();
