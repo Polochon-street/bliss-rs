@@ -97,9 +97,10 @@ pub fn closest_to_first_song<T: AsRef<Song>>(
     distance: impl DistanceMetric,
 ) {
     songs.sort_by_cached_key(|song| {
-        n32(first_song
-            .as_ref()
-            .custom_distance(song.as_ref(), &distance))
+        n32(distance(
+            &first_song.as_ref().analysis.as_arr1(),
+            &song.as_ref().analysis.as_arr1(),
+        ))
     });
 }
 
@@ -140,8 +141,10 @@ pub fn song_to_song<T: AsRef<Song>>(
     for i in 0..songs.len() {
         let remaining_songs = &songs[i..];
         let distances: Array1<f32> = Array::from_shape_fn(remaining_songs.len(), |j| {
-            song.as_ref()
-                .custom_distance(remaining_songs[j].as_ref(), &distance)
+            distance(
+                &song.as_ref().analysis.as_arr1(),
+                &remaining_songs[j].as_ref().analysis.as_arr1(),
+            )
         });
         let idx = distances.argmin().unwrap();
         songs.swap(idx + i, i);
@@ -185,7 +188,8 @@ pub fn dedup_playlist_custom_distance<T: AsRef<Song>>(
     songs.dedup_by(|s1, s2| {
         let s1 = s1.as_ref();
         let s2 = s2.as_ref();
-        n32(s1.custom_distance(s2, &distance)) < distance_threshold.unwrap_or(0.05)
+        n32(distance(&s1.analysis.as_arr1(), &s2.analysis.as_arr1()))
+            < distance_threshold.unwrap_or(0.05)
             || (s1.title.is_some()
                 && s2.title.is_some()
                 && s1.artist.is_some()
