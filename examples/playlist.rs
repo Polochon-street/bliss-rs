@@ -1,5 +1,5 @@
 use anyhow::Result;
-use bliss_audio::playlist::{closest_to_first_song, dedup_playlist, euclidean_distance};
+use bliss_audio::playlist::{closest_to_songs, dedup_playlist, euclidean_distance};
 use bliss_audio::{analyze_paths, Song};
 use clap::{App, Arg};
 use glob::glob;
@@ -77,7 +77,7 @@ fn main() -> Result<()> {
         .into_iter()
         .filter(|x| x == &first_song || paths.contains(&x.path.to_string_lossy().to_string()))
         .collect();
-    closest_to_first_song(&first_song, &mut songs_to_chose_from, euclidean_distance);
+    closest_to_songs(&[first_song], &mut songs_to_chose_from, &euclidean_distance);
     dedup_playlist(&mut songs_to_chose_from, None);
 
     fs::write(analysis_path, serialized)?;

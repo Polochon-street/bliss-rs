@@ -208,7 +208,7 @@ fn main() -> Result<()> {
             .unwrap_or("20")
             .parse::<usize>()?;
         let library: Library<Config> = Library::from_config_path(config_path)?;
-        let songs = library.playlist_from::<ExtraInfo>(song_path, playlist_length)?;
+        let songs = library.playlist_from::<ExtraInfo>(&[song_path], playlist_length)?;
         let playlist = songs
             .into_iter()
             .map(|s| {

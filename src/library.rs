@@ -111,18 +111,15 @@
 use crate::analyze_paths_with_cores;
 use crate::cue::CueInfo;
 use crate::playlist::closest_album_to_group;
-use crate::playlist::closest_to_first_song;
-use crate::playlist::dedup_playlist;
+use crate::playlist::closest_to_songs;
 use crate::playlist::dedup_playlist_custom_distance;
 use crate::playlist::euclidean_distance;
-use crate::playlist::DistanceMetric;
-use crate::playlist::PreTrainedSetDistanceMetric;
+use crate::playlist::DistanceMetricBuilder;
 use anyhow::{bail, Context, Result};
 #[cfg(not(test))]
 use dirs::data_local_dir;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::warn;
-use noisy_float::prelude::*;
 use rusqlite::params;
 use rusqlite::params_from_iter;
 use rusqlite::Connection;
@@ -487,69 +484,23 @@ impl<Config: AppConfigTrait> Library<Config> {
         Self::new(config)
     }
 
-    /// Build a playlist of `playlist_length` items from an already analyzed
-    /// song in the library at `song_path`.
+    /// Build a playlist of `playlist_length` items from a set of already analyzed
+    /// songs in the library at `song_path`.
     ///
-    /// It uses a simple euclidean distance between songs, and deduplicates songs
-    /// that are too close.
+    /// It uses the ExentedIsolationForest score as a distance between songs, and deduplicates
+    /// songs that are too close.
     pub fn playlist_from<T: Serialize + DeserializeOwned>(
         &self,
-        song_path: &str,
+        song_paths: &[&str],
         playlist_length: usize,
     ) -> Result<Vec<LibrarySong<T>>> {
-        let first_song: LibrarySong<T> = self.song_from_path(song_path)?;
-        let mut songs = self.songs_from_library()?;
-        closest_to_first_song(&first_song, &mut songs, euclidean_distance);
-        songs.sort_by_cached_key(|song| {
-            n32(euclidean_distance(
-                &first_song.bliss_song.analysis.as_arr1(),
-                &song.bliss_song.analysis.as_arr1(),
-            ))
-        });
-        dedup_playlist(&mut songs, None);
-        songs.truncate(playlist_length);
-        Ok(songs)
-    }
-
-    /// Build a playlist of `playlist_length` items from an already analyzed
-    /// song in the library at `song_path`, using distance metric `distance`,
-    /// the sorting function `sort_by` and deduplicating if `dedup` is set to
-    /// `true`.
-    ///
-    /// You can use ready to use distance metrics such as
-    /// [euclidean_distance], and ready to use sorting functions like
-    /// [closest_to_first_song].
-    ///
-    /// In most cases, you just want to use [Library::playlist_from].
-    /// Use `playlist_from_custom` if you want to experiment with different
-    /// distance metrics / sorting functions.
-    ///
-    /// Example:
-    /// `library.playlist_from_song_custom(song_path, 20, euclidean_distance,
-    /// closest_to_first_song, true)`.
-    /// TODO path here too
-    pub fn playlist_from_custom<F, G, T: Serialize + DeserializeOwned + std::fmt::Debug>(
-        &self,
-        song_path: &str,
-        playlist_length: usize,
-        distance: G,
-        mut sort_by: F,
-        dedup: bool,
-    ) -> Result<Vec<LibrarySong<T>>>
-    where
-        F: FnMut(&LibrarySong<T>, &mut [LibrarySong<T>], G),
-        G: DistanceMetric + Copy,
-    {
-        let first_song: LibrarySong<T> = self.song_from_path(song_path).map_err(|_| {
-            BlissError::ProviderError(format!("song '{song_path}' has not been analyzed"))
-        })?;
-        let mut songs = self.songs_from_library()?;
-        sort_by(&first_song, &mut songs, distance);
-        if dedup {
-            dedup_playlist_custom_distance(&mut songs, None, distance);
-        }
-        songs.truncate(playlist_length);
-        Ok(songs)
+        self.playlist_from_custom(
+            song_paths,
+            playlist_length,
+            &euclidean_distance,
+            &mut closest_to_songs,
+            true,
+        )
     }
 
     /// Build a playlist of `playlist_length` items from a set of already analyzed
@@ -558,20 +509,19 @@ impl<Config: AppConfigTrait> Library<Config> {
     /// `true`.
     ///
     /// You can use ready to use distance metrics such as
-    /// [extended_isolation_forest], and ready to use sorting functions like
-    /// [closest_to_selected_songs].
-    pub fn playlist_from_many_custom<F, G, T: Serialize + DeserializeOwned + std::fmt::Debug>(
+    /// [ExtendedIsolationForest], and ready to use sorting functions like
+    /// [closest_to_songs].
+    pub fn playlist_from_custom<
+        T: Serialize + DeserializeOwned,
+        F: FnMut(&[LibrarySong<T>], &mut [LibrarySong<T>], &dyn DistanceMetricBuilder),
+    >(
         &self,
         song_paths: &[&str],
         playlist_length: usize,
-        distance: G,
-        mut sort_by: F,
+        distance: &dyn DistanceMetricBuilder,
+        sort_by: &mut F,
         dedup: bool,
-    ) -> Result<Vec<LibrarySong<T>>>
-    where
-        F: FnMut(&[LibrarySong<T>], &mut Vec<LibrarySong<T>>, G),
-        G: PreTrainedSetDistanceMetric,
-    {
+    ) -> Result<Vec<LibrarySong<T>>> {
         let initial_songs: Vec<LibrarySong<T>> = song_paths
             .iter()
             .map(|s| {
@@ -583,7 +533,7 @@ impl<Config: AppConfigTrait> Library<Config> {
         let mut songs = self.songs_from_library()?;
         sort_by(&initial_songs, &mut songs, distance);
         if dedup {
-            dedup_playlist(&mut songs, None);
+            dedup_playlist_custom_distance(&mut songs, None, distance);
         }
         songs.truncate(playlist_length);
         Ok(songs)
@@ -1925,11 +1875,19 @@ mod test {
         }
     }
 
+    fn first_factor_divided_by_30_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
+        ((a[1] - b[1]).abs() / 30.).floor()
+    }
+
+    fn first_factor_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
+        (a[1] - b[1]).abs()
+    }
+
     #[test]
     fn test_library_playlist_song_not_existing() {
         let (library, _temp_dir, _) = setup_test_library();
         assert!(library
-            .playlist_from::<ExtraInfo>("not-existing", 2)
+            .playlist_from::<ExtraInfo>(&["not-existing"], 2)
             .is_err());
     }
 
@@ -1937,7 +1895,7 @@ mod test {
     fn test_library_playlist_crop() {
         let (library, _temp_dir, _) = setup_test_library();
         let songs: Vec<LibrarySong<ExtraInfo>> =
-            library.playlist_from("/path/to/song2001", 2).unwrap();
+            library.playlist_from(&["/path/to/song2001"], 2).unwrap();
         assert_eq!(2, songs.len());
     }
 
@@ -1945,7 +1903,7 @@ mod test {
     fn test_library_simple_playlist() {
         let (library, _temp_dir, _) = setup_test_library();
         let songs: Vec<LibrarySong<ExtraInfo>> =
-            library.playlist_from("/path/to/song2001", 20).unwrap();
+            library.playlist_from(&["/path/to/song2001"], 20).unwrap();
         assert_eq!(
             vec![
                 "/path/to/song2001",
@@ -1966,14 +1924,12 @@ mod test {
     #[test]
     fn test_library_custom_playlist_distance() {
         let (library, _temp_dir, _) = setup_test_library();
-        let distance =
-            |a: &Array1<f32>, b: &Array1<f32>| (a.get(1).unwrap() - b.get(1).unwrap()).abs();
         let songs: Vec<LibrarySong<ExtraInfo>> = library
             .playlist_from_custom(
-                "/path/to/song2001",
+                &["/path/to/song2001"],
                 20,
-                distance,
-                closest_to_first_song,
+                &first_factor_distance,
+                &mut closest_to_songs,
                 true,
             )
             .unwrap();
@@ -1995,9 +1951,9 @@ mod test {
     }
 
     fn custom_sort(
-        _: &LibrarySong<ExtraInfo>,
+        _: &[LibrarySong<ExtraInfo>],
         songs: &mut [LibrarySong<ExtraInfo>],
-        _distance: impl DistanceMetric,
+        _distance: &dyn DistanceMetricBuilder,
     ) {
         songs.sort_by(|s1, s2| s1.bliss_song.path.cmp(&s2.bliss_song.path));
     }
@@ -2007,10 +1963,10 @@ mod test {
         let (library, _temp_dir, _) = setup_test_library();
         let songs: Vec<LibrarySong<ExtraInfo>> = library
             .playlist_from_custom(
-                "/path/to/song2001",
+                &["/path/to/song2001"],
                 20,
-                euclidean_distance,
-                custom_sort,
+                &euclidean_distance,
+                &mut custom_sort,
                 true,
             )
             .unwrap();
@@ -2034,15 +1990,13 @@ mod test {
     #[test]
     fn test_library_custom_playlist_dedup() {
         let (library, _temp_dir, _) = setup_test_library();
-        let distance = |a: &Array1<f32>, b: &Array1<f32>| {
-            ((a.get(1).unwrap() - b.get(1).unwrap()).abs() / 30.).floor()
-        };
+
         let songs: Vec<LibrarySong<ExtraInfo>> = library
             .playlist_from_custom(
-                "/path/to/song2001",
+                &["/path/to/song2001"],
                 20,
-                distance,
-                closest_to_first_song,
+                &first_factor_divided_by_30_distance,
+                &mut closest_to_songs,
                 true,
             )
             .unwrap();
@@ -2058,14 +2012,12 @@ mod test {
                 .collect::<Vec<String>>(),
         );
 
-        let distance =
-            |a: &Array1<f32>, b: &Array1<f32>| ((a.get(1).unwrap() - b.get(1).unwrap()).abs());
         let songs: Vec<LibrarySong<ExtraInfo>> = library
             .playlist_from_custom(
-                "/path/to/song2001",
+                &["/path/to/song2001"],
                 20,
-                distance,
-                closest_to_first_song,
+                &first_factor_distance,
+                &mut closest_to_songs,
                 false,
             )
             .unwrap();

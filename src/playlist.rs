@@ -14,17 +14,44 @@ use ndarray_stats::QuantileExt;
 use noisy_float::prelude::*;
 use std::collections::HashMap;
 
-/// Convenience trait for user-defined distance metrics.
-pub trait DistanceMetric: Fn(&Array1<f32>, &Array1<f32>) -> f32 {}
-impl<F> DistanceMetric for F where F: Fn(&Array1<f32>, &Array1<f32>) -> f32 {}
+/// Trait for creating a distance metric, measuring the distance to a set of vectors. If this
+/// metric requires any kind of training, this should be done in the build function so that the
+/// returned DistanceMetric instance is already trained and ready to use.
+pub trait DistanceMetricBuilder {
+    /// Build a distance metric that measures the distance to vectors.
+    fn build<'a>(&'a self, vectors: &[Array1<f32>]) -> Box<dyn DistanceMetric + 'a>;
+}
 
-/// Pre trained set distance metrics.
-pub trait PreTrainedSetDistanceMetric {
-    /// Train this distance metric on the set of vectors that it should measure distance from.
-    fn train(&mut self, vectors: &[Array1<f32>]);
-    /// Return the distance from the set of vectors that this metric was trained on. Must not be
-    /// called before train.
+/// Measure the distance to a vector, from the vector(s) in the internal state of this metric.
+pub trait DistanceMetric {
+    /// Return the distance from the set of vectors that this metric was built from.
     fn distance(&self, vector: &Array1<f32>) -> f32;
+}
+
+/// Convenience struct used for implementing DistanceMetric for plain functions.
+pub struct FunctionDistanceMetric<'a, F: Fn(&Array1<f32>, &Array1<f32>) -> f32> {
+    func: &'a F,
+    state: Vec<Array1<f32>>,
+}
+
+impl<F> DistanceMetricBuilder for F
+where
+    F: Fn(&Array1<f32>, &Array1<f32>) -> f32 + 'static,
+{
+    fn build<'a>(&'a self, vectors: &[Array1<f32>]) -> Box<dyn DistanceMetric + 'a> {
+        Box::new(FunctionDistanceMetric {
+            func: self,
+            state: vectors.iter().map(|s| s.to_owned()).collect(),
+        })
+    }
+}
+
+impl<'a, F: Fn(&Array1<f32>, &Array1<f32>) -> f32 + 'static> DistanceMetric
+    for FunctionDistanceMetric<'a, F>
+{
+    fn distance(&self, vector: &Array1<f32>) -> f32 {
+        self.state.iter().map(|v| (self.func)(v, vector)).sum()
+    }
 }
 
 /// Return the [euclidean
@@ -54,72 +81,46 @@ fn feature_array1_to_array(f: &Array1<f32>) -> [f32; NUMBER_FEATURES] {
         .expect("Couldn't convert slice to array")
 }
 
-/// Return the [extended isolation forest](https://ieeexplore.ieee.org/document/8888179)
-/// score between a set of vectors and a single vector.
-pub struct ExtendedIsolationForest {
-    forest: Option<Forest<f32, NUMBER_FEATURES>>,
-}
-
-impl Default for ExtendedIsolationForest {
-    /// Create an ExtendedIsolationForest with an empty state.
-    fn default() -> ExtendedIsolationForest {
-        ExtendedIsolationForest { forest: None }
-    }
-}
-
-impl PreTrainedSetDistanceMetric for ExtendedIsolationForest {
-    fn train(&mut self, vectors: &[Array1<f32>]) {
-        let opts = ForestOptions {
-            n_trees: 100,
-            sample_size: vectors.len().min(256),
-            max_tree_depth: None,
-            extension_level: 1,
-        };
+impl DistanceMetricBuilder for ForestOptions {
+    fn build(&self, vectors: &[Array1<f32>]) -> Box<dyn DistanceMetric> {
         let a = &*vectors
             .iter()
             .map(feature_array1_to_array)
             .collect::<Vec<_>>();
-        self.forest = Some(Forest::from_slice(a, &opts).unwrap());
+
+        if self.sample_size > vectors.len() {
+            let mut opts = self.clone();
+            opts.sample_size = self.sample_size.min(vectors.len());
+            Box::new(Forest::from_slice(a, &opts).unwrap())
+        } else {
+            Box::new(Forest::from_slice(a, self).unwrap())
+        }
     }
+}
+
+impl DistanceMetric for Forest<f32, NUMBER_FEATURES> {
     fn distance(&self, vector: &Array1<f32>) -> f32 {
-        self.forest
-            .as_ref()
-            .expect("distance() called before train()")
-            .score(&feature_array1_to_array(vector)) as f32
+        self.score(&feature_array1_to_array(vector)) as f32
     }
 }
 
-/// Sort `songs` in place by putting songs close to `first_song` first
-/// using the `distance` metric.
-pub fn closest_to_first_song<T: AsRef<Song>>(
-    first_song: &T,
-    songs: &mut [T],
-    distance: impl DistanceMetric,
-) {
-    songs.sort_by_cached_key(|song| {
-        n32(distance(
-            &first_song.as_ref().analysis.as_arr1(),
-            &song.as_ref().analysis.as_arr1(),
-        ))
-    });
-}
-
-/// Sort `all_songs` in place by putting songs close to `selected_songs` first
+/// Sort `candidate_songs` in place by putting songs close to `selected_songs` first
 /// using the `distance` metric.
 ///
 /// Sort songs with a key extraction function, useful for when you have a
 /// structure like `CustomSong { bliss_song: Song, something_else: bool }`
-pub fn closest_to_selected_songs<T: AsRef<Song>>(
+pub fn closest_to_songs<T: AsRef<Song>>(
     selected_songs: &[T],
-    all_songs: &mut [T],
-    mut metric: impl PreTrainedSetDistanceMetric,
+    candidate_songs: &mut [T],
+    metric_builder: &dyn DistanceMetricBuilder,
 ) {
     let selected_songs = selected_songs
         .iter()
         .map(|c| c.as_ref().analysis.as_arr1())
         .collect::<Vec<_>>();
-    metric.train(&selected_songs);
-    all_songs.sort_by_cached_key(|song| n32(metric.distance(&song.as_ref().analysis.as_arr1())));
+    let metric = metric_builder.build(&selected_songs);
+    candidate_songs
+        .sort_by_cached_key(|song| n32(metric.distance(&song.as_ref().analysis.as_arr1())));
 }
 
 /// Sort `songs` in place using the `distance` metric and ordering by
@@ -132,23 +133,27 @@ pub fn closest_to_selected_songs<T: AsRef<Song>>(
 /// Note that this has a tendency to go from one style to the other very fast,
 /// and it can be slow on big libraries.
 pub fn song_to_song<T: AsRef<Song>>(
-    first_song: &T,
+    from: &[T],
     songs: &mut [T],
-    distance: impl DistanceMetric,
+    metric_builder: &dyn DistanceMetricBuilder,
 ) {
-    let mut song = first_song;
+    let mut vectors = from
+        .iter()
+        .map(|s| s.as_ref().analysis.as_arr1())
+        .collect::<Vec<_>>();
 
     for i in 0..songs.len() {
-        let remaining_songs = &songs[i..];
-        let distances: Array1<f32> = Array::from_shape_fn(remaining_songs.len(), |j| {
-            distance(
-                &song.as_ref().analysis.as_arr1(),
-                &remaining_songs[j].as_ref().analysis.as_arr1(),
-            )
-        });
-        let idx = distances.argmin().unwrap();
-        songs.swap(idx + i, i);
-        song = &songs[i];
+        {
+            let metric = metric_builder.build(&vectors);
+            let remaining_songs = &songs[i..];
+            let distances: Array1<f32> = Array::from_shape_fn(remaining_songs.len(), |j| {
+                metric.distance(&remaining_songs[j].as_ref().analysis.as_arr1())
+            });
+            let idx = distances.argmin().unwrap();
+            songs.swap(idx + i, i);
+        }
+        vectors.clear();
+        vectors.push(songs[i].as_ref().analysis.as_arr1());
     }
 }
 
@@ -164,7 +169,7 @@ pub fn song_to_song<T: AsRef<Song>>(
 /// * `distance_threshold`: The distance threshold under which two songs are
 ///   considered identical. If `None`, a default value of 0.05 will be used.
 pub fn dedup_playlist<T: AsRef<Song>>(songs: &mut Vec<T>, distance_threshold: Option<f32>) {
-    dedup_playlist_custom_distance(songs, distance_threshold, euclidean_distance);
+    dedup_playlist_custom_distance(songs, distance_threshold, &euclidean_distance);
 }
 
 /// Remove duplicate songs from a playlist, in place, using a custom distance
@@ -183,13 +188,14 @@ pub fn dedup_playlist<T: AsRef<Song>>(songs: &mut Vec<T>, distance_threshold: Op
 pub fn dedup_playlist_custom_distance<T: AsRef<Song>>(
     songs: &mut Vec<T>,
     distance_threshold: Option<f32>,
-    distance: impl DistanceMetric,
+    metric_builder: &dyn DistanceMetricBuilder,
 ) {
     songs.dedup_by(|s1, s2| {
         let s1 = s1.as_ref();
         let s2 = s2.as_ref();
-        n32(distance(&s1.analysis.as_arr1(), &s2.analysis.as_arr1()))
-            < distance_threshold.unwrap_or(0.05)
+        let vector = [s1.analysis.as_arr1()];
+        let metric = metric_builder.build(&vector);
+        n32(metric.distance(&s2.analysis.as_arr1())) < distance_threshold.unwrap_or(0.05)
             || (s1.title.is_some()
                 && s2.title.is_some()
                 && s1.artist.is_some()
@@ -371,7 +377,7 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        dedup_playlist_custom_distance(&mut playlist, None, euclidean_distance);
+        dedup_playlist_custom_distance(&mut playlist, None, &euclidean_distance);
         assert_eq!(
             playlist,
             vec![
@@ -388,7 +394,7 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        dedup_playlist_custom_distance(&mut playlist, Some(20.), cosine_distance);
+        dedup_playlist_custom_distance(&mut playlist, Some(20.), &euclidean_distance);
         assert_eq!(playlist, vec![first_song.to_owned()]);
         let mut playlist = vec![
             first_song.to_owned(),
@@ -452,7 +458,7 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        dedup_playlist_custom_distance(&mut playlist, None, euclidean_distance);
+        dedup_playlist_custom_distance(&mut playlist, None, &euclidean_distance);
         assert_eq!(
             playlist,
             vec![
@@ -469,7 +475,7 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        dedup_playlist_custom_distance(&mut playlist, Some(20.), cosine_distance);
+        dedup_playlist_custom_distance(&mut playlist, Some(20.), &cosine_distance);
         assert_eq!(playlist, vec![first_song.to_owned()]);
         let mut playlist = vec![
             first_song.to_owned(),
@@ -539,21 +545,21 @@ mod test {
             ..Default::default()
         };
         let mut songs = vec![
-            first_song.to_owned(),
-            third_song.to_owned(),
-            first_song_dupe.to_owned(),
-            second_song.to_owned(),
-            fourth_song.to_owned(),
+            &first_song,
+            &third_song,
+            &first_song_dupe,
+            &second_song,
+            &fourth_song,
         ];
-        song_to_song(&first_song, &mut songs, euclidean_distance);
+        song_to_song(&[&first_song], &mut songs, &euclidean_distance);
         assert_eq!(
             songs,
             vec![
-                first_song.to_owned(),
-                first_song_dupe.to_owned(),
-                second_song.to_owned(),
-                third_song.to_owned(),
-                fourth_song.to_owned(),
+                &first_song,
+                &first_song_dupe,
+                &second_song,
+                &third_song,
+                &fourth_song,
             ],
         );
 
@@ -578,30 +584,30 @@ mod test {
             something: true,
         };
 
-        let mut songs: Vec<CustomSong> = vec![
-            first_song.to_owned(),
-            first_song_dupe.to_owned(),
-            third_song.to_owned(),
-            fourth_song.to_owned(),
-            second_song.to_owned(),
+        let mut songs: Vec<&CustomSong> = vec![
+            &first_song,
+            &first_song_dupe,
+            &third_song,
+            &fourth_song,
+            &second_song,
         ];
 
-        song_to_song(&first_song, &mut songs, euclidean_distance);
+        song_to_song(&[&first_song], &mut songs, &euclidean_distance);
 
         assert_eq!(
             songs,
             vec![
-                first_song,
-                first_song_dupe,
-                second_song,
-                third_song,
-                fourth_song,
+                &first_song,
+                &first_song_dupe,
+                &second_song,
+                &third_song,
+                &fourth_song,
             ],
         );
     }
 
     #[test]
-    fn test_sort_closest_to_first_song() {
+    fn test_sort_closest_to_songs() {
         let first_song = Song {
             path: Path::new("path-to-first").to_path_buf(),
             analysis: Analysis::new([
@@ -646,15 +652,15 @@ mod test {
             ..Default::default()
         };
 
-        let mut songs = vec![
-            first_song.to_owned(),
-            first_song_dupe.to_owned(),
-            second_song.to_owned(),
-            third_song.to_owned(),
-            fourth_song.to_owned(),
-            fifth_song.to_owned(),
+        let mut songs = [
+            &first_song,
+            &first_song_dupe,
+            &second_song,
+            &third_song,
+            &fourth_song,
+            &fifth_song,
         ];
-        closest_to_first_song(&first_song, &mut songs, euclidean_distance);
+        closest_to_songs(&[&first_song], &mut songs, &&euclidean_distance);
 
         let first_song = CustomSong {
             bliss_song: first_song,
@@ -682,26 +688,26 @@ mod test {
             something: true,
         };
 
-        let mut songs: Vec<CustomSong> = vec![
-            first_song.to_owned(),
-            first_song_dupe.to_owned(),
-            second_song.to_owned(),
-            third_song.to_owned(),
-            fourth_song.to_owned(),
-            fifth_song.to_owned(),
+        let mut songs = [
+            &first_song,
+            &first_song_dupe,
+            &second_song,
+            &third_song,
+            &fourth_song,
+            &fifth_song,
         ];
 
-        closest_to_first_song(&first_song, &mut songs, euclidean_distance);
+        closest_to_songs(&[&first_song], &mut songs, &&euclidean_distance);
 
         assert_eq!(
             songs,
-            vec![
-                first_song,
-                first_song_dupe,
-                second_song,
-                fourth_song,
-                fifth_song,
-                third_song
+            [
+                &first_song,
+                &first_song_dupe,
+                &second_song,
+                &fourth_song,
+                &fifth_song,
+                &third_song
             ],
         );
     }

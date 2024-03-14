@@ -45,7 +45,7 @@
 //! ```no_run
 //! use bliss_audio::{
 //!     analyze_paths,
-//!     playlist::{closest_to_first_song, euclidean_distance},
+//!     playlist::{closest_to_songs, euclidean_distance},
 //!     BlissResult, Song,
 //! };
 //!
@@ -56,7 +56,7 @@
 //!     // Assuming there is a first song
 //!     let first_song = songs.first().unwrap().to_owned();
 //!
-//!     closest_to_first_song(&first_song, &mut songs, euclidean_distance);
+//!     closest_to_songs(&[first_song], &mut songs, &euclidean_distance);
 //!
 //!     println!("Playlist is:");
 //!     for song in songs {
