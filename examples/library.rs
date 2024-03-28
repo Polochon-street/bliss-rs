@@ -190,7 +190,7 @@ fn main() -> Result<()> {
             .unwrap_or("20")
             .parse::<usize>()?;
         let library: Library<Config> = Library::from_config_path(config_path)?;
-        let songs = library.playlist_from::<()>(song_path, playlist_length)?;
+        let songs = library.playlist_from::<()>(&[song_path], playlist_length)?;
         let song_paths = songs
             .into_iter()
             .map(|s| s.bliss_song.path.to_string_lossy().to_string())
