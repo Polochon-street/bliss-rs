@@ -489,6 +489,9 @@ impl<Config: AppConfigTrait> Library<Config> {
     ///
     /// It uses the ExentedIsolationForest score as a distance between songs, and deduplicates
     /// songs that are too close.
+    ///
+    /// Generating a playlist from a single song is also possible, and is just the special case
+    /// where song_paths is a slice of length 1.
     pub fn playlist_from<T: Serialize + DeserializeOwned>(
         &self,
         song_paths: &[&str],
@@ -511,6 +514,9 @@ impl<Config: AppConfigTrait> Library<Config> {
     /// You can use ready to use distance metrics such as
     /// [ExtendedIsolationForest], and ready to use sorting functions like
     /// [closest_to_songs].
+    ///
+    /// Generating a playlist from a single song is also possible, and is just the special case
+    /// where song_paths is a slice of length 1.
     pub fn playlist_from_custom<
         T: Serialize + DeserializeOwned,
         F: FnMut(&[LibrarySong<T>], &mut [LibrarySong<T>], &dyn DistanceMetricBuilder),
