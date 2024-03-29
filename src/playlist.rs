@@ -660,7 +660,7 @@ mod test {
             &fourth_song,
             &fifth_song,
         ];
-        closest_to_songs(&[&first_song], &mut songs, &&euclidean_distance);
+        closest_to_songs(&[&first_song], &mut songs, &euclidean_distance);
 
         let first_song = CustomSong {
             bliss_song: first_song,
@@ -697,7 +697,7 @@ mod test {
             &fifth_song,
         ];
 
-        closest_to_songs(&[&first_song], &mut songs, &&euclidean_distance);
+        closest_to_songs(&[&first_song], &mut songs, &euclidean_distance);
 
         assert_eq!(
             songs,
