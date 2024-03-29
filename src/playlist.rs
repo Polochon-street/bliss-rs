@@ -847,4 +847,61 @@ mod test {
             closest_album_to_group(group, pool.to_owned()).unwrap(),
         );
     }
+
+    #[test]
+    fn test_forest_options() {
+        let first_song = Song {
+            path: Path::new("path-to-first").to_path_buf(),
+            analysis: Analysis::new([
+                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let first_song_dupe = Song {
+            path: Path::new("path-to-dupe").to_path_buf(),
+            analysis: Analysis::new([
+                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+
+        let second_song = Song {
+            path: Path::new("path-to-second").to_path_buf(),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let third_song = Song {
+            path: Path::new("path-to-third").to_path_buf(),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let fourth_song = Song {
+            path: Path::new("path-to-fourth").to_path_buf(),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let fifth_song = Song {
+            path: Path::new("path-to-fifth").to_path_buf(),
+            analysis: Analysis::new([
+                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+
+        let mut songs = [
+            &first_song,
+            &first_song_dupe,
+            &second_song,
+            &third_song,
+            &fourth_song,
+            &fifth_song,
+        ];
+        closest_to_songs(&[&first_song], &mut songs, &ForestOptions::default());
+    }
 }
