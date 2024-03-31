@@ -903,5 +903,16 @@ mod test {
             &fifth_song,
         ];
         closest_to_songs(&[&first_song], &mut songs, &ForestOptions::default());
+        assert_eq!(
+            songs,
+            [
+                &first_song,
+                &first_song_dupe,
+                &second_song,
+                &third_song,
+                &fourth_song,
+                &fifth_song,
+            ],
+        );
     }
 }
