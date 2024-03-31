@@ -106,9 +106,6 @@ impl DistanceMetric for Forest<f32, NUMBER_FEATURES> {
 
 /// Sort `candidate_songs` in place by putting songs close to `selected_songs` first
 /// using the `distance` metric.
-///
-/// Sort songs with a key extraction function, useful for when you have a
-/// structure like `CustomSong { bliss_song: Song, something_else: bool }`
 pub fn closest_to_songs<T: AsRef<Song>>(
     selected_songs: &[T],
     candidate_songs: &mut [T],
