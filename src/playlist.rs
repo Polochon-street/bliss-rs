@@ -17,6 +17,11 @@ use std::collections::HashMap;
 /// Trait for creating a distance metric, measuring the distance to a set of vectors. If this
 /// metric requires any kind of training, this should be done in the build function so that the
 /// returned DistanceMetric instance is already trained and ready to use.
+///
+/// Currently, the best metric for measuring the distance to a set of songs is the extended
+/// isolation forest (implemented on [ForestOptions]). For measuring the distance to a single song,
+/// extended isolation forest doesn't work and [euclidean_distance] or [cosine_distance] are good
+/// options.
 pub trait DistanceMetricBuilder {
     /// Build a distance metric that measures the distance to vectors.
     fn build<'a>(&'a self, vectors: &[Array1<f32>]) -> Box<dyn DistanceMetric + 'a>;
