@@ -1,4 +1,6 @@
-use bliss_audio::{playlist::euclidean_distance, Song};
+use bliss_audio::decoder::ffmpeg::FFmpeg as Decoder;
+use bliss_audio::decoder::Decoder as DecoderTrait;
+use bliss_audio::playlist::euclidean_distance;
 use std::env;
 
 /**
@@ -13,8 +15,8 @@ fn main() -> Result<(), String> {
     let first_path = paths.next().ok_or("Help: ./distance <song1> <song2>")?;
     let second_path = paths.next().ok_or("Help: ./distance <song1> <song2>")?;
 
-    let song1 = Song::from_path(first_path).map_err(|x| x.to_string())?;
-    let song2 = Song::from_path(second_path).map_err(|x| x.to_string())?;
+    let song1 = Decoder::song_from_path(first_path).map_err(|x| x.to_string())?;
+    let song2 = Decoder::song_from_path(second_path).map_err(|x| x.to_string())?;
 
     println!(
         "d({:?}, {:?}) = {}",

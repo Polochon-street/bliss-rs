@@ -11,11 +11,8 @@ ask questions if you want to tackle an item.
 ## Actual TODO
 
 - Add a list of dependencies / installation guide
-- Split out ffmpeg (see https://github.com/Polochon-street/bliss-rs/issues/63 and https://users.rust-lang.org/t/proper-way-to-abstract-a-third-party-provider/107076/8)
-  - Make ffmpeg an optional (but default) feature 
-  - Make the tests that don't need it not dependent of ffmpeg
-  - Make the Song::from_path a trait that is by default implemented with the
-    ffmpeg feature (so you can theoretically implement the library trait without ffmpeg)
+- Maybe add playlist functions for single songs as convenience methods?
+- Regularly update the python bindings with the new code
 - Check the chroma feature for anomalies (the last 4 numbers look anomalous in most of my cases -
   compare with https://www.audiolabs-erlangen.de/resources/MIR/FMP/C5/C5S2_ChordRec_Templates.html etc)
 - Freebsd support? (see https://github.com/Polochon-street/bliss-rs/issues/60)
@@ -38,3 +35,12 @@ ask questions if you want to tackle an item.
   (probably reuse the interactive-playlist in blissify?)
 - Improve bliss-python somehow / use it in a small demo project maybe?
   A blissify in python?
+
+## Done
+- Split out ffmpeg (see https://github.com/Polochon-street/bliss-rs/issues/63 and https://users.rust-lang.org/t/proper-way-to-abstract-a-third-party-provider/107076/8)
+  - Make ffmpeg an optional (but default) feature 
+  - The library trait must be Decoder-agnostic, and not depend on FFmpeg
+  - Make the tests that don't need it not dependent of ffmpeg
+  - Make the Song::from_path a trait that is by default implemented with the
+    ffmpeg feature (so you can theoretically implement the library trait without ffmpeg)
+

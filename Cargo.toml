@@ -19,9 +19,10 @@ no-default-features = true
 [features]
 default = ["ffmpeg", "aubio-static"]
 # Enable song decoding with ffmpeg. Activated by default, and needed for
-# 99% of cases, disable it at your own risk! It would be useful if you
-# want to implement the decoding of the tracks yourself and just feed
-# them to bliss, so you don't depend on ffmpeg.
+# almost all use-cases, disable it at your own risk!
+# It is only useful if you want to implement the decoding of the tracks yourself
+# and just feed them to bliss, so you don't depend on ffmpeg.
+# TODO make ffmpeg a test-dep
 ffmpeg = ["dep:ffmpeg-next", "dep:ffmpeg-sys-next"]
 aubio-static = ["bliss-audio-aubio-rs/static"]
 # Build ffmpeg instead of using the host's.

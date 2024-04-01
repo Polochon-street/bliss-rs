@@ -1,6 +1,8 @@
 use anyhow::Result;
+use bliss_audio::decoder::ffmpeg::FFmpeg as Decoder;
+use bliss_audio::decoder::Decoder as DecoderTrait;
 use bliss_audio::playlist::{closest_to_songs, dedup_playlist, euclidean_distance};
-use bliss_audio::{analyze_paths, Song};
+use bliss_audio::Song;
 use clap::{App, Arg};
 use glob::glob;
 use std::env;
@@ -56,14 +58,14 @@ fn main() -> Result<()> {
         .map(|x| x.to_string_lossy().to_string())
         .collect::<Vec<String>>();
 
-    let song_iterator = analyze_paths(
+    let song_iterator = Decoder::analyze_paths(
         paths
             .iter()
             .filter(|p| !analyzed_paths.contains(&PathBuf::from(p)))
             .map(|p| p.to_owned())
             .collect::<Vec<String>>(),
     );
-    let first_song = Song::from_path(file)?;
+    let first_song = Decoder::song_from_path(file)?;
     let mut analyzed_songs = vec![first_song.to_owned()];
     for (path, result) in song_iterator {
         match result {

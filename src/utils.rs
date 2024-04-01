@@ -167,7 +167,9 @@ pub(crate) fn convolve(input: &Array1<f64>, kernel: &Array1<f64>) -> Array1<f64>
 mod tests {
     use super::*;
     #[cfg(feature = "ffmpeg")]
-    use crate::Song;
+    use crate::song::decoder::ffmpeg::FFmpeg as Decoder;
+    #[cfg(feature = "ffmpeg")]
+    use crate::song::decoder::Decoder as DecoderTrait;
     #[cfg(feature = "ffmpeg")]
     use ndarray::Array2;
     use ndarray::{arr1, Array};
@@ -501,7 +503,7 @@ mod tests {
         let file = File::open("data/librosa-stft.npy").unwrap();
         let expected_stft = Array2::<f32>::read_npy(file).unwrap().mapv(|x| x as f64);
 
-        let song = Song::decode(Path::new("data/piano.flac")).unwrap();
+        let song = Decoder::decode(Path::new("data/piano.flac")).unwrap();
 
         let stft = stft(&song.sample_array, 2048, 512);
 
@@ -526,7 +528,9 @@ mod tests {
 mod bench {
     extern crate test;
     use super::*;
-    use crate::Song;
+    #[cfg(feature = "ffmpeg")]
+    use crate::song::decoder::ffmpeg::FFmpeg as Decoder;
+    use crate::song::decoder::Decoder as DecoderTrait;
     use ndarray::Array;
     use std::path::Path;
     use test::Bencher;
@@ -543,7 +547,7 @@ mod bench {
 
     #[bench]
     fn bench_compute_stft(b: &mut Bencher) {
-        let signal = Song::decode(Path::new("data/piano.flac"))
+        let signal = Decoder::decode(Path::new("data/piano.flac"))
             .unwrap()
             .sample_array;
 

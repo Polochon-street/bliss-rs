@@ -259,7 +259,9 @@ impl Normalize for ZeroCrossingRateDesc {
 mod tests {
     use super::*;
     #[cfg(feature = "ffmpeg")]
-    use crate::Song;
+    use crate::song::decoder::ffmpeg::FFmpeg as Decoder;
+    #[cfg(feature = "ffmpeg")]
+    use crate::song::decoder::Decoder as DecoderTrait;
     #[cfg(feature = "ffmpeg")]
     use std::path::Path;
 
@@ -284,7 +286,7 @@ mod tests {
     #[test]
     #[cfg(feature = "ffmpeg")]
     fn test_zcr() {
-        let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
+        let song = Decoder::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut zcr_desc = ZeroCrossingRateDesc::default();
         for chunk in song.sample_array.chunks_exact(SpectralDesc::HOP_SIZE) {
             zcr_desc.do_(&chunk);
@@ -307,7 +309,7 @@ mod tests {
             assert!(0.0000001 > (expected - actual).abs());
         }
 
-        let song = Song::decode(Path::new("data/white_noise.mp3")).unwrap();
+        let song = Decoder::decode(Path::new("data/white_noise.mp3")).unwrap();
         let mut spectral_desc = SpectralDesc::new(22050).unwrap();
         for chunk in song.sample_array.chunks_exact(SpectralDesc::HOP_SIZE) {
             spectral_desc.do_(&chunk).unwrap();
@@ -326,7 +328,7 @@ mod tests {
     #[test]
     #[cfg(feature = "ffmpeg")]
     fn test_spectral_flatness() {
-        let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
+        let song = Decoder::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut spectral_desc = SpectralDesc::new(SAMPLE_RATE).unwrap();
         for chunk in song.sample_array.chunks_exact(SpectralDesc::HOP_SIZE) {
             spectral_desc.do_(&chunk).unwrap();
@@ -357,7 +359,7 @@ mod tests {
             assert!(0.0000001 > (expected - actual).abs());
         }
 
-        let song = Song::decode(Path::new("data/tone_11080Hz.flac")).unwrap();
+        let song = Decoder::decode(Path::new("data/tone_11080Hz.flac")).unwrap();
         let mut spectral_desc = SpectralDesc::new(SAMPLE_RATE).unwrap();
         for chunk in song.sample_array.chunks_exact(SpectralDesc::HOP_SIZE) {
             spectral_desc.do_(&chunk).unwrap();
@@ -374,7 +376,7 @@ mod tests {
     #[test]
     #[cfg(feature = "ffmpeg")]
     fn test_spectral_roll_off() {
-        let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
+        let song = Decoder::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut spectral_desc = SpectralDesc::new(SAMPLE_RATE).unwrap();
         for chunk in song.sample_array.chunks_exact(SpectralDesc::HOP_SIZE) {
             spectral_desc.do_(&chunk).unwrap();
@@ -393,7 +395,7 @@ mod tests {
     #[test]
     #[cfg(feature = "ffmpeg")]
     fn test_spectral_centroid() {
-        let song = Song::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
+        let song = Decoder::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut spectral_desc = SpectralDesc::new(SAMPLE_RATE).unwrap();
         for chunk in song.sample_array.chunks_exact(SpectralDesc::HOP_SIZE) {
             spectral_desc.do_(&chunk).unwrap();
@@ -423,7 +425,7 @@ mod tests {
         {
             assert!(0.0000001 > (expected - actual).abs());
         }
-        let song = Song::decode(Path::new("data/tone_11080Hz.flac")).unwrap();
+        let song = Decoder::decode(Path::new("data/tone_11080Hz.flac")).unwrap();
         let mut spectral_desc = SpectralDesc::new(SAMPLE_RATE).unwrap();
         for chunk in song.sample_array.chunks_exact(SpectralDesc::HOP_SIZE) {
             spectral_desc.do_(&chunk).unwrap();

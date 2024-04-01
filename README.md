@@ -48,11 +48,13 @@ Ready to use code examples:
 
 ### Compute the distance between two songs
 ```
-use bliss_audio::{BlissError, Song};
+use bliss_audio::decoder::bliss_ffmpeg::FFmpeg as Decoder;
+use bliss_audio::decoder::Decoder as DecoderTrait;
+use bliss_audio::BlissError;
 
 fn main() -> Result<(), BlissError> {
-    let song1 = Song::from_path("/path/to/song1")?;
-    let song2 = Song::from_path("/path/to/song2")?;
+    let song1 = Decoder::from_path("/path/to/song1")?;
+    let song2 = Decoder::from_path("/path/to/song2")?;
         
     println!("Distance between song1 and song2 is {}", song1.distance(&song2));
     Ok(())
@@ -61,6 +63,8 @@ fn main() -> Result<(), BlissError> {
 
 ### Make a playlist from a song
 ```
+use bliss_audio::decoder::bliss_ffmpeg::FFmpeg as Decoder;
+use bliss_audio::decoder::Decoder as DecoderTrait;
 use bliss_audio::{BlissError, Song};
 use noisy_float::prelude::n32;
 
@@ -68,7 +72,7 @@ fn main() -> Result<(), BlissError> {
     let paths = vec!["/path/to/song1", "/path/to/song2", "/path/to/song3"];
     let mut songs: Vec<Song> = paths
         .iter()
-        .map(|path| Song::from_path(path))
+        .map(|path| Decoder::song_from_path(path))
         .collect::<Result<Vec<Song>, BlissError>>()?;
 
     // Assuming there is a first song

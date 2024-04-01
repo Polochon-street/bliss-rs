@@ -5,6 +5,7 @@
 /// For simplicity's sake, this example recursively gets songs from a folder
 /// to emulate an audio player library, without handling CUE files.
 use anyhow::Result;
+use bliss_audio::decoder::ffmpeg::FFmpeg as Decoder;
 use bliss_audio::library::{AppConfigTrait, BaseConfig, Library};
 use clap::{App, Arg, SubCommand};
 use glob::glob;
@@ -69,7 +70,7 @@ trait CustomLibrary {
     fn song_paths_info(&self) -> Result<Vec<(String, ExtraInfo)>>;
 }
 
-impl CustomLibrary for Library<Config> {
+impl CustomLibrary for Library<Config, Decoder> {
     /// Get all songs in the player library, along with the extra info
     /// one would want to store along with each song.
     fn song_paths_info(&self) -> Result<Vec<(String, ExtraInfo)>> {
@@ -198,7 +199,7 @@ fn main() -> Result<()> {
         library.analyze_paths_extra_info(library.song_paths_info()?, true)?;
     } else if let Some(sub_m) = matches.subcommand_matches("update") {
         let config_path = sub_m.value_of("config-path").map(PathBuf::from);
-        let mut library: Library<Config> = Library::from_config_path(config_path)?;
+        let mut library: Library<Config, Decoder> = Library::from_config_path(config_path)?;
         library.update_library_extra_info(library.song_paths_info()?, true, true)?;
     } else if let Some(sub_m) = matches.subcommand_matches("playlist") {
         let song_path = sub_m.value_of("SONG_PATH").unwrap();
@@ -207,7 +208,7 @@ fn main() -> Result<()> {
             .value_of("playlist-length")
             .unwrap_or("20")
             .parse::<usize>()?;
-        let library: Library<Config> = Library::from_config_path(config_path)?;
+        let library: Library<Config, Decoder> = Library::from_config_path(config_path)?;
         let songs = library.playlist_from::<ExtraInfo>(&[song_path], playlist_length)?;
         let playlist = songs
             .into_iter()

@@ -1,13 +1,22 @@
 # Changelog
 
 ## bliss 0.7.0
-* Bump ffmpeg-next version to 7.0
-* Bump aubio-rs custom crate to disable compiling it with -std=c99
+* Make ffmpeg an optional dependency, to decouple bliss from ffmpeg:
+  - Remove Song::from_path
+  - Add a specific `song` and `decoder` module
+  - Add a `Decoder` trait to make implementing decoders other than ffmpeg more easily
+  - Add an `FFmpeg` struct implementing the previous decoding behavior with ffmpeg
+  Existing code will need to be updated by replacing `Song::from_path` by
+  `song::decoder::bliss_ffmpeg::FFmpeg::song_from_path`, and the other
+  corresponding functions (see the updated examples for more details).
+* Put the decoding logic in its own module.
+* Bump ffmpeg-next version to 7.0.
+* Bump aubio-rs custom crate to disable compiling it with -std=c99.
 * Add the possibility to make playlists based on multiple songs using extended
-  isolation forest (Thanks @SimonTeixidor!)
-* Remove *_by_key family of functions (Thanks @SimonTeixidor!)
+  isolation forest (Thanks @SimonTeixidor!).
+* Remove *_by_key family of functions (Thanks @SimonTeixidor!).
 * Remove circular dependency between playlist and song by removing distances
-  from the `Song` struct (Thanks @SimonTeixidor!)
+  from the `Song` struct (Thanks @SimonTeixidor!).
 
 ## bliss 0.6.11
 * Bump rust-ffmpeg to 6.1.1 to fix build for raspberry pis.
