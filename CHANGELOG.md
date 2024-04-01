@@ -1,4 +1,11 @@
-#Changelog
+# Changelog
+
+## bliss 0.7.0
+* Add the possibility to make playlists based on multiple songs using extended
+  isolation forest (Thanks @SimonTeixidor!)
+* Remove *_by_key family of functions (Thanks @SimonTeixidor!)
+* Remove circular dependency between playlist and song by removing distances
+  from the `Song` struct (Thanks @SimonTeixidor!)
 
 ## bliss 0.6.11
 * Bump rust-ffmpeg to 6.1.1 to fix build for raspberry pis.

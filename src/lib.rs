@@ -27,13 +27,16 @@
 //!
 //! ### Analyze & compute the distance between two songs
 //! ```no_run
-//! use bliss_audio::{BlissResult, Song};
+//! use bliss_audio::{BlissResult, Song, playlist::euclidean_distance};
 //!
 //! fn main() -> BlissResult<()> {
 //!     let song1 = Song::from_path("/path/to/song1")?;
 //!     let song2 = Song::from_path("/path/to/song2")?;
 //!
-//!     println!("Distance between song1 and song2 is {}", song1.distance(&song2));
+//!     println!(
+//!         "Distance between song1 and song2 is {}",
+//!         euclidean_distance(&song1.analysis.as_arr1(), &song2.analysis.as_arr1())
+//!     );
 //!     Ok(())
 //! }
 //! ```
@@ -42,7 +45,7 @@
 //! ```no_run
 //! use bliss_audio::{
 //!     analyze_paths,
-//!     playlist::{closest_to_first_song, euclidean_distance},
+//!     playlist::{closest_to_songs, euclidean_distance},
 //!     BlissResult, Song,
 //! };
 //!
@@ -53,7 +56,7 @@
 //!     // Assuming there is a first song
 //!     let first_song = songs.first().unwrap().to_owned();
 //!
-//!     closest_to_first_song(&first_song, &mut songs, euclidean_distance);
+//!     closest_to_songs(&[first_song], &mut songs, &euclidean_distance);
 //!
 //!     println!("Playlist is:");
 //!     for song in songs {

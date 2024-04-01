@@ -1,4 +1,4 @@
-use bliss_audio::Song;
+use bliss_audio::{playlist::euclidean_distance, Song};
 use std::env;
 
 /**
@@ -20,7 +20,7 @@ fn main() -> Result<(), String> {
         "d({:?}, {:?}) = {}",
         song1.path,
         song2.path,
-        song1.distance(&song2)
+        euclidean_distance(&song1.analysis.as_arr1(), &song2.analysis.as_arr1())
     );
     Ok(())
 }
