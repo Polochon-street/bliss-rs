@@ -845,71 +845,93 @@ mod test {
         );
     }
 
+    // This test case is non-deterministic and could fail in rare cases.
     #[test]
     fn test_forest_options() {
-        let first_song = Song {
+        // These songs contains analysis of actual music. Recordings of Mozart's piano concerto no.
+        // 19, Mozart's piano concerto no. 23, and tracks Miles Davis' "Kind Of Blue".
+        let mozart_piano_19 = [Song {
             path: Path::new("path-to-first").to_path_buf(),
-            analysis: Analysis::new([
-                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-            ]),
+            analysis: Analysis::new([0.5522649, -0.8664422, -0.81236243, -0.9475107, -0.76129013, -0.90520144, -0.8474938, -0.8924977, 0.4956385, 0.5076021, -0.5037869, -0.61038315, -0.47157913, -0.48194122, -0.36397678, -0.6443357, -0.9713509, -0.9781786, -0.98285836, -0.983834]
+),
             ..Default::default()
-        };
-        let first_song_dupe = Song {
-            path: Path::new("path-to-dupe").to_path_buf(),
-            analysis: Analysis::new([
-                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-            ]),
-            ..Default::default()
-        };
-
-        let second_song = Song {
+        },
+         Song {
             path: Path::new("path-to-second").to_path_buf(),
-            analysis: Analysis::new([
-                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
-            ]),
+            analysis: Analysis::new([0.28091776, -0.86352056, -0.8175835, -0.9497457, -0.77833027, -0.91656536, -0.8477104, -0.889485, 0.41879785, 0.45311546, -0.6252063, -0.6838323, -0.5326821, -0.63320035, -0.5573063, -0.7433087, -0.9815542, -0.98570454, -0.98824924, -0.9903612]
+),
             ..Default::default()
-        };
-        let third_song = Song {
+        },
+         Song {
             path: Path::new("path-to-third").to_path_buf(),
-            analysis: Analysis::new([
-                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1., 1.,
-            ]),
+            analysis: Analysis::new([0.5978223, -0.84076107, -0.7841455, -0.886415, -0.72486377, -0.8015111, -0.79157853, -0.7739525, 0.517207, 0.535398, -0.30007458, -0.3972137, -0.41319674, -0.40709, -0.32283908, -0.5261506, -0.9656949, -0.9715169, -0.97524375, -0.9756616]
+),
             ..Default::default()
-        };
-        let fourth_song = Song {
-            path: Path::new("path-to-fourth").to_path_buf(),
-            analysis: Analysis::new([
-                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
-            ]),
-            ..Default::default()
-        };
-        let fifth_song = Song {
-            path: Path::new("path-to-fifth").to_path_buf(),
-            analysis: Analysis::new([
-                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
-            ]),
-            ..Default::default()
-        };
+        }];
 
-        let mut songs = [
-            &first_song,
-            &first_song_dupe,
-            &second_song,
-            &third_song,
-            &fourth_song,
-            &fifth_song,
-        ];
-        closest_to_songs(&[&first_song], &mut songs, &ForestOptions::default());
-        assert_eq!(
-            songs,
-            [
-                &first_song,
-                &first_song_dupe,
-                &second_song,
-                &third_song,
-                &fourth_song,
-                &fifth_song,
-            ],
-        );
+        let kind_of_blue = [
+         Song {
+            path: Path::new("path-to-fourth").to_path_buf(),
+            analysis: Analysis::new([0.35871255, -0.8679545, -0.6833263, -0.87800264, -0.7235142, -0.73546195, -0.48577756, -0.7732977, 0.51237035, 0.5379869, -0.00649637, -0.534671, -0.5743973, -0.5706258, -0.43162197, -0.6356183, -0.97918683, -0.98091763, -0.9845511, -0.98359185]
+),
+            ..Default::default()
+        },
+         Song {
+            path: Path::new("path-to-fifth").to_path_buf(),
+            analysis: Analysis::new([0.2806753, -0.85013694, -0.66921043, -0.8938313, -0.6848732, -0.75377, -0.48747814, -0.793482, 0.44880342, 0.461563, -0.115760505, -0.535959, -0.5749081, -0.55055845, -0.37976396, -0.538705, -0.97972554, -0.97890633, -0.98290455, -0.98231846]
+),
+            ..Default::default()
+        },
+         Song {
+            path: Path::new("path-to-sixth").to_path_buf(),
+            analysis: Analysis::new([0.1545173, -0.8991263, -0.79770947, -0.87425447, -0.77811325, -0.71051484, -0.7369138, -0.8515074, 0.387398, 0.42035806, -0.30229717, -0.624056, -0.6458885, -0.66208386, -0.5866134, -0.7613628, -0.98656195, -0.98821944, -0.99072844, -0.98729765]
+),
+            ..Default::default()
+        },
+         Song {
+            path: Path::new("path-to-seventh").to_path_buf(),
+            analysis: Analysis::new([0.3853314, -0.8475499, -0.64330614, -0.85917395, -0.6624141, -0.6356613, -0.40988427, -0.7480691, 0.45981812, 0.47096932, -0.19245929, -0.5228787, -0.42246288, -0.52656835, -0.45702273, -0.569838, -0.97620565, -0.97741324, -0.9776932, -0.98088175]
+),
+            ..Default::default()
+        },
+         Song {
+            path: Path::new("path-to-eight").to_path_buf(),
+            analysis: Analysis::new([0.18926656, -0.86667925, -0.7294189, -0.856192, -0.7180501, -0.66697484, -0.6093149, -0.82118326, 0.3888924, 0.42430043, -0.4414854, -0.6957753, -0.7092425, -0.68237424, -0.55543846, -0.77678657, -0.98610276, -0.98707336, -0.99165493, -0.99011236]
+),
+            ..Default::default()
+        }];
+
+        let mozart_piano_23 = [
+         Song {
+            path: Path::new("path-to-ninth").to_path_buf(),
+            analysis: Analysis::new(
+                [0.38328362, -0.8752751, -0.8165319, -0.948534, -0.77668643, -0.9051969, -0.8473458, -0.88643366, 0.49641085, 0.5132351, -0.41367024, -0.5279201, -0.46787983, -0.49218357, -0.42164963, -0.6597451, -0.97317076, -0.9800342, -0.9832096, -0.98385316]
+),
+            ..Default::default()
+        },
+         Song {
+            path: Path::new("path-to-tenth").to_path_buf(),
+            analysis: Analysis::new(
+                [0.4301988, -0.89864063, -0.84993315, -0.9518692, -0.8329567, -0.9293889, -0.8605237, -0.8901016, 0.35011983, 0.3822446, -0.6384951, -0.7537949, -0.5867439, -0.57371, -0.5662942, -0.76130676, -0.9845436, -0.9833387, -0.9902381, -0.9905396]
+),
+            ..Default::default()
+        },
+         Song {
+            path: Path::new("path-to-eleventh").to_path_buf(),
+            analysis: Analysis::new(
+                [0.42334664, -0.8632808, -0.80268145, -0.91918564, -0.7522441, -0.8721291, -0.81877685, -0.8166921, 0.53626525, 0.540933, -0.34771818, -0.45362264, -0.35523874, -0.4072432, -0.25506926, -0.553644, -0.9624399, -0.9706371, -0.9753268, -0.9764576]
+),
+            ..Default::default()
+        }];
+
+        let mut songs: Vec<&Song> = mozart_piano_19.iter().chain(kind_of_blue.iter()).chain(mozart_piano_23.iter()).collect();
+
+        // We train the algorithm on one of the Mozart concertos, and the expectation is that the
+        // tracks from the Miles Davis record will end up last.
+        let opts = ForestOptions { n_trees: 1000, sample_size: 200, max_tree_depth: None, extension_level: 10 };
+        closest_to_songs(&mozart_piano_19.iter().collect::<Vec<&Song>>(), &mut songs, &opts);
+        for e in &kind_of_blue {
+            assert!(songs[songs.len()-5..].contains(&e));
+        }
     }
 }
