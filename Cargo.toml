@@ -39,7 +39,7 @@ serde = ["dep:serde", "extended-isolation-forest/serde"]
 [dependencies]
 # Until https://github.com/aubio/aubio/issues/336 is somehow solved
 # Hopefully we'll be able to use the official aubio-rs at some point.
-bliss-audio-aubio-rs = "0.2.1"
+bliss-audio-aubio-rs = "0.2.2"
 ffmpeg-next = "6.1.1"
 ffmpeg-sys-next = { version = "6.1.0", default-features = false }
 log = "0.4.17"

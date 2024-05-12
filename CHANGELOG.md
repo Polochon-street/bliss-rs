@@ -1,6 +1,7 @@
 # Changelog
 
 ## bliss 0.7.0
+* Bump aubio-rs custom crate to disable compiling it with -std=c99
 * Add the possibility to make playlists based on multiple songs using extended
   isolation forest (Thanks @SimonTeixidor!)
 * Remove *_by_key family of functions (Thanks @SimonTeixidor!)
