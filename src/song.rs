@@ -193,6 +193,10 @@ impl Analysis {
     }
 }
 
+// Safe because the other thread just reads the channel layout
+struct SendChannelLayout(ChannelLayout);
+unsafe impl Send for SendChannelLayout {}
+
 impl Song {
     /// Returns a decoded [Song] given a file path, or an error if the song
     /// could not be analyzed for some reason.
@@ -445,14 +449,22 @@ impl Song {
                 t => Some(t.to_string()),
             };
         };
+
+        #[cfg(not(feature = "ffmpeg_7_0"))]
+        let is_channel_layout_empty = decoder.channel_layout() == ChannelLayout::empty();
+        #[cfg(feature = "ffmpeg_7_0")]
+        let is_channel_layout_empty = decoder.channel_layout().is_empty();
+
         let (empty_in_channel_layout, in_channel_layout) = {
-            if decoder.channel_layout() == ChannelLayout::empty() {
+            if is_channel_layout_empty {
                 (true, ChannelLayout::default(decoder.channels().into()))
             } else {
                 (false, decoder.channel_layout())
             }
         };
         decoder.set_channel_layout(in_channel_layout);
+
+        let in_channel_layout_to_send = SendChannelLayout(in_channel_layout);
 
         let (tx, rx) = mpsc::channel();
         let in_codec_format = decoder.format();
@@ -461,7 +473,7 @@ impl Song {
             resample_frame(
                 rx,
                 in_codec_format,
-                in_channel_layout,
+                in_channel_layout_to_send,
                 in_codec_rate,
                 sample_array,
                 empty_in_channel_layout,
@@ -547,6 +559,7 @@ impl Song {
         }
 
         drop(tx);
+        // Waiting here ensures that ChannelLayout doesn't get dropped in the middle
         song.sample_array = child.join().unwrap()?;
         let duration_seconds = song.sample_array.len() as f32 / SAMPLE_RATE as f32;
         song.duration = Duration::from_nanos((duration_seconds * 1e9_f32).round() as u64);
@@ -570,11 +583,12 @@ pub(crate) struct InternalSong {
 fn resample_frame(
     rx: Receiver<Audio>,
     in_codec_format: Sample,
-    in_channel_layout: ChannelLayout,
+    sent_in_channel_layout: SendChannelLayout,
     in_rate: u32,
     mut sample_array: Vec<f32>,
     empty_in_channel_layout: bool,
 ) -> BlissResult<Vec<f32>> {
+    let in_channel_layout = sent_in_channel_layout.0;
     let mut resample_context = ffmpeg::software::resampling::context::Context::get(
         in_codec_format,
         in_channel_layout,
@@ -592,10 +606,15 @@ fn resample_frame(
     let mut resampled = ffmpeg::frame::Audio::empty();
     let mut something_happened = false;
     for mut decoded in rx.iter() {
+        #[cfg(not(feature = "ffmpeg_7_0"))]
+        let is_channel_layout_empty = decoded.channel_layout() == ChannelLayout::empty();
+        #[cfg(feature = "ffmpeg_7_0")]
+        let is_channel_layout_empty = decoded.channel_layout().is_empty();
+
         // If the decoded layout is empty, it means we forced the
         // "in_channel_layout" to something default, not that
         // the format is wrong.
-        if empty_in_channel_layout && decoded.channel_layout() == ChannelLayout::empty() {
+        if empty_in_channel_layout && is_channel_layout_empty {
             decoded.set_channel_layout(in_channel_layout);
         } else if in_codec_format != decoded.format()
             || (in_channel_layout != decoded.channel_layout())
