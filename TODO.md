@@ -10,6 +10,7 @@ ask questions if you want to tackle an item.
 
 ## Actual TODO
 
+- Add a list of dependencies / installation guide
 - Split out ffmpeg (see https://github.com/Polochon-street/bliss-rs/issues/63 and https://users.rust-lang.org/t/proper-way-to-abstract-a-third-party-provider/107076/8)
   - Make ffmpeg an optional (but default) feature 
   - Make the tests that don't need it not dependent of ffmpeg

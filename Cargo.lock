@@ -151,18 +151,18 @@ dependencies = [
 
 [[package]]
 name = "bliss-audio-aubio-rs"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb6b0b33b16bdb7489951c56294f4f9c321d91047ae29aebb91dfcd84a09086f"
+checksum = "2bfb72ae2d8bdd563b7218c6f6f423c17350052d8a9f69a8fc018220537fa1bf"
 dependencies = [
  "bliss-audio-aubio-sys",
 ]
 
 [[package]]
 name = "bliss-audio-aubio-sys"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd4d47e7b82164c30a806717cf5562f87e5b136b79b3d942c9ad789134116f2f"
+checksum = "3a5b978c743f6450be98229b052d996ed1cc0507274e9c68a7effeb51e8a13ec"
 dependencies = [
  "bindgen",
  "cc",
