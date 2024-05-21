@@ -1,8 +1,8 @@
 //! Module containing various functions to build playlists, as well as various
 //! distance metrics.
 //!
-//! All of the distance functions are intended to be used with the
-//! [custom_distance](Song::custom_distance) method, or with
+//! All of the distance functions are intended to be used in isolation
+//! or with e.g. [dedup_playlist_custom_distance].
 //!
 //! They will yield different styles of playlists, so don't hesitate to
 //! experiment with them if the default (euclidean distance for now) doesn't

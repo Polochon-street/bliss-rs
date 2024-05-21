@@ -1,17 +1,26 @@
 //! CUE-handling module.
 //!
 //! Using [BlissCue::songs_from_path] is most likely what you want.
+//!
+//! There are two main structures in this module, [BlissCue], used
+//! to extract and analyze songs from a cue file through [BlissCue::songs_from_path],
+//! and [CueInfo], which is a struct stored in [Song] to keep track of the CUE information
+//! the song was extracted from.
 
+use crate::song::decoder::Decoder as DecoderTrait;
 use crate::{Analysis, BlissError, BlissResult, Song, FEATURES_VERSION, SAMPLE_RATE};
 use rcue::cue::{Cue, Track};
 use rcue::parser::parse_from_file;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
+use std::{marker::PhantomData, path::PathBuf};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
 /// A struct populated when the corresponding [Song] has been extracted from an
 /// audio file split with the help of a CUE sheet.
+/// It is mostly used to sit in [Song::cue_info], in order to know which file this song
+/// was extracted from, and from which CUE file the information was retrieved.
 pub struct CueInfo {
     /// The path of the original CUE sheet, e.g. `/path/to/album_name.cue`.
     pub cue_path: PathBuf,
@@ -22,12 +31,13 @@ pub struct CueInfo {
 }
 
 /// A struct to handle CUEs with bliss.
-/// Use either [analyze_paths](crate::analyze_paths) with CUE files or
-/// [songs_from_path](BlissCue::songs_from_path) to return a list of [Song]s
-/// from CUE files.
-pub struct BlissCue {
+/// Use either [analyze_paths](crate::decoder::Decoder::analyze_paths), which takes care of CUE files
+/// automatically, or [songs_from_path](BlissCue::songs_from_path) to return a list
+/// of [Song]s from CUE files.
+pub struct BlissCue<D: ?Sized> {
     cue: Cue,
     cue_path: PathBuf,
+    decoder: PhantomData<D>,
 }
 
 #[allow(missing_docs)]
@@ -42,7 +52,7 @@ struct BlissCueFile {
     audio_file_path: PathBuf,
 }
 
-impl BlissCue {
+impl<D: ?Sized + DecoderTrait> BlissCue<D> {
     /// Analyze songs from a CUE file, extracting individual [Song] objects
     /// for each individual song.
     ///
@@ -50,7 +60,7 @@ impl BlissCue {
     /// be used to retrieve which CUE sheet was used to extract it, as well
     /// as the corresponding audio file.
     pub fn songs_from_path<P: AsRef<Path>>(path: P) -> BlissResult<Vec<BlissResult<Song>>> {
-        let cue = BlissCue::from_path(&path)?;
+        let cue: BlissCue<D> = BlissCue::from_path(&path)?;
         let cue_files = cue.files();
         let mut songs = Vec::new();
         for cue_file in cue_files.into_iter() {
@@ -79,9 +89,10 @@ impl BlissCue {
                 e
             ))
         })?;
-        Ok(BlissCue {
+        Ok(Self {
             cue,
             cue_path: path.as_ref().to_owned(),
+            decoder: PhantomData,
         })
     }
 
@@ -99,7 +110,7 @@ impl BlissCue {
                 .iter()
                 .find(|(c, _)| c == "GENRE")
                 .map(|(_, v)| v.to_owned());
-            let raw_song = Song::decode(Path::new(&audio_file_path));
+            let raw_song = D::decode(Path::new(&audio_file_path));
             if let Ok(song) = raw_song {
                 let bliss_cue_file = BlissCueFile {
                     sample_array: song.sample_array,
@@ -192,12 +203,17 @@ impl BlissCueFile {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "ffmpeg")]
     use super::*;
+    #[cfg(feature = "ffmpeg")]
+    use crate::decoder::ffmpeg::FFmpeg;
+    #[cfg(feature = "ffmpeg")]
     use pretty_assertions::assert_eq;
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_empty_cue() {
-        let songs = BlissCue::songs_from_path("data/empty.cue").unwrap();
+        let songs = BlissCue::<FFmpeg>::songs_from_path("data/empty.cue").unwrap();
         let error = songs[0].to_owned().unwrap_err();
         assert_eq!(
             error,
@@ -206,8 +222,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_cue_analysis() {
-        let songs = BlissCue::songs_from_path("data/testcue.cue").unwrap();
+        let songs = BlissCue::<FFmpeg>::songs_from_path("data/testcue.cue").unwrap();
         let expected = vec![
             Ok(Song {
                 path: Path::new("data/testcue.cue/CUE_TRACK001").to_path_buf(),

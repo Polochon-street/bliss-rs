@@ -20,7 +20,7 @@ jobs:
         submodules: recursive
     - uses: actions-rs/toolchain@v1
       with:
-        toolchain: nightly-2023-02-16
+        toolchain: nightly-2024-01-16
         override: false
     - name: Packages
       run: sudo apt-get update && sudo apt-get install build-essential yasm libavutil-dev libavcodec-dev libavformat-dev libavfilter-dev libavfilter-dev libavdevice-dev libswresample-dev libfftw3-dev ffmpeg
@@ -32,14 +32,26 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
-    - name: Run library tests
-      run: cargo test --verbose --features=library
+    - name: Build benches
+      run: cargo +nightly-2024-01-16 bench --verbose --features=bench --no-run
     - name: Run example tests
       run: cargo test --verbose --examples
-    - name: Build benches
-      run: cargo +nightly-2023-02-16 bench --verbose --features=bench --no-run
-    - name: Build examples
+    - name: Build examples with library
       run: cargo build --examples --verbose --features=serde,library
+    - name: Build with library
+      run: cargo build --features=library --verbose
+    - name: Run tests with library
+      run: cargo test --verbose --features=library
+    - name: Build without ffmpeg
+      run: cargo build --verbose --no-default-features
+    - name: Test without ffmpeg
+      run: cargo test --verbose --no-default-features
+    - name: Build library without ffmpeg
+      run: cargo build --verbose --no-default-features --features=library
+    - name: Test library without ffmpeg
+      run: cargo test --verbose --no-default-features --features=library
+    - name: Lint without ffmpeg
+      run: cargo clippy --examples --features=serde,library --no-default-features -- -D warnings
 
   build-test-lint-windows:
     name: Windows - build, test and lint

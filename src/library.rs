@@ -65,20 +65,26 @@
 //!         }
 //!     }
 //!   ```
+//!
 //! * The second part is the actual [Library] structure, that makes the
 //!   bulk of the plug-in. To initialize a library once with a given config,
-//!   you can do (here with a base configuration):
-//!   ```no_run
-//!     use anyhow::{Error, Result};
-//!     use bliss_audio::library::{BaseConfig, Library};
-//!     use std::path::PathBuf;
-//!
-//!     let config_path = Some(PathBuf::from("path/to/config/config.json"));
-//!     let database_path = Some(PathBuf::from("path/to/config/bliss.db"));
-//!     let config = BaseConfig::new(config_path, database_path, None)?;
-//!     let library: Library<BaseConfig> = Library::new(config)?;
-//!     # Ok::<(), Error>(())
-//!   ```
+//!   you can do (here with a base configuration, requiring ffmpeg):
+#![cfg_attr(
+    feature = "ffmpeg",
+    doc = r##"
+```no_run
+  use anyhow::{Error, Result};
+  use bliss_audio::library::{BaseConfig, Library};
+  use bliss_audio::decoder::ffmpeg::FFmpeg;
+  use std::path::PathBuf;
+
+  let config_path = Some(PathBuf::from("path/to/config/config.json"));
+  let database_path = Some(PathBuf::from("path/to/config/bliss.db"));
+  let config = BaseConfig::new(config_path, database_path, None)?;
+  let library: Library<BaseConfig, FFmpeg> = Library::new(config)?;
+  # Ok::<(), Error>(())
+```"##
+)]
 //!   Once this is done, you can simply load the library by doing
 //!   `Library::from_config_path(config_path);`
 //! * The third part is using the [Library] itself: it provides you with
@@ -108,7 +114,6 @@
 //! "real-life" example, the
 //! [blissify](https://github.com/Polochon-street/blissify-rs)'s code is using
 //! [Library] to implement bliss for a MPD player.
-use crate::analyze_paths_with_cores;
 use crate::cue::CueInfo;
 use crate::playlist::closest_album_to_group;
 use crate::playlist::closest_to_songs;
@@ -132,12 +137,14 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::fs::create_dir_all;
+use std::marker::PhantomData;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 
+use crate::decoder::Decoder as DecoderTrait;
 use crate::Song;
 use crate::FEATURES_VERSION;
 use crate::{Analysis, BlissError, NUMBER_FEATURES};
@@ -305,12 +312,13 @@ impl AppConfigTrait for BaseConfig {
 /// Provide it either the `BaseConfig`, or a `Config` extending
 /// `BaseConfig`.
 /// TODO code example
-pub struct Library<Config> {
+pub struct Library<Config, D: ?Sized> {
     /// The configuration struct, containing both information
     /// from `BaseConfig` as well as user-defined values.
     pub config: Config,
     /// SQL connection to the database.
     pub sqlite_conn: Arc<Mutex<Connection>>,
+    decoder: PhantomData<D>,
 }
 
 /// Struct holding both a Bliss song, as well as any extra info
@@ -355,7 +363,7 @@ impl<T: Serialize + DeserializeOwned> AsRef<Song> for LibrarySong<T> {
 // TODO should it really use anyhow errors?
 // TODO make sure that the path to string is consistent
 // TODO make a function that returns a list of all analyzed songs in the db
-impl<Config: AppConfigTrait> Library<Config> {
+impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     /// Create a new [Library] object from the given Config struct that
     /// implements the [AppConfigTrait].
     /// writing the configuration to the file given in
@@ -419,9 +427,10 @@ impl<Config: AppConfigTrait> Library<Config> {
             [],
         )?;
         config.write()?;
-        Ok(Library {
+        Ok(Self {
             config,
             sqlite_conn: Arc::new(Mutex::new(sqlite_conn)),
+            decoder: PhantomData,
         })
     }
 
@@ -436,9 +445,10 @@ impl<Config: AppConfigTrait> Library<Config> {
         let data = fs::read_to_string(config_path)?;
         let config = Config::deserialize_config(&data)?;
         let sqlite_conn = Connection::open(&config.base_config().database_path)?;
-        let mut library = Library {
+        let mut library = Self {
             config,
             sqlite_conn: Arc::new(Mutex::new(sqlite_conn)),
+            decoder: PhantomData,
         };
         if !library.version_sanity_check()? {
             warn!(
@@ -512,7 +522,7 @@ impl<Config: AppConfigTrait> Library<Config> {
     /// `true`.
     ///
     /// You can use ready to use distance metrics such as
-    /// [ExtendedIsolationForest], and ready to use sorting functions like
+    /// [ExtendedIsolationForest](extended_isolation_forest::Forest), and ready to use sorting functions like
     /// [closest_to_songs].
     ///
     /// Generating a playlist from a single song is also possible, and is just the special case
@@ -570,7 +580,7 @@ impl<Config: AppConfigTrait> Library<Config> {
                 if album_count > number_albums {
                     break;
                 }
-                current_album = song.bliss_song.album.to_owned();
+                song.bliss_song.album.clone_into(&mut current_album);
             }
             index += 1;
         }
@@ -811,7 +821,7 @@ impl<Config: AppConfigTrait> Library<Config> {
             .collect();
         let mut cue_extra_info: HashMap<PathBuf, String> = HashMap::new();
 
-        let results = analyze_paths_with_cores(
+        let results = D::analyze_paths_with_cores(
             paths_extra_info.keys(),
             self.config.base_config().number_cores,
         );
@@ -1213,7 +1223,7 @@ impl<Config: AppConfigTrait> Library<Config> {
         Ok(())
     }
 
-    /// Store an errored [Song](Song) in the SQLite database.
+    /// Store an errored [Song] in the SQLite database.
     ///
     /// If there already is an existing song with that path, replace it by
     /// the latest failed result.
@@ -1314,12 +1324,25 @@ fn data_local_dir() -> Option<PathBuf> {
 // TODO test with invalid UTF-8
 mod test {
     use super::*;
-    use crate::{Analysis, NUMBER_FEATURES};
+    use crate::{decoder::PreAnalyzedSong, Analysis, NUMBER_FEATURES};
     use ndarray::Array1;
     use pretty_assertions::assert_eq;
     use serde::{de::DeserializeOwned, Deserialize};
     use std::{convert::TryInto, fmt::Debug, sync::MutexGuard, time::Duration};
     use tempdir::TempDir;
+
+    #[cfg(feature = "ffmpeg")]
+    use crate::song::decoder::ffmpeg::FFmpeg as Decoder;
+    use crate::song::decoder::Decoder as DecoderTrait;
+
+    struct DummyDecoder;
+
+    // Here to test an ffmpeg-agnostic library
+    impl DecoderTrait for DummyDecoder {
+        fn decode(_: &Path) -> crate::BlissResult<crate::decoder::PreAnalyzedSong> {
+            Ok(PreAnalyzedSong::default())
+        }
+    }
 
     #[derive(Deserialize, Serialize, Debug, PartialEq, Clone, Default)]
     struct ExtraInfo {
@@ -1354,8 +1377,9 @@ mod test {
     //
     // Setup a test library made of 3 analyzed songs, with every field being different,
     // as well as an unanalyzed song and a song analyzed with a previous version.
+    #[cfg(feature = "ffmpeg")]
     fn setup_test_library() -> (
-        Library<BaseConfig>,
+        Library<BaseConfig, Decoder>,
         TempDir,
         (
             LibrarySong<ExtraInfo>,
@@ -1370,9 +1394,12 @@ mod test {
         let config_dir = TempDir::new("coucou").unwrap();
         let config_file = config_dir.path().join("config.json");
         let database_file = config_dir.path().join("bliss.db");
-        let library =
-            Library::<BaseConfig>::new_from_base(Some(config_file), Some(database_file), None)
-                .unwrap();
+        let library = Library::<BaseConfig, Decoder>::new_from_base(
+            Some(config_file),
+            Some(database_file),
+            None,
+        )
+        .unwrap();
 
         let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
             .map(|x| x as f32 / 10.)
@@ -1890,6 +1917,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_playlist_song_not_existing() {
         let (library, _temp_dir, _) = setup_test_library();
         assert!(library
@@ -1898,6 +1926,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_playlist_crop() {
         let (library, _temp_dir, _) = setup_test_library();
         let songs: Vec<LibrarySong<ExtraInfo>> =
@@ -1906,6 +1935,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_simple_playlist() {
         let (library, _temp_dir, _) = setup_test_library();
         let songs: Vec<LibrarySong<ExtraInfo>> =
@@ -1928,6 +1958,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_custom_playlist_distance() {
         let (library, _temp_dir, _) = setup_test_library();
         let songs: Vec<LibrarySong<ExtraInfo>> = library
@@ -1965,6 +1996,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_custom_playlist_sort() {
         let (library, _temp_dir, _) = setup_test_library();
         let songs: Vec<LibrarySong<ExtraInfo>> = library
@@ -1994,6 +2026,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_custom_playlist_dedup() {
         let (library, _temp_dir, _) = setup_test_library();
 
@@ -2045,6 +2078,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_album_playlist() {
         let (library, _temp_dir, _) = setup_test_library();
         let album: Vec<LibrarySong<ExtraInfo>> = library
@@ -2072,6 +2106,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_album_playlist_crop() {
         let (library, _temp_dir, _) = setup_test_library();
         let album: Vec<LibrarySong<ExtraInfo>> = library
@@ -2094,6 +2129,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_songs_from_album() {
         let (library, _temp_dir, _) = setup_test_library();
         let album: Vec<LibrarySong<ExtraInfo>> = library.songs_from_album("An Album1001").unwrap();
@@ -2110,6 +2146,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_songs_from_album_proper_features_version() {
         let (library, _temp_dir, _) = setup_test_library();
         let album: Vec<LibrarySong<ExtraInfo>> = library.songs_from_album("An Album1001").unwrap();
@@ -2126,6 +2163,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_songs_from_album_not_existing() {
         let (library, _temp_dir, _) = setup_test_library();
         assert!(library
@@ -2134,6 +2172,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_delete_path_non_existing() {
         let (mut library, _temp_dir, _) = setup_test_library();
         {
@@ -2159,6 +2198,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_delete_path() {
         let (mut library, _temp_dir, _) = setup_test_library();
         {
@@ -2205,6 +2245,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_delete_paths() {
         let (mut library, _temp_dir, _) = setup_test_library();
         {
@@ -2262,18 +2303,21 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_delete_paths_empty() {
         let (mut library, _temp_dir, _) = setup_test_library();
         assert_eq!(library.delete_paths::<String, _>([]).unwrap(), 0);
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_delete_paths_non_existing() {
         let (mut library, _temp_dir, _) = setup_test_library();
         assert_eq!(library.delete_paths(["not-existing"]).unwrap(), 0);
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_analyze_paths_cue() {
         let (mut library, _temp_dir, _) = setup_test_library();
         library.config.base_config_mut().features_version = 0;
@@ -2323,6 +2367,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_analyze_paths() {
         let (mut library, _temp_dir, _) = setup_test_library();
         library.config.base_config_mut().features_version = 0;
@@ -2344,7 +2389,7 @@ mod test {
             .iter()
             .zip(vec![(), ()].into_iter())
             .map(|(path, expected_extra_info)| LibrarySong {
-                bliss_song: Song::from_path(path).unwrap(),
+                bliss_song: Decoder::song_from_path(path).unwrap(),
                 extra_info: expected_extra_info,
             })
             .collect::<Vec<LibrarySong<()>>>();
@@ -2356,6 +2401,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_analyze_paths_convert_extra_info() {
         let (mut library, _temp_dir, _) = setup_test_library();
         library.config.base_config_mut().features_version = 0;
@@ -2399,7 +2445,7 @@ mod test {
                 .into_iter(),
             )
             .map(|((path, _extra_info), expected_extra_info)| LibrarySong {
-                bliss_song: Song::from_path(path).unwrap(),
+                bliss_song: Decoder::song_from_path(path).unwrap(),
                 extra_info: expected_extra_info,
             })
             .collect::<Vec<LibrarySong<ExtraInfo>>>();
@@ -2411,6 +2457,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_analyze_paths_extra_info() {
         let (mut library, _temp_dir, _) = setup_test_library();
 
@@ -2463,7 +2510,7 @@ mod test {
                 .into_iter(),
             )
             .map(|((path, _extra_info), expected_extra_info)| LibrarySong {
-                bliss_song: Song::from_path(path).unwrap(),
+                bliss_song: Decoder::song_from_path(path).unwrap(),
                 extra_info: expected_extra_info,
             })
             .collect::<Vec<LibrarySong<ExtraInfo>>>();
@@ -2471,6 +2518,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     // Check that a song already in the database is not
     // analyzed again on updates.
     fn test_update_skip_analyzed() {
@@ -2498,7 +2546,7 @@ mod test {
             };
             let expected_song = {
                 LibrarySong {
-                    bliss_song: Song::from_path("./data/s16_mono_22_5kHz.flac").unwrap(),
+                    bliss_song: Decoder::song_from_path("./data/s16_mono_22_5kHz.flac").unwrap(),
                     extra_info: ExtraInfo {
                         ignore: true,
                         metadata_bliss_does_not_have: String::from("coucou"),
@@ -2528,6 +2576,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_update_library_override_old_features() {
         let (mut library, _temp_dir, _) = setup_test_library();
         let path: String = "./data/s16_stereo_22_5kHz.flac".into();
@@ -2579,11 +2628,12 @@ mod test {
                 .try_into()
                 .unwrap(),
         };
-        let expected_analysis_vector = Song::from_path(path).unwrap().analysis;
+        let expected_analysis_vector = Decoder::song_from_path(path).unwrap().analysis;
         assert_eq!(analysis_vector, expected_analysis_vector);
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_update_library() {
         let (mut library, _temp_dir, _) = setup_test_library();
         library.config.base_config_mut().features_version = 0;
@@ -2618,7 +2668,7 @@ mod test {
             .iter()
             .zip(vec![(), ()].into_iter())
             .map(|(path, expected_extra_info)| LibrarySong {
-                bliss_song: Song::from_path(path).unwrap(),
+                bliss_song: Decoder::song_from_path(path).unwrap(),
                 extra_info: expected_extra_info,
             })
             .collect::<Vec<LibrarySong<()>>>();
@@ -2636,6 +2686,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_update_extra_info() {
         let (mut library, _temp_dir, _) = setup_test_library();
         library.config.base_config_mut().features_version = 0;
@@ -2666,7 +2717,7 @@ mod test {
             .iter()
             .zip(vec![true, false].into_iter())
             .map(|((path, _extra_info), expected_extra_info)| LibrarySong {
-                bliss_song: Song::from_path(path).unwrap(),
+                bliss_song: Decoder::song_from_path(path).unwrap(),
                 extra_info: expected_extra_info,
             })
             .collect::<Vec<LibrarySong<bool>>>();
@@ -2683,6 +2734,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_update_convert_extra_info() {
         let (mut library, _temp_dir, _) = setup_test_library();
         library.config.base_config_mut().features_version = 0;
@@ -2733,7 +2785,7 @@ mod test {
                 .into_iter(),
             )
             .map(|((path, _extra_info), expected_extra_info)| LibrarySong {
-                bliss_song: Song::from_path(path).unwrap(),
+                bliss_song: Decoder::song_from_path(path).unwrap(),
                 extra_info: expected_extra_info,
             })
             .collect::<Vec<LibrarySong<ExtraInfo>>>();
@@ -2758,6 +2810,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     // TODO maybe we can merge / DRY this and the function ⬆
     fn test_update_convert_extra_info_do_not_delete() {
         let (mut library, _temp_dir, _) = setup_test_library();
@@ -2811,7 +2864,7 @@ mod test {
                 .into_iter(),
             )
             .map(|((path, _extra_info), expected_extra_info)| LibrarySong {
-                bliss_song: Song::from_path(path).unwrap(),
+                bliss_song: Decoder::song_from_path(path).unwrap(),
                 extra_info: expected_extra_info,
             })
             .collect::<Vec<LibrarySong<ExtraInfo>>>();
@@ -2833,6 +2886,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_song_from_path() {
         let (library, _temp_dir, _) = setup_test_library();
         let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
@@ -2871,6 +2925,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_store_failed_song() {
         let (mut library, _temp_dir, _) = setup_test_library();
         library
@@ -2913,6 +2968,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_songs_from_library() {
         let (library, _temp_dir, expected_library_songs) = setup_test_library();
 
@@ -2933,6 +2989,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_songs_from_library_screwed_db() {
         let (library, _temp_dir, _) = setup_test_library();
         {
@@ -2960,6 +3017,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_song_from_path_not_analyzed() {
         let (library, _temp_dir, _) = setup_test_library();
         let error = library.song_from_path::<ExtraInfo>("/path/to/song4001");
@@ -2967,6 +3025,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_song_from_path_not_found() {
         let (library, _temp_dir, _) = setup_test_library();
         let error = library.song_from_path::<ExtraInfo>("/path/to/song4001");
@@ -2989,6 +3048,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_new_default_write() {
         let (library, _temp_dir, _) = setup_test_library();
         let config_content = fs::read_to_string(&library.config.base_config().config_path)
@@ -3008,6 +3068,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_new_create_database() {
         let (library, _temp_dir, _) = setup_test_library();
         let sqlite_conn = Connection::open(&library.config.base_config().database_path).unwrap();
@@ -3041,6 +3102,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_store_song() {
         let (mut library, _temp_dir, _) = setup_test_library();
         let song = _generate_basic_song(None);
@@ -3055,6 +3117,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_extra_info() {
         let (mut library, _temp_dir, _) = setup_test_library();
         let song = _generate_library_song(None);
@@ -3068,7 +3131,10 @@ mod test {
     #[test]
     fn test_from_config_path_non_existing() {
         assert!(
-            Library::<CustomConfig>::from_config_path(Some(PathBuf::from("non-existing"))).is_err()
+            Library::<CustomConfig, DummyDecoder>::from_config_path(Some(PathBuf::from(
+                "non-existing"
+            )))
+            .is_err()
         );
     }
 
@@ -3097,11 +3163,12 @@ mod test {
         // get the stored song.
         let song = _generate_library_song(None);
         {
-            let mut library = Library::new(config.to_owned()).unwrap();
+            let mut library = Library::<_, DummyDecoder>::new(config.to_owned()).unwrap();
             library.store_song(&song).unwrap();
         }
 
-        let library: Library<CustomConfig> = Library::from_config_path(Some(config_file)).unwrap();
+        let library: Library<CustomConfig, DummyDecoder> =
+            Library::from_config_path(Some(config_file)).unwrap();
         let connection = library.sqlite_conn.lock().unwrap();
         let returned_song =
             _library_song_from_database(connection, &song.bliss_song.path.to_string_lossy());
@@ -3139,12 +3206,14 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_sanity_check_fail() {
         let (mut library, _temp_dir, _) = setup_test_library();
         assert!(!library.version_sanity_check().unwrap());
     }
 
     #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_sanity_check_ok() {
         let (mut library, _temp_dir, _) = setup_test_library();
         {
@@ -3203,8 +3272,12 @@ mod test {
         assert!(!config_dir.is_dir());
         let config_file = config_dir.join("config.json");
         let database_file = config_dir.join("bliss.db");
-        Library::<BaseConfig>::new_from_base(Some(config_file), Some(database_file), Some(nzus(1)))
-            .unwrap();
+        Library::<BaseConfig, DummyDecoder>::new_from_base(
+            Some(config_file),
+            Some(database_file),
+            Some(nzus(1)),
+        )
+        .unwrap();
         assert!(config_dir.is_dir());
     }
 }
