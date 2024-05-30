@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.7.1
+* Bump rust-ffmpeg to 7.0.2, to allow building on FreeBSD systems.
+
 ## bliss 0.7.0
 * Make ffmpeg an optional dependency, to decouple bliss from ffmpeg:
   - Remove Song::from_path
