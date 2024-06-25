@@ -1,5 +1,9 @@
 # Changelog
 
+## bliss 0.8.0
+* `Library::playlist_from_custom` now also returns the song(s) the playlist
+  was built from.
+
 ## bliss 0.7.1
 * Bump rust-ffmpeg to 7.0.2, to allow building on FreeBSD systems.
 

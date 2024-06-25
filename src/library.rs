@@ -517,28 +517,37 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     }
 
     /// Build a playlist of `playlist_length` items from a set of already analyzed
-    /// song in the library at `song_paths`, using distance metric `distance`,
+    /// song in the library at `initial_songs`, using distance metric `distance`,
     /// the sorting function `sort_by` and deduplicating if `dedup` is set to
     /// `true`.
+    /// Note: The playlist includes the songs specified in `initial_songs`, so `playlist_length`
+    /// has to be higher or equal than the length of `initial_songs`.
     ///
-    /// You can use ready to use distance metrics such as
-    /// [ExtendedIsolationForest](extended_isolation_forest::Forest), and ready to use sorting functions like
-    /// [closest_to_songs].
+    /// You can use ready-to-use distance metrics such as
+    /// [ExtendedIsolationForest](extended_isolation_forest::Forest), and ready-to-use
+    /// sorting functions like [closest_to_songs].
     ///
     /// Generating a playlist from a single song is also possible, and is just the special case
     /// where song_paths is a slice of length 1.
+    // TODO: making a playlist with the entire list of songs and then truncating is not
+    // really the best approach - maybe sort_by should take a number of songs an Option?
+    // Or maybe make `sort_by` return an iterator over songs? Something something a struct
+    // with an internal state etc
     pub fn playlist_from_custom<
         T: Serialize + DeserializeOwned,
         F: FnMut(&[LibrarySong<T>], &mut [LibrarySong<T>], &dyn DistanceMetricBuilder),
     >(
         &self,
-        song_paths: &[&str],
+        initial_songs: &[&str],
         playlist_length: usize,
         distance: &dyn DistanceMetricBuilder,
         sort_by: &mut F,
         dedup: bool,
     ) -> Result<Vec<LibrarySong<T>>> {
-        let initial_songs: Vec<LibrarySong<T>> = song_paths
+        if playlist_length <= initial_songs.len() {
+            bail!("A playlist length less than the initial playlist size was provided.")
+        }
+        let mut playlist: Vec<LibrarySong<T>> = initial_songs
             .iter()
             .map(|s| {
                 self.song_from_path(s).map_err(|_| {
@@ -546,13 +555,22 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 })
             })
             .collect::<Result<Vec<_>, BlissError>>()?;
-        let mut songs = self.songs_from_library()?;
-        sort_by(&initial_songs, &mut songs, distance);
+        // Remove the songs that are already in the playlist, so they don't get
+        // sorted in the mess.
+        let mut songs = self
+            .songs_from_library()?
+            .into_iter()
+            .filter(|s| !initial_songs.contains(&&*s.bliss_song.path.to_string_lossy().to_string()))
+            .collect::<Vec<_>>();
+        sort_by(&playlist, &mut songs, distance);
         if dedup {
             dedup_playlist_custom_distance(&mut songs, None, distance);
         }
-        songs.truncate(playlist_length);
-        Ok(songs)
+        songs.truncate(playlist_length - playlist.len());
+        // We're reallocating a whole vector here, there must better ways to do what we want to
+        // do.
+        playlist.append(&mut songs);
+        Ok(playlist)
     }
 
     /// Make a playlist of `number_albums` albums closest to the album
@@ -1959,6 +1977,25 @@ mod test {
 
     #[test]
     #[cfg(feature = "ffmpeg")]
+    fn test_library_playlist_length() {
+        let (library, _temp_dir, _) = setup_test_library();
+        let songs: Vec<LibrarySong<ExtraInfo>> =
+            library.playlist_from(&["/path/to/song2001"], 3).unwrap();
+        assert_eq!(
+            vec![
+                "/path/to/song2001",
+                "/path/to/song6001",
+                "/path/to/song5001",
+            ],
+            songs
+                .into_iter()
+                .map(|s| s.bliss_song.path.to_string_lossy().to_string())
+                .collect::<Vec<String>>(),
+        )
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_custom_playlist_distance() {
         let (library, _temp_dir, _) = setup_test_library();
         let songs: Vec<LibrarySong<ExtraInfo>> = library
@@ -2010,10 +2047,10 @@ mod test {
             .unwrap();
         assert_eq!(
             vec![
+                "/path/to/song2001",
                 "/path/to/cuetrack.cue/CUE_TRACK001",
                 "/path/to/cuetrack.cue/CUE_TRACK002",
                 "/path/to/song1001",
-                "/path/to/song2001",
                 "/path/to/song5001",
                 "/path/to/song6001",
                 "/path/to/song7001",
@@ -2041,6 +2078,7 @@ mod test {
             .unwrap();
         assert_eq!(
             vec![
+                "/path/to/song2001",
                 "/path/to/song1001",
                 "/path/to/song7001",
                 "/path/to/cuetrack.cue/CUE_TRACK001"
