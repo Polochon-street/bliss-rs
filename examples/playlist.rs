@@ -73,21 +73,21 @@ fn main() -> Result<()> {
             Err(e) => println!("error analyzing {}: {}", path.display(), e),
         };
     }
-    analyzed_songs.extend_from_slice(&songs);
     let serialized = serde_json::to_string(&analyzed_songs).unwrap();
-    let mut songs_to_chose_from: Vec<_> = analyzed_songs
+    fs::write(analysis_path, serialized)?;
+
+    analyzed_songs.extend_from_slice(&songs);
+    let songs_to_chose_from: Vec<_> = analyzed_songs
         .into_iter()
         .filter(|x| x == &first_song || paths.contains(&x.path.to_string_lossy().to_string()))
         .collect();
-    closest_to_songs(&[first_song], &mut songs_to_chose_from, &euclidean_distance);
-    dedup_playlist(&mut songs_to_chose_from, None);
-
-    fs::write(analysis_path, serialized)?;
-    let playlist = songs_to_chose_from
-        .iter()
-        .map(|s| s.path.to_string_lossy().to_string())
-        .collect::<Vec<String>>()
-        .join("\n");
+    let playlist = dedup_playlist(
+        closest_to_songs(&[first_song], &songs_to_chose_from, &euclidean_distance),
+        None,
+    )
+    .map(|s| s.path.to_string_lossy().to_string())
+    .collect::<Vec<String>>()
+    .join("\n");
     if let Some(m) = matches.value_of("output-playlist") {
         fs::write(m, playlist)?;
     } else {
