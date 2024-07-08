@@ -91,7 +91,8 @@
 //!   utilies such as [Library::analyze_paths], which analyzes all songs
 //!   in given paths and stores it in the databases, as well as
 //!   [Library::playlist_from], which allows you to generate a playlist
-//!   from any given analyzed song.
+//!   from any given analyzed song(s), and [Library::playlist_from_custom],
+//!   which allows you to customize the way you generate playlists.
 //!
 //!   The [Library] structure also comes with a [LibrarySong] song struct,
 //!   which represents a song stored in the database.
@@ -338,7 +339,7 @@ pub struct Library<Config, D: ?Sized> {
 /// ```
 /// is totally possible.
 #[derive(Debug, PartialEq, Clone)]
-pub struct LibrarySong<T: Serialize + DeserializeOwned> {
+pub struct LibrarySong<T: Serialize + DeserializeOwned + Clone> {
     /// Actual bliss song, containing the song's metadata, as well
     /// as the bliss analysis.
     pub bliss_song: Song,
@@ -346,7 +347,7 @@ pub struct LibrarySong<T: Serialize + DeserializeOwned> {
     pub extra_info: T,
 }
 
-impl<T: Serialize + DeserializeOwned> AsRef<Song> for LibrarySong<T> {
+impl<T: Serialize + DeserializeOwned + Clone> AsRef<Song> for LibrarySong<T> {
     fn as_ref(&self) -> &Song {
         &self.bliss_song
     }
@@ -502,43 +503,58 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     ///
     /// Generating a playlist from a single song is also possible, and is just the special case
     /// where song_paths is a slice of length 1.
-    pub fn playlist_from<T: Serialize + DeserializeOwned>(
+    pub fn playlist_from<'a, T: Serialize + DeserializeOwned + Clone + 'a>(
         &self,
         song_paths: &[&str],
-        playlist_length: usize,
-    ) -> Result<Vec<LibrarySong<T>>> {
-        self.playlist_from_custom(
-            song_paths,
-            playlist_length,
-            &euclidean_distance,
-            &mut closest_to_songs,
-            true,
-        )
+    ) -> Result<impl Iterator<Item = LibrarySong<T>> + 'a> {
+        self.playlist_from_custom(song_paths, &euclidean_distance, closest_to_songs, true)
     }
 
     /// Build a playlist of `playlist_length` items from a set of already analyzed
-    /// song in the library at `song_paths`, using distance metric `distance`,
-    /// the sorting function `sort_by` and deduplicating if `dedup` is set to
-    /// `true`.
+    /// song(s) in the library `initial_song_paths`, using distance metric `distance`,
+    /// and sorting function `sort_by`.
+    /// Note: The resulting playlist includes the songs specified in `initial_song_paths`
+    /// at the beginning. Use [Iterator::skip] on the resulting iterator to avoid it.
     ///
-    /// You can use ready to use distance metrics such as
-    /// [ExtendedIsolationForest](extended_isolation_forest::Forest), and ready to use sorting functions like
-    /// [closest_to_songs].
+    /// You can use ready-to-use distance metrics such as
+    /// [ExtendedIsolationForest](extended_isolation_forest::Forest) or [euclidean_distance],
+    /// and ready-to-use sorting functions like [closest_to_songs] or [song_to_song].
+    ///
+    /// If you want to use the sorting functions in a uniform manner, you can do something like
+    /// this:
+    /// ```
+    /// use bliss_audio::library::LibrarySong;
+    /// use bliss_audio::playlist::{closest_to_songs, song_to_song};
+    ///
+    /// // The user would be choosing this
+    /// let use_closest_to_songs = true;
+    /// let sort = |x: &[LibrarySong<()>],
+    ///             y: &[LibrarySong<()>],
+    ///             z|
+    ///  -> Box<dyn Iterator<Item = LibrarySong<()>>> {
+    ///     match use_closest_to_songs {
+    ///         false => Box::new(closest_to_songs(x, y, z)),
+    ///         true => Box::new(song_to_song(x, y, z)),
+    ///     }
+    /// };
+    /// ```
+    /// and use `playlist_from_custom` with that sort as `sort_by`.
     ///
     /// Generating a playlist from a single song is also possible, and is just the special case
-    /// where song_paths is a slice of length 1.
-    pub fn playlist_from_custom<
-        T: Serialize + DeserializeOwned,
-        F: FnMut(&[LibrarySong<T>], &mut [LibrarySong<T>], &dyn DistanceMetricBuilder),
-    >(
+    /// where song_paths is a slice with a single song.
+    pub fn playlist_from_custom<'a, T, F, I>(
         &self,
-        song_paths: &[&str],
-        playlist_length: usize,
-        distance: &dyn DistanceMetricBuilder,
-        sort_by: &mut F,
-        dedup: bool,
-    ) -> Result<Vec<LibrarySong<T>>> {
-        let initial_songs: Vec<LibrarySong<T>> = song_paths
+        initial_song_paths: &[&str],
+        distance: &'a dyn DistanceMetricBuilder,
+        sort_by: F,
+        deduplicate: bool,
+    ) -> Result<impl Iterator<Item = LibrarySong<T>> + 'a>
+    where
+        T: Serialize + DeserializeOwned + Clone + 'a,
+        F: Fn(&[LibrarySong<T>], &[LibrarySong<T>], &'a dyn DistanceMetricBuilder) -> I,
+        I: Iterator<Item = LibrarySong<T>> + 'a,
+    {
+        let initial_songs: Vec<LibrarySong<T>> = initial_song_paths
             .iter()
             .map(|s| {
                 self.song_from_path(s).map_err(|_| {
@@ -546,13 +562,23 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 })
             })
             .collect::<Result<Vec<_>, BlissError>>()?;
-        let mut songs = self.songs_from_library()?;
-        sort_by(&initial_songs, &mut songs, distance);
-        if dedup {
-            dedup_playlist_custom_distance(&mut songs, None, distance);
+        // Remove the initial songs, so they don't get
+        // sorted in the mess.
+        let songs = self
+            .songs_from_library()?
+            .into_iter()
+            .filter(|s| {
+                !initial_song_paths.contains(&&*s.bliss_song.path.to_string_lossy().to_string())
+            })
+            .collect::<Vec<_>>();
+
+        let iterator = sort_by(&initial_songs, &songs, distance);
+        let mut iterator: Box<dyn Iterator<Item = LibrarySong<T>>> =
+            Box::new(initial_songs.into_iter().chain(iterator));
+        if deduplicate {
+            iterator = Box::new(dedup_playlist_custom_distance(iterator, None, distance));
         }
-        songs.truncate(playlist_length);
-        Ok(songs)
+        Ok(iterator)
     }
 
     /// Make a playlist of `number_albums` albums closest to the album
@@ -626,7 +652,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     /// use it, because you only pass the new paths that need to be analyzed to
     /// this function, make sure to delete yourself from the database the songs
     /// that have been deleted from storage.
-    pub fn update_library_extra_info<T: Serialize + DeserializeOwned, P: Into<PathBuf>>(
+    pub fn update_library_extra_info<T: Serialize + DeserializeOwned + Clone, P: Into<PathBuf>>(
         &mut self,
         paths_extra_info: Vec<(P, T)>,
         delete_everything_else: bool,
@@ -665,7 +691,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     /// `convert_extra_info` is a function that you should specify how
     /// to convert that extra info to something serializable.
     pub fn update_library_convert_extra_info<
-        T: Serialize + DeserializeOwned,
+        T: Serialize + DeserializeOwned + Clone,
         U,
         P: Into<PathBuf>,
     >(
@@ -753,7 +779,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     /// CUE track names: passing `vec![file.cue]` will add
     /// individual tracks with the `cue_info` field set in the database.
     pub fn analyze_paths_extra_info<
-        T: Serialize + DeserializeOwned + std::fmt::Debug,
+        T: Serialize + DeserializeOwned + std::fmt::Debug + Clone,
         P: Into<PathBuf>,
     >(
         &mut self,
@@ -787,7 +813,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     /// `convert_extra_info` is a function that you should specify
     /// to convert that extra info to something serializable.
     pub fn analyze_paths_convert_extra_info<
-        T: Serialize + DeserializeOwned,
+        T: Serialize + DeserializeOwned + Clone,
         U,
         P: Into<PathBuf>,
     >(
@@ -905,7 +931,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
 
     // Get songs from a songs / features statement.
     // BEWARE that the two songs and features query MUST be the same
-    fn _songs_from_statement<T: Serialize + DeserializeOwned, P: Params + Clone>(
+    fn _songs_from_statement<T: Serialize + DeserializeOwned + Clone, P: Params + Clone>(
         &self,
         songs_statement: &str,
         features_statement: &str,
@@ -965,7 +991,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     ///
     // TODO maybe the error should make the song id / song path
     // accessible easily?
-    pub fn songs_from_library<T: Serialize + DeserializeOwned>(
+    pub fn songs_from_library<T: Serialize + DeserializeOwned + Clone>(
         &self,
     ) -> Result<Vec<LibrarySong<T>>> {
         let songs_statement = "
@@ -988,7 +1014,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     ///
     /// This will return all songs with corresponding bliss "album" tag,
     /// and will order them by track number.
-    pub fn songs_from_album<T: Serialize + DeserializeOwned>(
+    pub fn songs_from_album<T: Serialize + DeserializeOwned + Clone>(
         &self,
         album_title: &str,
     ) -> Result<Vec<LibrarySong<T>>> {
@@ -1021,7 +1047,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
 
     /// Get a LibrarySong from a given file path.
     /// TODO pathbuf here too
-    pub fn song_from_path<T: Serialize + DeserializeOwned>(
+    pub fn song_from_path<T: Serialize + DeserializeOwned + Clone>(
         &self,
         song_path: &str,
     ) -> Result<LibrarySong<T>> {
@@ -1067,7 +1093,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         Ok(song)
     }
 
-    fn _song_from_row_closure<T: Serialize + DeserializeOwned>(
+    fn _song_from_row_closure<T: Serialize + DeserializeOwned + Clone>(
         row: &Row,
     ) -> Result<LibrarySong<T>, RusqliteError> {
         let path: String = row.get(0)?;
@@ -1140,7 +1166,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     /// Store a [Song] in the database, overidding any existing
     /// song with the same path by that one.
     // TODO to_str() returns an option; return early and avoid panicking
-    pub fn store_song<T: Serialize + DeserializeOwned>(
+    pub fn store_song<T: Serialize + DeserializeOwned + Clone>(
         &mut self,
         library_song: &LibrarySong<T>,
     ) -> Result<(), BlissError> {
@@ -1375,13 +1401,17 @@ mod test {
     // Returning the TempDir here, so it doesn't go out of scope, removing
     // the directory.
     //
-    // Setup a test library made of 3 analyzed songs, with every field being different,
+    // Setup a test library made of analyzed songs, with every field being different,
     // as well as an unanalyzed song and a song analyzed with a previous version.
+    //
+    // TODO the SQL database should be populated with the actual songs created here using
+    // format strings
     #[cfg(feature = "ffmpeg")]
     fn setup_test_library() -> (
         Library<BaseConfig, Decoder>,
         TempDir,
         (
+            LibrarySong<ExtraInfo>,
             LibrarySong<ExtraInfo>,
             LibrarySong<ExtraInfo>,
             LibrarySong<ExtraInfo>,
@@ -1428,12 +1458,12 @@ mod test {
                 metadata_bliss_does_not_have: String::from("/path/to/charlie1001"),
             },
         };
+
         let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
             .map(|x| x as f32 + 10.)
             .collect::<Vec<f32>>()
             .try_into()
             .unwrap();
-
         let song = Song {
             path: "/path/to/song2001".into(),
             artist: Some("Artist2001".into()),
@@ -1454,6 +1484,34 @@ mod test {
             extra_info: ExtraInfo {
                 ignore: false,
                 metadata_bliss_does_not_have: String::from("/path/to/charlie2001"),
+            },
+        };
+
+        let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
+            .map(|x| x as f32 + 10.)
+            .collect::<Vec<f32>>()
+            .try_into()
+            .unwrap();
+        let song = Song {
+            path: "/path/to/song2201".into(),
+            artist: Some("Artist2001".into()),
+            title: Some("Title2001".into()),
+            album: Some("Remixes of Album2001".into()),
+            album_artist: Some("An Album Artist2001".into()),
+            track_number: Some("02".into()),
+            genre: Some("Electronica2001".into()),
+            analysis: Analysis {
+                internal_analysis: analysis_vector,
+            },
+            duration: Duration::from_secs(410),
+            features_version: 1,
+            cue_info: None,
+        };
+        let second_song_dupe = LibrarySong {
+            bliss_song: song,
+            extra_info: ExtraInfo {
+                ignore: false,
+                metadata_bliss_does_not_have: String::from("/path/to/charlie2201"),
             },
         };
 
@@ -1627,6 +1685,12 @@ mod test {
                         \"/path/to/charlie2001\"}', null, null
                     ),
                     (
+                        2201, '/path/to/song2201', 'Artist2001', 'Title2001', 'Remixes of Album2001',
+                        'An Album Artist2001', '02', 'Electronica2001', 410, true,
+                        1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie2201\"}', null, null
+                    ),
+                    (
                         3001, '/path/to/song3001', null, null, null,
                         null, null, null, null, false, 1, '{}', null, null
                     ),
@@ -1699,7 +1763,8 @@ mod test {
                                 (6001, ?6, ?1),
                                 (7001, ?7, ?1),
                                 (7002, ?8, ?1),
-                                (7003, ?9, ?1);
+                                (7003, ?9, ?1),
+                                (2201, ?10, ?1);
                             ",
                         params![
                             index,
@@ -1711,6 +1776,7 @@ mod test {
                             index as f32 * 50.,
                             index as f32 * 100.,
                             index as f32 * 101.,
+                            index as f32 + 10.,
                         ],
                     )
                     .unwrap();
@@ -1736,6 +1802,7 @@ mod test {
             (
                 first_song,
                 second_song,
+                second_song_dupe,
                 third_song,
                 fourth_song,
                 fifth_song,
@@ -1908,10 +1975,6 @@ mod test {
         }
     }
 
-    fn first_factor_divided_by_30_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
-        ((a[1] - b[1]).abs() / 30.).floor()
-    }
-
     fn first_factor_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
         (a[1] - b[1]).abs()
     }
@@ -1921,25 +1984,18 @@ mod test {
     fn test_library_playlist_song_not_existing() {
         let (library, _temp_dir, _) = setup_test_library();
         assert!(library
-            .playlist_from::<ExtraInfo>(&["not-existing"], 2)
+            .playlist_from::<ExtraInfo>(&["not-existing"])
             .is_err());
-    }
-
-    #[test]
-    #[cfg(feature = "ffmpeg")]
-    fn test_library_playlist_crop() {
-        let (library, _temp_dir, _) = setup_test_library();
-        let songs: Vec<LibrarySong<ExtraInfo>> =
-            library.playlist_from(&["/path/to/song2001"], 2).unwrap();
-        assert_eq!(2, songs.len());
     }
 
     #[test]
     #[cfg(feature = "ffmpeg")]
     fn test_library_simple_playlist() {
         let (library, _temp_dir, _) = setup_test_library();
-        let songs: Vec<LibrarySong<ExtraInfo>> =
-            library.playlist_from(&["/path/to/song2001"], 20).unwrap();
+        let songs: Vec<LibrarySong<ExtraInfo>> = library
+            .playlist_from(&["/path/to/song2001"])
+            .unwrap()
+            .collect();
         assert_eq!(
             vec![
                 "/path/to/song2001",
@@ -1959,20 +2015,130 @@ mod test {
 
     #[test]
     #[cfg(feature = "ffmpeg")]
+    fn test_library_playlist_dupe_order_preserved() {
+        let (library, _temp_dir, _) = setup_test_library();
+        let songs: Vec<LibrarySong<ExtraInfo>> = library
+            .playlist_from_custom(
+                &["/path/to/song2201"],
+                &euclidean_distance,
+                closest_to_songs,
+                false,
+            )
+            .unwrap()
+            .collect();
+        assert_eq!(
+            vec![
+                "/path/to/song2201",
+                "/path/to/song2001",
+                "/path/to/song6001",
+                "/path/to/song5001",
+                "/path/to/song1001",
+                "/path/to/song7001",
+                "/path/to/cuetrack.cue/CUE_TRACK001",
+                "/path/to/cuetrack.cue/CUE_TRACK002",
+            ],
+            songs
+                .into_iter()
+                .map(|s| s.bliss_song.path.to_string_lossy().to_string())
+                .collect::<Vec<String>>(),
+        )
+    }
+
+    fn first_factor_divided_by_30_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
+        ((a[1] - b[1]).abs() / 30.).floor()
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
+    fn test_library_playlist_deduplication() {
+        let (library, _temp_dir, _) = setup_test_library();
+        let songs: Vec<LibrarySong<ExtraInfo>> = library
+            .playlist_from_custom(
+                &["/path/to/song2001"],
+                &first_factor_divided_by_30_distance,
+                closest_to_songs,
+                true,
+            )
+            .unwrap()
+            .collect();
+        assert_eq!(
+            vec![
+                "/path/to/song2001",
+                "/path/to/song7001",
+                "/path/to/cuetrack.cue/CUE_TRACK001",
+            ],
+            songs
+                .into_iter()
+                .map(|s| s.bliss_song.path.to_string_lossy().to_string())
+                .collect::<Vec<String>>(),
+        );
+
+        let songs: Vec<LibrarySong<ExtraInfo>> = library
+            .playlist_from_custom(
+                &["/path/to/song2001"],
+                &first_factor_distance,
+                &closest_to_songs,
+                true,
+            )
+            .unwrap()
+            .collect();
+        assert_eq!(
+            vec![
+                "/path/to/song2001",
+                "/path/to/song6001",
+                "/path/to/song5001",
+                "/path/to/song1001",
+                "/path/to/song7001",
+                "/path/to/cuetrack.cue/CUE_TRACK001",
+                "/path/to/cuetrack.cue/CUE_TRACK002",
+            ],
+            songs
+                .into_iter()
+                .map(|s| s.bliss_song.path.to_string_lossy().to_string())
+                .collect::<Vec<String>>(),
+        )
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
+    fn test_library_playlist_take() {
+        let (library, _temp_dir, _) = setup_test_library();
+        let songs: Vec<LibrarySong<ExtraInfo>> = library
+            .playlist_from(&["/path/to/song2001"])
+            .unwrap()
+            .take(4)
+            .collect();
+        assert_eq!(
+            vec![
+                "/path/to/song2001",
+                "/path/to/song6001",
+                "/path/to/song5001",
+                "/path/to/song1001",
+            ],
+            songs
+                .into_iter()
+                .map(|s| s.bliss_song.path.to_string_lossy().to_string())
+                .collect::<Vec<String>>(),
+        )
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_library_custom_playlist_distance() {
         let (library, _temp_dir, _) = setup_test_library();
         let songs: Vec<LibrarySong<ExtraInfo>> = library
             .playlist_from_custom(
                 &["/path/to/song2001"],
-                20,
                 &first_factor_distance,
-                &mut closest_to_songs,
-                true,
+                closest_to_songs,
+                false,
             )
-            .unwrap();
+            .unwrap()
+            .collect();
         assert_eq!(
             vec![
                 "/path/to/song2001",
+                "/path/to/song2201",
                 "/path/to/song6001",
                 "/path/to/song5001",
                 "/path/to/song1001",
@@ -1989,10 +2155,12 @@ mod test {
 
     fn custom_sort(
         _: &[LibrarySong<ExtraInfo>],
-        songs: &mut [LibrarySong<ExtraInfo>],
+        songs: &[LibrarySong<ExtraInfo>],
         _distance: &dyn DistanceMetricBuilder,
-    ) {
+    ) -> impl Iterator<Item = LibrarySong<ExtraInfo>> {
+        let mut songs = songs.to_vec();
         songs.sort_by(|s1, s2| s1.bliss_song.path.cmp(&s2.bliss_song.path));
+        songs.to_vec().into_iter()
     }
 
     #[test]
@@ -2002,73 +2170,22 @@ mod test {
         let songs: Vec<LibrarySong<ExtraInfo>> = library
             .playlist_from_custom(
                 &["/path/to/song2001"],
-                20,
                 &euclidean_distance,
-                &mut custom_sort,
-                true,
-            )
-            .unwrap();
-        assert_eq!(
-            vec![
-                "/path/to/cuetrack.cue/CUE_TRACK001",
-                "/path/to/cuetrack.cue/CUE_TRACK002",
-                "/path/to/song1001",
-                "/path/to/song2001",
-                "/path/to/song5001",
-                "/path/to/song6001",
-                "/path/to/song7001",
-            ],
-            songs
-                .into_iter()
-                .map(|s| s.bliss_song.path.to_string_lossy().to_string())
-                .collect::<Vec<String>>(),
-        )
-    }
-
-    #[test]
-    #[cfg(feature = "ffmpeg")]
-    fn test_library_custom_playlist_dedup() {
-        let (library, _temp_dir, _) = setup_test_library();
-
-        let songs: Vec<LibrarySong<ExtraInfo>> = library
-            .playlist_from_custom(
-                &["/path/to/song2001"],
-                20,
-                &first_factor_divided_by_30_distance,
-                &mut closest_to_songs,
-                true,
-            )
-            .unwrap();
-        assert_eq!(
-            vec![
-                "/path/to/song1001",
-                "/path/to/song7001",
-                "/path/to/cuetrack.cue/CUE_TRACK001"
-            ],
-            songs
-                .into_iter()
-                .map(|s| s.bliss_song.path.to_string_lossy().to_string())
-                .collect::<Vec<String>>(),
-        );
-
-        let songs: Vec<LibrarySong<ExtraInfo>> = library
-            .playlist_from_custom(
-                &["/path/to/song2001"],
-                20,
-                &first_factor_distance,
-                &mut closest_to_songs,
+                custom_sort,
                 false,
             )
-            .unwrap();
+            .unwrap()
+            .collect();
         assert_eq!(
             vec![
                 "/path/to/song2001",
-                "/path/to/song6001",
-                "/path/to/song5001",
-                "/path/to/song1001",
-                "/path/to/song7001",
                 "/path/to/cuetrack.cue/CUE_TRACK001",
                 "/path/to/cuetrack.cue/CUE_TRACK002",
+                "/path/to/song1001",
+                "/path/to/song2201",
+                "/path/to/song5001",
+                "/path/to/song6001",
+                "/path/to/song7001",
             ],
             songs
                 .into_iter()
@@ -2092,6 +2209,8 @@ mod test {
                 // Second album, well ordered.
                 "/path/to/song6001".to_string(),
                 "/path/to/song2001".to_string(),
+                // Seecond album, remixes
+                "/path/to/song2201".to_string(),
                 // Third album.
                 "/path/to/song7001".to_string(),
                 // Fourth album.
@@ -2973,7 +3092,7 @@ mod test {
         let (library, _temp_dir, expected_library_songs) = setup_test_library();
 
         let library_songs = library.songs_from_library::<ExtraInfo>().unwrap();
-        assert_eq!(library_songs.len(), 7);
+        assert_eq!(library_songs.len(), 8);
         assert_eq!(
             expected_library_songs,
             (
@@ -2984,6 +3103,7 @@ mod test {
                 library_songs[4].to_owned(),
                 library_songs[5].to_owned(),
                 library_songs[6].to_owned(),
+                library_songs[7].to_owned(),
             )
         );
     }

@@ -1,5 +1,12 @@
 # Changelog
 
+## bliss 0.8.0
+* Remove the `number_songs` option from `Library::playlist_from_custom`.
+  Since it now returns an Iterator, `number_songs` can just be replaced by `take`.
+* `Library::playlist_from_custom` now returns an Iterator instead of a Vec.
+* `Library::playlist_from_custom` now also returns the song(s) the playlist
+  was built from.
+
 ## bliss 0.7.1
 * Bump rust-ffmpeg to 7.0.2, to allow building on FreeBSD systems.
 

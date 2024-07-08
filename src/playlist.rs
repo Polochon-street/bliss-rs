@@ -109,24 +109,55 @@ impl DistanceMetric for Forest<f32, NUMBER_FEATURES> {
     }
 }
 
-/// Sort `candidate_songs` in place by putting songs close to `selected_songs` first
-/// using the `distance` metric.
-pub fn closest_to_songs<T: AsRef<Song>>(
-    selected_songs: &[T],
-    candidate_songs: &mut [T],
-    metric_builder: &dyn DistanceMetricBuilder,
-) {
-    let selected_songs = selected_songs
+/// Return a playlist made of songs as close as possible to `selected_songs` from
+/// the pool of songs in `candidate_songs`, using the `distance` metric to quantify
+/// the distance between songs.
+pub fn closest_to_songs<'a, T: AsRef<Song> + Clone + 'a>(
+    initial_songs: &[T],
+    candidate_songs: &[T],
+    metric_builder: &'a dyn DistanceMetricBuilder,
+) -> impl Iterator<Item = T> + 'a {
+    let initial_songs = initial_songs
         .iter()
         .map(|c| c.as_ref().analysis.as_arr1())
         .collect::<Vec<_>>();
-    let metric = metric_builder.build(&selected_songs);
+    let metric = metric_builder.build(&initial_songs);
+    let mut candidate_songs = candidate_songs.to_vec();
     candidate_songs
         .sort_by_cached_key(|song| n32(metric.distance(&song.as_ref().analysis.as_arr1())));
+    candidate_songs.into_iter()
 }
 
-/// Sort `songs` in place using the `distance` metric and ordering by
-/// the smallest distance between each song.
+struct SongToSongIterator<'a, T: AsRef<Song> + Clone> {
+    pool: Vec<T>,
+    vectors: Vec<Array1<f32>>,
+    metric_builder: &'a dyn DistanceMetricBuilder,
+}
+
+impl<'a, T: AsRef<Song> + Clone> Iterator for SongToSongIterator<'a, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<T> {
+        if self.pool.is_empty() {
+            return None;
+        }
+        let metric = self.metric_builder.build(&self.vectors);
+        let distances: Array1<f32> = Array::from_shape_fn(self.pool.len(), |j| {
+            metric.distance(&self.pool[j].as_ref().analysis.as_arr1())
+        });
+        let idx = distances.argmin().unwrap();
+        // TODO instead of having a vector that's of size n and then
+        // size 1 all the time, find a clever solution on iterator init
+        // or something
+        self.vectors.clear();
+        let song = self.pool.remove(idx);
+        self.vectors.push(song.as_ref().analysis.as_arr1());
+        Some(song)
+    }
+}
+
+/// Return an iterator of sorted songs from `candidate_songs` using
+/// the `distance` metric and ordering by the smallest distance between each song.
 ///
 /// If the generated playlist is `[song1, song2, song3, song4]`, it means
 /// song2 is closest to song1, song3 is closest to song2, and song4 is closest
@@ -134,29 +165,22 @@ pub fn closest_to_songs<T: AsRef<Song>>(
 ///
 /// Note that this has a tendency to go from one style to the other very fast,
 /// and it can be slow on big libraries.
-pub fn song_to_song<T: AsRef<Song>>(
-    from: &[T],
-    songs: &mut [T],
-    metric_builder: &dyn DistanceMetricBuilder,
-) {
-    let mut vectors = from
+pub fn song_to_song<'a, T: AsRef<Song> + Clone + 'a>(
+    initial_songs: &[T],
+    candidate_songs: &[T],
+    metric_builder: &'a dyn DistanceMetricBuilder,
+) -> impl Iterator<Item = T> + 'a {
+    let vectors = initial_songs
         .iter()
         .map(|s| s.as_ref().analysis.as_arr1())
         .collect::<Vec<_>>();
-
-    for i in 0..songs.len() {
-        {
-            let metric = metric_builder.build(&vectors);
-            let remaining_songs = &songs[i..];
-            let distances: Array1<f32> = Array::from_shape_fn(remaining_songs.len(), |j| {
-                metric.distance(&remaining_songs[j].as_ref().analysis.as_arr1())
-            });
-            let idx = distances.argmin().unwrap();
-            songs.swap(idx + i, i);
-        }
-        vectors.clear();
-        vectors.push(songs[i].as_ref().analysis.as_arr1());
-    }
+    let pool = candidate_songs.to_vec();
+    let iterator = SongToSongIterator {
+        vectors,
+        metric_builder,
+        pool,
+    };
+    iterator.into_iter()
 }
 
 /// Remove duplicate songs from a playlist, in place.
@@ -170,8 +194,11 @@ pub fn song_to_song<T: AsRef<Song>>(
 /// * `songs`: The playlist to remove duplicates from.
 /// * `distance_threshold`: The distance threshold under which two songs are
 ///   considered identical. If `None`, a default value of 0.05 will be used.
-pub fn dedup_playlist<T: AsRef<Song>>(songs: &mut Vec<T>, distance_threshold: Option<f32>) {
-    dedup_playlist_custom_distance(songs, distance_threshold, &euclidean_distance);
+pub fn dedup_playlist<'a, T: AsRef<Song>>(
+    playlist: impl Iterator<Item = T> + 'a,
+    distance_threshold: Option<f32>,
+) -> impl Iterator<Item = T> + 'a {
+    dedup_playlist_custom_distance(playlist, distance_threshold, &euclidean_distance)
 }
 
 /// Remove duplicate songs from a playlist, in place, using a custom distance
@@ -187,24 +214,41 @@ pub fn dedup_playlist<T: AsRef<Song>>(songs: &mut Vec<T>, distance_threshold: Op
 /// * `distance_threshold`: The distance threshold under which two songs are
 ///   considered identical. If `None`, a default value of 0.05 will be used.
 /// * `distance`: A custom distance metric.
-pub fn dedup_playlist_custom_distance<T: AsRef<Song>>(
-    songs: &mut Vec<T>,
+pub fn dedup_playlist_custom_distance<'a, T: AsRef<Song>>(
+    playlist: impl Iterator<Item = T> + 'a,
     distance_threshold: Option<f32>,
-    metric_builder: &dyn DistanceMetricBuilder,
-) {
-    songs.dedup_by(|s1, s2| {
-        let s1 = s1.as_ref();
-        let s2 = s2.as_ref();
-        let vector = [s1.analysis.as_arr1()];
-        let metric = metric_builder.build(&vector);
-        n32(metric.distance(&s2.analysis.as_arr1())) < distance_threshold.unwrap_or(0.05)
-            || (s1.title.is_some()
-                && s2.title.is_some()
-                && s1.artist.is_some()
-                && s2.artist.is_some()
-                && s1.title == s2.title
-                && s1.artist == s2.artist)
+    metric_builder: &'a dyn DistanceMetricBuilder,
+) -> impl Iterator<Item = T> + 'a {
+    let mut peekable = playlist.peekable();
+    let final_iterator = std::iter::from_fn(move || {
+        if let Some(s1) = peekable.next() {
+            loop {
+                if let Some(s2) = peekable.peek() {
+                    let s1_ref = s1.as_ref();
+                    let s2_ref = s2.as_ref();
+                    let vector = [s1_ref.analysis.as_arr1()];
+                    let metric = metric_builder.build(&vector);
+                    let is_same = n32(metric.distance(&s2_ref.analysis.as_arr1()))
+                        < distance_threshold.unwrap_or(0.05)
+                        || (s1_ref.title.is_some()
+                            && s2_ref.title.is_some()
+                            && s1_ref.artist.is_some()
+                            && s2_ref.artist.is_some()
+                            && s1_ref.title == s2_ref.title
+                            && s1_ref.artist == s2_ref.artist);
+                    if is_same {
+                        peekable.next();
+                        continue;
+                    } else {
+                        return Some(s1);
+                    }
+                }
+                return Some(s1);
+            }
+        }
+        None
     });
+    final_iterator
 }
 
 /// Return a list of albums in a `pool` of songs that are similar to
@@ -371,7 +415,7 @@ mod test {
             ..Default::default()
         };
 
-        let mut playlist = vec![
+        let playlist = vec![
             first_song.to_owned(),
             first_song_dupe.to_owned(),
             second_song.to_owned(),
@@ -379,7 +423,9 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        dedup_playlist_custom_distance(&mut playlist, None, &euclidean_distance);
+        let playlist =
+            dedup_playlist_custom_distance(playlist.into_iter(), None, &euclidean_distance)
+                .collect::<Vec<_>>();
         assert_eq!(
             playlist,
             vec![
@@ -388,7 +434,7 @@ mod test {
                 fourth_song.to_owned(),
             ],
         );
-        let mut playlist = vec![
+        let playlist = vec![
             first_song.to_owned(),
             first_song_dupe.to_owned(),
             second_song.to_owned(),
@@ -396,9 +442,11 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        dedup_playlist_custom_distance(&mut playlist, Some(20.), &euclidean_distance);
+        let playlist =
+            dedup_playlist_custom_distance(playlist.into_iter(), Some(20.), &euclidean_distance)
+                .collect::<Vec<_>>();
         assert_eq!(playlist, vec![first_song.to_owned()]);
-        let mut playlist = vec![
+        let playlist = vec![
             first_song.to_owned(),
             first_song_dupe.to_owned(),
             second_song.to_owned(),
@@ -406,9 +454,9 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        dedup_playlist(&mut playlist, Some(20.));
+        let playlist = dedup_playlist(playlist.into_iter(), Some(20.)).collect::<Vec<_>>();
         assert_eq!(playlist, vec![first_song.to_owned()]);
-        let mut playlist = vec![
+        let playlist = vec![
             first_song.to_owned(),
             first_song_dupe.to_owned(),
             second_song.to_owned(),
@@ -416,7 +464,7 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        dedup_playlist(&mut playlist, None);
+        let playlist = dedup_playlist(playlist.into_iter(), None).collect::<Vec<_>>();
         assert_eq!(
             playlist,
             vec![
@@ -452,7 +500,7 @@ mod test {
             something: true,
         };
 
-        let mut playlist = vec![
+        let playlist = vec![
             first_song.to_owned(),
             first_song_dupe.to_owned(),
             second_song.to_owned(),
@@ -460,7 +508,9 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        dedup_playlist_custom_distance(&mut playlist, None, &euclidean_distance);
+        let playlist =
+            dedup_playlist_custom_distance(playlist.into_iter(), None, &euclidean_distance)
+                .collect::<Vec<_>>();
         assert_eq!(
             playlist,
             vec![
@@ -469,7 +519,7 @@ mod test {
                 fourth_song.to_owned(),
             ],
         );
-        let mut playlist = vec![
+        let playlist = vec![
             first_song.to_owned(),
             first_song_dupe.to_owned(),
             second_song.to_owned(),
@@ -477,9 +527,11 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        dedup_playlist_custom_distance(&mut playlist, Some(20.), &cosine_distance);
+        let playlist =
+            dedup_playlist_custom_distance(playlist.into_iter(), Some(20.), &cosine_distance)
+                .collect::<Vec<_>>();
         assert_eq!(playlist, vec![first_song.to_owned()]);
-        let mut playlist = vec![
+        let playlist = vec![
             first_song.to_owned(),
             first_song_dupe.to_owned(),
             second_song.to_owned(),
@@ -487,9 +539,9 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        dedup_playlist(&mut playlist, Some(20.));
+        let playlist = dedup_playlist(playlist.into_iter(), Some(20.)).collect::<Vec<_>>();
         assert_eq!(playlist, vec![first_song.to_owned()]);
-        let mut playlist = vec![
+        let playlist = vec![
             first_song.to_owned(),
             first_song_dupe.to_owned(),
             second_song.to_owned(),
@@ -497,7 +549,7 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        dedup_playlist(&mut playlist, None);
+        let playlist = dedup_playlist(playlist.into_iter(), None).collect::<Vec<_>>();
         assert_eq!(
             playlist,
             vec![
@@ -553,7 +605,8 @@ mod test {
             &second_song,
             &fourth_song,
         ];
-        song_to_song(&[&first_song], &mut songs, &euclidean_distance);
+        let songs =
+            song_to_song(&[&first_song], &mut songs, &euclidean_distance).collect::<Vec<_>>();
         assert_eq!(
             songs,
             vec![
@@ -594,7 +647,8 @@ mod test {
             &second_song,
         ];
 
-        song_to_song(&[&first_song], &mut songs, &euclidean_distance);
+        let songs =
+            song_to_song(&[&first_song], &mut songs, &euclidean_distance).collect::<Vec<_>>();
 
         assert_eq!(
             songs,
@@ -654,15 +708,27 @@ mod test {
             ..Default::default()
         };
 
-        let mut songs = [
+        let songs = [
+            &fifth_song,
+            &fourth_song,
             &first_song,
             &first_song_dupe,
             &second_song,
             &third_song,
-            &fourth_song,
-            &fifth_song,
         ];
-        closest_to_songs(&[&first_song], &mut songs, &euclidean_distance);
+        let playlist: Vec<_> =
+            closest_to_songs(&[&first_song], &songs, &euclidean_distance).collect();
+        assert_eq!(
+            playlist,
+            [
+                &first_song,
+                &first_song_dupe,
+                &second_song,
+                &fifth_song,
+                &fourth_song,
+                &third_song
+            ],
+        );
 
         let first_song = CustomSong {
             bliss_song: first_song,
@@ -691,18 +757,19 @@ mod test {
         };
 
         let mut songs = [
-            &first_song,
-            &first_song_dupe,
             &second_song,
-            &third_song,
+            &first_song,
             &fourth_song,
+            &first_song_dupe,
+            &third_song,
             &fifth_song,
         ];
 
-        closest_to_songs(&[&first_song], &mut songs, &euclidean_distance);
+        let playlist: Vec<_> =
+            closest_to_songs(&[&first_song], &mut songs, &euclidean_distance).collect();
 
         assert_eq!(
-            songs,
+            playlist,
             [
                 &first_song,
                 &first_song_dupe,
@@ -1164,13 +1231,14 @@ mod test {
             max_tree_depth: None,
             extension_level: 10,
         };
-        closest_to_songs(
+        let playlist: Vec<_> = closest_to_songs(
             &mozart_piano_19.iter().collect::<Vec<&Song>>(),
             &mut songs,
             &opts,
-        );
+        )
+        .collect();
         for e in &kind_of_blue {
-            assert!(songs[songs.len() - 5..].contains(&e));
+            assert!(playlist[playlist.len() - 5..].contains(&e));
         }
     }
 }
