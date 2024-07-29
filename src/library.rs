@@ -400,7 +400,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 artist text,
                 title text,
                 album text,
-                track_number text,
+                track_number integer,
                 genre text,
                 cue_path text,
                 audio_file_path text,
@@ -1026,7 +1026,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 audio_file_path, id
                 from song where album = ? and analyzed = true and version = ?
                 order
-                by cast(track_number as integer);
+                by track_number;
             ";
 
         // Get the song's analysis, and attach it to the existing song.
@@ -1034,7 +1034,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             select
                 feature, song.id from feature join song on song.id = feature.song_id
                 where album=? and analyzed = true and version = ?
-                order by cast(track_number as integer);
+                order by track_number;
             ";
         let songs = self._songs_from_statement(songs_statement, features_statement, params)?;
         if songs.is_empty() {
@@ -1137,9 +1137,9 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             track_number: row
                 .get_ref(5)
                 .unwrap()
-                .as_bytes_or_null()
+                .as_i64_or_null()
                 .unwrap()
-                .map(|v| String::from_utf8_lossy(v).to_string()),
+                .map(|v| v as i32),
             genre: row
                 .get_ref(6)
                 .unwrap()
@@ -1442,7 +1442,7 @@ mod test {
             title: Some("Title1001".into()),
             album: Some("An Album1001".into()),
             album_artist: Some("An Album Artist1001".into()),
-            track_number: Some("03".into()),
+            track_number: Some(3),
             genre: Some("Electronica1001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -1470,7 +1470,7 @@ mod test {
             title: Some("Title2001".into()),
             album: Some("An Album2001".into()),
             album_artist: Some("An Album Artist2001".into()),
-            track_number: Some("02".into()),
+            track_number: Some(2),
             genre: Some("Electronica2001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -1498,7 +1498,7 @@ mod test {
             title: Some("Title2001".into()),
             album: Some("Remixes of Album2001".into()),
             album_artist: Some("An Album Artist2001".into()),
-            track_number: Some("02".into()),
+            track_number: Some(2),
             genre: Some("Electronica2001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -1526,7 +1526,7 @@ mod test {
             title: Some("Title5001".into()),
             album: Some("An Album1001".into()),
             album_artist: Some("An Album Artist5001".into()),
-            track_number: Some("01".into()),
+            track_number: Some(1),
             genre: Some("Electronica5001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -1554,7 +1554,7 @@ mod test {
             title: Some("Title6001".into()),
             album: Some("An Album2001".into()),
             album_artist: Some("An Album Artist6001".into()),
-            track_number: Some("01".into()),
+            track_number: Some(1),
             genre: Some("Electronica6001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -1582,7 +1582,7 @@ mod test {
             title: Some("Title7001".into()),
             album: Some("An Album7001".into()),
             album_artist: Some("An Album Artist7001".into()),
-            track_number: Some("01".into()),
+            track_number: Some(1),
             genre: Some("Electronica7001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -1611,7 +1611,7 @@ mod test {
             title: Some("CUE Title 01".into()),
             album: Some("CUE Album".into()),
             album_artist: Some("CUE Album Artist".into()),
-            track_number: Some("01".into()),
+            track_number: Some(1),
             genre: None,
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -1643,7 +1643,7 @@ mod test {
             title: Some("CUE Title 02".into()),
             album: Some("CUE Album".into()),
             album_artist: Some("CUE Album Artist".into()),
-            track_number: Some("02".into()),
+            track_number: Some(2),
             genre: None,
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -1952,7 +1952,7 @@ mod test {
             title: Some("Title".into()),
             album: Some("An Album".into()),
             album_artist: Some("An Album Artist".into()),
-            track_number: Some("03".into()),
+            track_number: Some(3),
             genre: Some("Electronica".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -3020,7 +3020,7 @@ mod test {
             title: Some("Title2001".into()),
             album: Some("An Album2001".into()),
             album_artist: Some("An Album Artist2001".into()),
-            track_number: Some("02".into()),
+            track_number: Some(2),
             genre: Some("Electronica2001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,

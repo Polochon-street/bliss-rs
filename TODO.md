@@ -10,6 +10,7 @@ ask questions if you want to tackle an item.
 
 ## Actual TODO
 
+- The album playlist should take into account multi-CDs albums
 - Add a list of dependencies / installation guide
 - Maybe add playlist functions for single songs as convenience methods?
 - Regularly update the python bindings with the new code
