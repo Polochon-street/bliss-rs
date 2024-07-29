@@ -455,12 +455,22 @@ pub mod ffmpeg {
                                 e
                             ))
                         })?;
+                
+                 // Define a constant for the `safe` value based on the feature flags
+                #[cfg(feature = "ffmpeg_6_0")]
+                const SAFE: bool = false;
+                
+                #[cfg(not(feature = "ffmpeg_6_0"))]
+                const SAFE: bool = true;        
+                                        
+                        
                 context.set_threading(Config {
                     kind: ThreadingType::Frame,
                     count: 0,
-                    #[cfg(not(feature = "ffmpeg_6_0"))]
-                    safe: true,
+                    safe: SAFE,
                 });
+
+                
                 let decoder = context.decoder().audio().map_err(|e| {
                     BlissError::DecodingError(format!(
                         "when finding decoder for file '{}': {:?}.",
