@@ -13,10 +13,6 @@ fn main() {
                 r#"cargo:rustc-check-cfg=cfg(feature, values("{}"))"#,
                 name["DEP_FFMPEG_".len()..name.len()].to_lowercase()
             );
-            println!(
-                r#"cargo:rustc-check-cfg=cfg(feature, values("{}"))"#,
-                name["DEP_FFMPEG_".len()..name.len()].to_lowercase()
-            );
         }
     }
 }
