@@ -264,7 +264,7 @@ pub fn dedup_playlist_custom_distance<'a, T: AsRef<Song>>(
 ///
 /// * `group` - A small group of songs, e.g. an album.
 /// * `pool` - A pool of songs to find similar songs in, e.g. a user's song
-/// library.
+///    library.
 ///
 /// # Returns
 ///
