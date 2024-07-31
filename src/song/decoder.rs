@@ -518,7 +518,10 @@ pub mod ffmpeg {
             if let Some(disc_number) = ictx.metadata().get("disc") {
                 song.disc_number = match disc_number {
                     "" => None,
-                    t => t.parse::<i32>().ok(),
+                    t => {
+                        // TODO fix the case where the CD is like "01/04" in tags
+                        t.parse::<i32>().ok()
+                    }
                 };
             };
             if let Some(album_artist) = ictx.metadata().get("album_artist") {
