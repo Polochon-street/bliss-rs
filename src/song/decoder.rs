@@ -42,6 +42,8 @@ pub struct PreAnalyzedSong {
     pub album: Option<String>,
     /// Song's tracked number, read from the metadata
     pub track_number: Option<i32>,
+    /// Song's disc number, read from the metadata
+    pub disc_number: Option<i32>,
     /// Song's genre, read from the metadata
     pub genre: Option<String>,
     /// The song's duration
@@ -71,6 +73,7 @@ impl TryFrom<PreAnalyzedSong> for Song {
             title: raw_song.title,
             album: raw_song.album,
             track_number: raw_song.track_number,
+            disc_number: raw_song.disc_number,
             genre: raw_song.genre,
             duration: raw_song.duration,
             analysis: Song::analyze(&raw_song.sample_array)?,
@@ -512,6 +515,12 @@ pub mod ffmpeg {
                     t => t.parse::<i32>().ok(),
                 };
             };
+            if let Some(disc_number) = ictx.metadata().get("disc") {
+                song.disc_number = match disc_number {
+                    "" => None,
+                    t => t.parse::<i32>().ok(),
+                };
+            };
             if let Some(album_artist) = ictx.metadata().get("album_artist") {
                 song.album_artist = match album_artist {
                     "" => None,
@@ -666,6 +675,7 @@ pub mod ffmpeg {
             assert_eq!(song.title, Some(String::from("Renaissance")));
             assert_eq!(song.album, Some(String::from("Renaissance")));
             assert_eq!(song.track_number, Some(2));
+            assert_eq!(song.disc_number, Some(1));
             assert_eq!(song.genre, Some(String::from("Pop")));
             // Test that there is less than 10ms of difference between what
             // the song advertises and what we compute.
@@ -679,6 +689,7 @@ pub mod ffmpeg {
             assert_eq!(song.title, None);
             assert_eq!(song.album, None);
             assert_eq!(song.track_number, None);
+            assert_eq!(song.disc_number, None);
             assert_eq!(song.genre, None);
         }
 

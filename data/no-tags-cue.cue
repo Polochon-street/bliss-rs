@@ -1,8 +1,3 @@
-REM GENRE Random
-REM DATE 2022
-REM DISCNUMBER 1
-PERFORMER "Polochon_street"
-TITLE "Album for CUE test"
 FILE "testcue.flac" WAVE
   TRACK 01 AUDIO
     TITLE "Renaissance"

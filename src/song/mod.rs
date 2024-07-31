@@ -48,6 +48,8 @@ pub struct Song {
     pub album_artist: Option<String>,
     /// Song's tracked number, read from the metadata
     pub track_number: Option<i32>,
+    /// Song's disc number, read from the metadata
+    pub disc_number: Option<i32>,
     /// Song's genre, read from the metadata
     pub genre: Option<String>,
     /// bliss analysis results
