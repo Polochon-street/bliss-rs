@@ -1,5 +1,11 @@
 # Changelog
 
+## bliss 0.9.0
+* Add a mechanism to do migrations for Libraries, to make sure we're ready
+  for potential new features.
+* Make `track_number` an integer, and not a string.
+* Bump rust-ffmpeg*, to fix compilation warnings.
+
 ## bliss 0.8.0
 * Remove the `number_songs` option from `Library::playlist_from_custom`.
   Since it now returns an Iterator, `number_songs` can just be replaced by `take`.

@@ -41,8 +41,7 @@ pub struct PreAnalyzedSong {
     /// Song's album name, read from the metadata
     pub album: Option<String>,
     /// Song's tracked number, read from the metadata
-    /// TODO normalize this into an integer
-    pub track_number: Option<String>,
+    pub track_number: Option<i32>,
     /// Song's genre, read from the metadata
     pub genre: Option<String>,
     /// The song's duration
@@ -510,7 +509,7 @@ pub mod ffmpeg {
             if let Some(track_number) = ictx.metadata().get("track") {
                 song.track_number = match track_number {
                     "" => None,
-                    t => Some(t.to_string()),
+                    t => t.parse::<i32>().ok(),
                 };
             };
             if let Some(album_artist) = ictx.metadata().get("album_artist") {
@@ -666,7 +665,7 @@ pub mod ffmpeg {
             );
             assert_eq!(song.title, Some(String::from("Renaissance")));
             assert_eq!(song.album, Some(String::from("Renaissance")));
-            assert_eq!(song.track_number, Some(String::from("02")));
+            assert_eq!(song.track_number, Some(2));
             assert_eq!(song.genre, Some(String::from("Pop")));
             // Test that there is less than 10ms of difference between what
             // the song advertises and what we compute.

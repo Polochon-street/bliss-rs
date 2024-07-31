@@ -322,22 +322,14 @@ pub fn closest_album_to_group<T: AsRef<Song> + Clone>(
             .cloned()
             .collect::<Vec<T>>();
         al.sort_by(|s1, s2| {
-            let track_number1 = s1
-                .as_ref()
-                .track_number
-                .to_owned()
-                .unwrap_or_else(|| String::from(""));
-            let track_number2 = s2
-                .as_ref()
-                .track_number
-                .to_owned()
-                .unwrap_or_else(|| String::from(""));
-            if let Ok(x) = track_number1.parse::<i32>() {
-                if let Ok(y) = track_number2.parse::<i32>() {
+            let track_number1 = s1.as_ref().track_number.to_owned();
+            let track_number2 = s2.as_ref().track_number.to_owned();
+            if let Some(x) = track_number1 {
+                if let Some(y) = track_number2 {
                     return x.cmp(&y);
                 }
             }
-            s1.as_ref().track_number.cmp(&s2.as_ref().track_number)
+            std::cmp::Ordering::Equal
         });
         playlist.extend(al);
     }
@@ -820,7 +812,7 @@ mod test {
             analysis: Analysis::new([0.; 20]),
             album: Some(String::from("Album")),
             artist: Some(String::from("Artist")),
-            track_number: Some(String::from("01")),
+            track_number: Some(1),
             ..Default::default()
         };
 
@@ -829,7 +821,7 @@ mod test {
             analysis: Analysis::new([0.1; 20]),
             album: Some(String::from("Another Album")),
             artist: Some(String::from("Artist")),
-            track_number: Some(String::from("10")),
+            track_number: Some(10),
             ..Default::default()
         };
 
@@ -838,7 +830,7 @@ mod test {
             analysis: Analysis::new([10.; 20]),
             album: Some(String::from("Album")),
             artist: Some(String::from("Another Artist")),
-            track_number: Some(String::from("02")),
+            track_number: Some(2),
             ..Default::default()
         };
 
@@ -847,7 +839,7 @@ mod test {
             analysis: Analysis::new([20.; 20]),
             album: Some(String::from("Another Album")),
             artist: Some(String::from("Another Artist")),
-            track_number: Some(String::from("01")),
+            track_number: Some(1),
             ..Default::default()
         };
         let fifth_song = Song {

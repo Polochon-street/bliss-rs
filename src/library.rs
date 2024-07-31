@@ -354,17 +354,52 @@ impl<T: Serialize + DeserializeOwned + Clone> AsRef<Song> for LibrarySong<T> {
 }
 
 // TODO add logging statement
-// TODO concrete examples
-// TODO example LibrarySong without any extra_info
 // TODO maybe return number of elements updated / deleted / whatev in analysis
 //      functions?
-// TODO add full rescan
-// TODO a song_from_path with custom filters
-// TODO "smart" playlist
 // TODO should it really use anyhow errors?
 // TODO make sure that the path to string is consistent
-// TODO make a function that returns a list of all analyzed songs in the db
 impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
+    const SQLITE_SCHEMA: &'static str = "
+        create table song (
+                id integer primary key,
+                path text not null unique,
+                duration float,
+                album_artist text,
+                artist text,
+                title text,
+                album text,
+                track_number integer,
+                genre text,
+                cue_path text,
+                audio_file_path text,
+                stamp timestamp default current_timestamp,
+                version integer,
+                analyzed boolean default false,
+                extra_info json,
+                error text
+            );
+            pragma foreign_keys = on;
+            create table feature (
+                id integer primary key,
+                song_id integer not null,
+                feature real not null,
+                feature_index integer not null,
+                unique(song_id, feature_index),
+                foreign key(song_id) references song(id) on delete cascade
+            )
+        ";
+    const SQLITE_MIGRATIONS: &'static [&'static str] = &[
+        "",
+        "
+            alter table song add column track_number_1 integer;
+            update song set track_number_1 = s1.cast_track_number from (
+                select cast(track_number as int) as cast_track_number, id from song
+            ) as s1 where s1.id = song.id and cast(track_number as int) != 0;
+            alter table song drop column track_number;
+            alter table song rename column track_number_1 to track_number;
+        ",
+    ];
+
     /// Create a new [Library] object from the given Config struct that
     /// implements the [AppConfigTrait].
     /// writing the configuration to the file given in
@@ -390,49 +425,70 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             create_dir_all(config.base_config().config_path.parent().unwrap())?;
         }
         let sqlite_conn = Connection::open(&config.base_config().database_path)?;
-        sqlite_conn.execute(
-            "
-            create table if not exists song (
-                id integer primary key,
-                path text not null unique,
-                duration float,
-                album_artist text,
-                artist text,
-                title text,
-                album text,
-                track_number text,
-                genre text,
-                cue_path text,
-                audio_file_path text,
-                stamp timestamp default current_timestamp,
-                version integer,
-                analyzed boolean default false,
-                extra_info json,
-                error text
-            );
-            ",
-            [],
-        )?;
-        sqlite_conn.execute("pragma foreign_keys = on;", [])?;
-        sqlite_conn.execute(
-            "
-            create table if not exists feature (
-                id integer primary key,
-                song_id integer not null,
-                feature real not null,
-                feature_index integer not null,
-                unique(song_id, feature_index),
-                foreign key(song_id) references song(id) on delete cascade
-            )
-            ",
-            [],
-        )?;
+
+        Library::<Config, D>::upgrade(&sqlite_conn).map_err(|e| {
+            BlissError::ProviderError(format!("Could not run database upgrade: {}", e))
+        })?;
+
         config.write()?;
         Ok(Self {
             config,
             sqlite_conn: Arc::new(Mutex::new(sqlite_conn)),
             decoder: PhantomData,
         })
+    }
+
+    fn upgrade(sqlite_conn: &Connection) -> Result<()> {
+        let version: u32 = sqlite_conn
+            .query_row("pragma user_version", [], |row| row.get(0))
+            .map_err(|e| {
+                BlissError::ProviderError(format!("Could not get database version: {}.", e))
+            })?;
+
+        let migrations = Library::<Config, D>::SQLITE_MIGRATIONS;
+        match version.cmp(&(migrations.len() as u32)) {
+            std::cmp::Ordering::Equal => return Ok(()),
+            std::cmp::Ordering::Greater => bail!(format!(
+                "bliss-rs version {} is older than the schema version {}",
+                version,
+                migrations.len()
+            )),
+            _ => (),
+        };
+
+        let number_tables: u32 = sqlite_conn
+            .query_row("select count(*) from pragma_table_list", [], |row| {
+                row.get(0)
+            })
+            .map_err(|e| {
+                BlissError::ProviderError(format!(
+                    "Could not query initial database information: {}",
+                    e
+                ))
+            })?;
+        let is_database_new = number_tables <= 2;
+
+        if version == 0 && is_database_new {
+            sqlite_conn
+                .execute_batch(Library::<Config, D>::SQLITE_SCHEMA)
+                .map_err(|e| {
+                    BlissError::ProviderError(format!("Could not initialize schema: {}.", e))
+                })?;
+        } else {
+            for migration in migrations.iter().skip(version as usize) {
+                sqlite_conn.execute_batch(migration).map_err(|e| {
+                    BlissError::ProviderError(format!("Could not execute migration: {}.", e))
+                })?;
+            }
+        }
+
+        sqlite_conn
+            .execute(&format!("pragma user_version = {}", migrations.len()), [])
+            .map_err(|e| {
+                BlissError::ProviderError(format!("Could not update database version: {}.", e))
+            })?;
+
+        Ok(())
     }
 
     /// Load a library from a configuration path.
@@ -446,6 +502,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         let data = fs::read_to_string(config_path)?;
         let config = Config::deserialize_config(&data)?;
         let sqlite_conn = Connection::open(&config.base_config().database_path)?;
+        Library::<Config, D>::upgrade(&sqlite_conn)?;
         let mut library = Self {
             config,
             sqlite_conn: Arc::new(Mutex::new(sqlite_conn)),
@@ -1026,7 +1083,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 audio_file_path, id
                 from song where album = ? and analyzed = true and version = ?
                 order
-                by cast(track_number as integer);
+                by track_number;
             ";
 
         // Get the song's analysis, and attach it to the existing song.
@@ -1034,7 +1091,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             select
                 feature, song.id from feature join song on song.id = feature.song_id
                 where album=? and analyzed = true and version = ?
-                order by cast(track_number as integer);
+                order by track_number;
             ";
         let songs = self._songs_from_statement(songs_statement, features_statement, params)?;
         if songs.is_empty() {
@@ -1137,9 +1194,9 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             track_number: row
                 .get_ref(5)
                 .unwrap()
-                .as_bytes_or_null()
+                .as_i64_or_null()
                 .unwrap()
-                .map(|v| String::from_utf8_lossy(v).to_string()),
+                .map(|v| v as i32),
             genre: row
                 .get_ref(6)
                 .unwrap()
@@ -1442,7 +1499,7 @@ mod test {
             title: Some("Title1001".into()),
             album: Some("An Album1001".into()),
             album_artist: Some("An Album Artist1001".into()),
-            track_number: Some("03".into()),
+            track_number: Some(3),
             genre: Some("Electronica1001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -1470,7 +1527,7 @@ mod test {
             title: Some("Title2001".into()),
             album: Some("An Album2001".into()),
             album_artist: Some("An Album Artist2001".into()),
-            track_number: Some("02".into()),
+            track_number: Some(2),
             genre: Some("Electronica2001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -1498,7 +1555,7 @@ mod test {
             title: Some("Title2001".into()),
             album: Some("Remixes of Album2001".into()),
             album_artist: Some("An Album Artist2001".into()),
-            track_number: Some("02".into()),
+            track_number: Some(2),
             genre: Some("Electronica2001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -1526,7 +1583,7 @@ mod test {
             title: Some("Title5001".into()),
             album: Some("An Album1001".into()),
             album_artist: Some("An Album Artist5001".into()),
-            track_number: Some("01".into()),
+            track_number: Some(1),
             genre: Some("Electronica5001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -1554,7 +1611,7 @@ mod test {
             title: Some("Title6001".into()),
             album: Some("An Album2001".into()),
             album_artist: Some("An Album Artist6001".into()),
-            track_number: Some("01".into()),
+            track_number: Some(1),
             genre: Some("Electronica6001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -1582,7 +1639,7 @@ mod test {
             title: Some("Title7001".into()),
             album: Some("An Album7001".into()),
             album_artist: Some("An Album Artist7001".into()),
-            track_number: Some("01".into()),
+            track_number: Some(1),
             genre: Some("Electronica7001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -1611,7 +1668,7 @@ mod test {
             title: Some("CUE Title 01".into()),
             album: Some("CUE Album".into()),
             album_artist: Some("CUE Album Artist".into()),
-            track_number: Some("01".into()),
+            track_number: Some(1),
             genre: None,
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -1643,7 +1700,7 @@ mod test {
             title: Some("CUE Title 02".into()),
             album: Some("CUE Album".into()),
             album_artist: Some("CUE Album Artist".into()),
-            track_number: Some("02".into()),
+            track_number: Some(2),
             genre: None,
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -1674,19 +1731,19 @@ mod test {
                         cue_path, audio_file_path
                     ) values (
                         1001, '/path/to/song1001', 'Artist1001', 'Title1001', 'An Album1001',
-                        'An Album Artist1001', '03', 'Electronica1001', 310, true,
+                        'An Album Artist1001', 3, 'Electronica1001', 310, true,
                         1, '{\"ignore\": true, \"metadata_bliss_does_not_have\":
                         \"/path/to/charlie1001\"}', null, null
                     ),
                     (
                         2001, '/path/to/song2001', 'Artist2001', 'Title2001', 'An Album2001',
-                        'An Album Artist2001', '02', 'Electronica2001', 410, true,
+                        'An Album Artist2001', 2, 'Electronica2001', 410, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
                         \"/path/to/charlie2001\"}', null, null
                     ),
                     (
                         2201, '/path/to/song2201', 'Artist2001', 'Title2001', 'Remixes of Album2001',
-                        'An Album Artist2001', '02', 'Electronica2001', 410, true,
+                        'An Album Artist2001', 2, 'Electronica2001', 410, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
                         \"/path/to/charlie2201\"}', null, null
                     ),
@@ -1696,32 +1753,32 @@ mod test {
                     ),
                     (
                         4001, '/path/to/song4001', 'Artist4001', 'Title4001', 'An Album4001',
-                        'An Album Artist4001', '01', 'Electronica4001', 510, true,
+                        'An Album Artist4001', 1, 'Electronica4001', 510, true,
                         0, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
                         \"/path/to/charlie4001\"}', null, null
                     ),
                     (
                         5001, '/path/to/song5001', 'Artist5001', 'Title5001', 'An Album1001',
-                        'An Album Artist5001', '01', 'Electronica5001', 610, true,
+                        'An Album Artist5001', 1, 'Electronica5001', 610, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
                         \"/path/to/charlie5001\"}', null, null
                     ),
                     (
                         6001, '/path/to/song6001', 'Artist6001', 'Title6001', 'An Album2001',
-                        'An Album Artist6001', '01', 'Electronica6001', 710, true,
+                        'An Album Artist6001', 1, 'Electronica6001', 710, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
                         \"/path/to/charlie6001\"}', null, null
                     ),
                     (
                         7001, '/path/to/song7001', 'Artist7001', 'Title7001', 'An Album7001',
-                        'An Album Artist7001', '01', 'Electronica7001', 810, true,
+                        'An Album Artist7001', 1, 'Electronica7001', 810, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
                         \"/path/to/charlie7001\"}', null, null
                     ),
                     (
                         7002, '/path/to/cuetrack.cue/CUE_TRACK001', 'CUE Artist',
                         'CUE Title 01', 'CUE Album',
-                        'CUE Album Artist', '01', null, 810, true,
+                        'CUE Album Artist', 1, null, 810, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
                         \"/path/to/charlie7001\"}', '/path/to/cuetrack.cue',
                         '/path/to/cuetrack.flac'
@@ -1729,20 +1786,20 @@ mod test {
                     (
                         7003, '/path/to/cuetrack.cue/CUE_TRACK002', 'CUE Artist',
                         'CUE Title 02', 'CUE Album',
-                        'CUE Album Artist', '02', null, 910, true,
+                        'CUE Album Artist', 2, null, 910, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
                         \"/path/to/charlie7001\"}', '/path/to/cuetrack.cue',
                         '/path/to/cuetrack.flac'
                     ),
                     (
                         8001, '/path/to/song8001', 'Artist8001', 'Title8001', 'An Album1001',
-                        'An Album Artist8001', '03', 'Electronica8001', 910, true,
+                        'An Album Artist8001', 3, 'Electronica8001', 910, true,
                         0, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
                         \"/path/to/charlie8001\"}', null, null
                     ),
                     (
                         9001, './data/s16_stereo_22_5kHz.flac', 'Artist9001', 'Title9001',
-                        'An Album9001', 'An Album Artist8001', '03', 'Electronica8001',
+                        'An Album9001', 'An Album Artist8001', 3, 'Electronica8001',
                         1010, true, 0, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
                         \"/path/to/charlie7001\"}', null, null
                     );
@@ -1932,6 +1989,9 @@ mod test {
                 .map(|x| x.unwrap())
                 .collect::<Vec<f32>>()
                 .try_into()
+                .map_err(|v| {
+                    BlissError::ProviderError(format!("Could not retrieve analysis for song {} that was supposed to be analyzed: {:?}.", song_path, v))
+                })
                 .unwrap(),
         };
         expected_song.analysis = expected_analysis_vector;
@@ -1952,7 +2012,7 @@ mod test {
             title: Some("Title".into()),
             album: Some("An Album".into()),
             album_artist: Some("An Album Artist".into()),
-            track_number: Some("03".into()),
+            track_number: Some(3),
             genre: Some("Electronica".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -3020,7 +3080,7 @@ mod test {
             title: Some("Title2001".into()),
             album: Some("An Album2001".into()),
             album_artist: Some("An Album Artist2001".into()),
-            track_number: Some("02".into()),
+            track_number: Some(2),
             genre: Some("Electronica2001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -3202,7 +3262,7 @@ mod test {
             )
             values (
                 1, '/random/path', 'Some Artist', 'A Title', 'Some Album',
-                'Some Album Artist', '01', 'Electronica', '2022-01-01',
+                'Some Album Artist', 1, 'Electronica', '2022-01-01',
                 1, 250, true, '{\"key\": \"value\"}'
             );
             ",
@@ -3219,6 +3279,94 @@ mod test {
                 [],
             )
             .unwrap();
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
+    fn test_library_new_database_upgrade() {
+        let config_dir = TempDir::new("tmp").unwrap();
+        let sqlite_db_path = config_dir.path().join("test.db");
+        // Initialize the database with the contents of old_database.sq, without
+        // having anything to do with Library (yet)
+        {
+            let sqlite_conn = Connection::open(sqlite_db_path.clone()).unwrap();
+            let sql_statements = fs::read_to_string("data/old_database.sql").unwrap();
+            sqlite_conn.execute_batch(&sql_statements).unwrap();
+            let track_number: String = sqlite_conn
+                .query_row("select track_number from song where id = 1", [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            // Check that songs are indeed inserted the old way
+            assert_eq!(track_number, "01");
+            let version: u32 = sqlite_conn
+                .query_row("pragma user_version", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(version, 0);
+        }
+
+        let library = Library::<BaseConfig, DummyDecoder>::new_from_base(
+            Some(config_dir.path().join("config.txt")),
+            Some(sqlite_db_path.clone()),
+            NonZeroUsize::new(1),
+        )
+        .unwrap();
+        let sqlite_conn = library.sqlite_conn.lock().unwrap();
+        let mut query = sqlite_conn
+            .prepare("select track_number from song where id = ?1")
+            .unwrap();
+
+        let first_song_track_number: Option<u32> = query.query_row([1], |row| row.get(0)).unwrap();
+        assert_eq!(first_song_track_number, Some(1));
+
+        let second_song_track_number: Option<u32> = query.query_row([2], |row| row.get(0)).unwrap();
+        assert_eq!(None, second_song_track_number);
+
+        let third_song_track_number: Option<u32> = query.query_row([3], |row| row.get(0)).unwrap();
+        assert_eq!(None, third_song_track_number);
+
+        let fourth_song_track_number: Option<u32> = query.query_row([4], |row| row.get(0)).unwrap();
+        assert_eq!(None, fourth_song_track_number);
+
+        let version: u32 = sqlite_conn
+            .query_row("pragma user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+        // Make sure we can call this over and over without any problem
+        Library::<BaseConfig, DummyDecoder>::new_from_base(
+            Some(config_dir.path().join("config.txt")),
+            Some(sqlite_db_path),
+            NonZeroUsize::new(1),
+        )
+        .unwrap();
+        let version: u32 = sqlite_conn
+            .query_row("pragma user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
+    fn test_library_new_database_already_last_version() {
+        let config_dir = TempDir::new("tmp").unwrap();
+        let sqlite_db_path = config_dir.path().join("test.db");
+        Library::<BaseConfig, DummyDecoder>::new_from_base(
+            Some(config_dir.path().join("config.txt")),
+            Some(sqlite_db_path.clone()),
+            NonZeroUsize::new(1),
+        )
+        .unwrap();
+        let library = Library::<BaseConfig, DummyDecoder>::new_from_base(
+            Some(config_dir.path().join("config.txt")),
+            Some(sqlite_db_path.clone()),
+            NonZeroUsize::new(1),
+        )
+        .unwrap();
+        let sqlite_conn = library.sqlite_conn.lock().unwrap();
+        let version: u32 = sqlite_conn
+            .query_row("pragma user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
     }
 
     #[test]
