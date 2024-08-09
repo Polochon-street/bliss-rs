@@ -47,6 +47,7 @@ struct BlissCueFile {
     album: Option<String>,
     artist: Option<String>,
     genre: Option<String>,
+    disc_number: Option<i32>,
     tracks: Vec<Track>,
     cue_path: PathBuf,
     audio_file_path: PathBuf,
@@ -108,8 +109,17 @@ impl<D: ?Sized + DecoderTrait> BlissCue<D> {
                 .cue
                 .comments
                 .iter()
-                .find(|(c, _)| c == "GENRE")
+                .find(|(c, _)| c.to_uppercase() == "GENRE")
                 .map(|(_, v)| v.to_owned());
+            let disc_number = self
+                .cue
+                .comments
+                .iter()
+                .find(|(c, _)| {
+                    let c_uppercase = c.to_uppercase();
+                    c_uppercase == "DISCNUMBER" || c_uppercase == "DISC"
+                })
+                .and_then(|(_, v)| v.to_owned().parse::<i32>().ok());
             let raw_song = D::decode(Path::new(&audio_file_path));
             if let Ok(song) = raw_song {
                 let bliss_cue_file = BlissCueFile {
@@ -119,6 +129,7 @@ impl<D: ?Sized + DecoderTrait> BlissCue<D> {
                     album: self.cue.title.to_owned(),
                     tracks: cue_file.tracks.to_owned(),
                     audio_file_path,
+                    disc_number,
                     cue_path: self.cue_path.to_owned(),
                 };
                 cue_files.push(Ok(bliss_cue_file))
@@ -153,6 +164,7 @@ impl BlissCueFile {
                 genre: self.genre.to_owned(),
                 title: current_track.title.to_owned(),
                 track_number: current_track.no.parse::<i32>().ok(),
+                disc_number: self.disc_number,
                 features_version: FEATURES_VERSION,
                 cue_info: Some(CueInfo {
                     cue_path: self.cue_path.to_owned(),
@@ -260,6 +272,7 @@ mod tests {
                 features_version: FEATURES_VERSION,
                 album_artist: Some(String::from("Polochon_street")),
                 duration: Duration::from_secs_f32(11.066666603),
+                disc_number: Some(1),
                 cue_info: Some(CueInfo {
                     cue_path: PathBuf::from("data/testcue.cue"),
                     audio_file_path: PathBuf::from("data/testcue.flac"),
@@ -300,6 +313,7 @@ mod tests {
                 track_number: Some(2),
                 album_artist: Some(String::from("Polochon_street")),
                 duration: Duration::from_secs_f64(5.853333473),
+                disc_number: Some(1),
                 cue_info: Some(CueInfo {
                     cue_path: PathBuf::from("data/testcue.cue"),
                     audio_file_path: PathBuf::from("data/testcue.flac"),
@@ -339,9 +353,146 @@ mod tests {
                 track_number: Some(3),
                 features_version: FEATURES_VERSION,
                 album_artist: Some(String::from("Polochon_street")),
+                disc_number: Some(1),
                 duration: Duration::from_secs_f32(5.586666584),
                 cue_info: Some(CueInfo {
                     cue_path: PathBuf::from("data/testcue.cue"),
+                    audio_file_path: PathBuf::from("data/testcue.flac"),
+                }),
+                ..Default::default()
+            }),
+            Err(BlissError::DecodingError(String::from(
+                "while opening format for file 'data/not-existing.wav': \
+                ffmpeg::Error(2: No such file or directory).",
+            ))),
+        ];
+        assert_eq!(expected, songs);
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
+    fn test_cue_minimal() {
+        let songs = BlissCue::<FFmpeg>::songs_from_path("data/no-tags-cue.cue").unwrap();
+        let expected = vec![
+            Ok(Song {
+                path: Path::new("data/no-tags-cue.cue/CUE_TRACK001").to_path_buf(),
+                analysis: Analysis {
+                    internal_analysis: [
+                        0.38463724,
+                        -0.85219246,
+                        -0.761946,
+                        -0.8904667,
+                        -0.63892543,
+                        -0.73945934,
+                        -0.8004017,
+                        -0.8237293,
+                        0.33865356,
+                        0.32481194,
+                        -0.35692245,
+                        -0.6355889,
+                        -0.29584837,
+                        0.06431806,
+                        0.21875131,
+                        -0.58104205,
+                        -0.9466792,
+                        -0.94811195,
+                        -0.9820919,
+                        -0.9596871,
+                    ],
+                },
+                album: None,
+                artist: Some(String::from("David TMX")),
+                title: Some(String::from("Renaissance")),
+                genre: None,
+                track_number: Some(1),
+                features_version: FEATURES_VERSION,
+                album_artist: None,
+                duration: Duration::from_secs_f32(11.066666603),
+                disc_number: None,
+                cue_info: Some(CueInfo {
+                    cue_path: PathBuf::from("data/no-tags-cue.cue"),
+                    audio_file_path: PathBuf::from("data/testcue.flac"),
+                }),
+                ..Default::default()
+            }),
+            Ok(Song {
+                path: Path::new("data/no-tags-cue.cue/CUE_TRACK002").to_path_buf(),
+                analysis: Analysis {
+                    internal_analysis: [
+                        0.18622077,
+                        -0.5989029,
+                        -0.5554645,
+                        -0.6343865,
+                        -0.24163479,
+                        -0.25766593,
+                        -0.40616858,
+                        -0.23334873,
+                        0.76875293,
+                        0.7785741,
+                        -0.5075115,
+                        -0.5272629,
+                        -0.56706166,
+                        -0.568486,
+                        -0.5639081,
+                        -0.5706943,
+                        -0.96501005,
+                        -0.96501285,
+                        -0.9649896,
+                        -0.96498996,
+                    ],
+                },
+                features_version: FEATURES_VERSION,
+                album: None,
+                artist: Some(String::from("Polochon_street")),
+                title: Some(String::from("Piano")),
+                genre: None,
+                track_number: Some(2),
+                album_artist: None,
+                duration: Duration::from_secs_f64(5.853333473),
+                disc_number: None,
+                cue_info: Some(CueInfo {
+                    cue_path: PathBuf::from("data/no-tags-cue.cue"),
+                    audio_file_path: PathBuf::from("data/testcue.flac"),
+                }),
+                ..Default::default()
+            }),
+            Ok(Song {
+                path: Path::new("data/no-tags-cue.cue/CUE_TRACK003").to_path_buf(),
+                analysis: Analysis {
+                    internal_analysis: [
+                        0.0024261475,
+                        0.9874661,
+                        0.97330654,
+                        -0.9724426,
+                        0.99678576,
+                        -0.9961549,
+                        -0.9840142,
+                        -0.9269961,
+                        0.7498772,
+                        0.22429907,
+                        -0.8355152,
+                        -0.9977258,
+                        -0.9977849,
+                        -0.997785,
+                        -0.99778515,
+                        -0.997785,
+                        -0.99999976,
+                        -0.99999976,
+                        -0.99999976,
+                        -0.99999976,
+                    ],
+                },
+                album: None,
+                artist: Some(String::from("Polochon_street")),
+                title: Some(String::from("Tone")),
+                genre: None,
+                track_number: Some(3),
+                features_version: FEATURES_VERSION,
+                album_artist: None,
+                disc_number: None,
+                duration: Duration::from_secs_f32(5.586666584),
+                cue_info: Some(CueInfo {
+                    cue_path: PathBuf::from("data/no-tags-cue.cue"),
                     audio_file_path: PathBuf::from("data/testcue.flac"),
                 }),
                 ..Default::default()
