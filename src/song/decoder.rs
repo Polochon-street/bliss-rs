@@ -512,13 +512,19 @@ pub mod ffmpeg {
             if let Some(track_number) = ictx.metadata().get("track") {
                 song.track_number = match track_number {
                     "" => None,
-                    t => t.parse::<i32>().ok(),
+                    t => t
+                        .parse::<i32>()
+                        .ok()
+                        .or_else(|| t.split_once('/').and_then(|(n, _)| n.parse::<i32>().ok())),
                 };
             };
             if let Some(disc_number) = ictx.metadata().get("disc") {
                 song.disc_number = match disc_number {
                     "" => None,
-                    t => t.parse::<i32>().ok(),
+                    t => t
+                        .parse::<i32>()
+                        .ok()
+                        .or_else(|| t.split_once('/').and_then(|(n, _)| n.parse::<i32>().ok())),
                 };
             };
             if let Some(album_artist) = ictx.metadata().get("album_artist") {
@@ -680,6 +686,21 @@ pub mod ffmpeg {
             // Test that there is less than 10ms of difference between what
             // the song advertises and what we compute.
             assert!((song.duration.as_millis() as f32 - 11070.).abs() < 10.);
+        }
+
+        #[test]
+        fn test_special_tags() {
+            // This file has tags like `DISC: 02/05` and `TRACK: 06/24`.
+            let song = Decoder::decode(Path::new("data/special-tags.mp3")).unwrap();
+            assert_eq!(song.disc_number, Some(2));
+            assert_eq!(song.track_number, Some(6));
+        }
+
+        #[test]
+        fn test_unsupported_tags_format() {
+            // This file has tags like `TRACK: 02test/05`.
+            let song = Decoder::decode(Path::new("data/unsupported-tags.mp3")).unwrap();
+            assert_eq!(song.track_number, None);
         }
 
         #[test]

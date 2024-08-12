@@ -1085,7 +1085,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 audio_file_path, id
                 from song where album = ? and analyzed = true and version = ?
                 order
-                by track_number;
+                by disc_number, track_number;
             ";
 
         // Get the song's analysis, and attach it to the existing song.
@@ -1093,7 +1093,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             select
                 feature, song.id from feature join song on song.id = feature.song_id
                 where album=? and analyzed = true and version = ?
-                order by track_number;
+                order by disc_number, track_number;
             ";
         let songs = self._songs_from_statement(songs_statement, features_statement, params)?;
         if songs.is_empty() {
@@ -1565,10 +1565,10 @@ mod test {
             path: "/path/to/song2201".into(),
             artist: Some("Artist2001".into()),
             title: Some("Title2001".into()),
-            album: Some("Remixes of Album2001".into()),
+            album: Some("An Album2001".into()),
             album_artist: Some("An Album Artist2001".into()),
-            track_number: Some(2),
-            disc_number: Some(1),
+            track_number: Some(1),
+            disc_number: Some(2),
             genre: Some("Electronica2001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
@@ -1760,8 +1760,8 @@ mod test {
                         \"/path/to/charlie2001\"}', null, null
                     ),
                     (
-                        2201, '/path/to/song2201', 'Artist2001', 'Title2001', 'Remixes of Album2001',
-                        'An Album Artist2001', 2, 1, 'Electronica2001', 410, true,
+                        2201, '/path/to/song2201', 'Artist2001', 'Title2001', 'An Album2001',
+                        'An Album Artist2001', 1, 2, 'Electronica2001', 410, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
                         \"/path/to/charlie2201\"}', null, null
                     ),
@@ -2287,10 +2287,10 @@ mod test {
                 // First album.
                 "/path/to/song5001".to_string(),
                 "/path/to/song1001".to_string(),
-                // Second album, well ordered.
+                // Second album, well ordered, disc 1
                 "/path/to/song6001".to_string(),
                 "/path/to/song2001".to_string(),
-                // Seecond album, remixes
+                // Second album disc 2
                 "/path/to/song2201".to_string(),
                 // Third album.
                 "/path/to/song7001".to_string(),
@@ -2320,6 +2320,7 @@ mod test {
                 // Second album, well ordered.
                 "/path/to/song6001".to_string(),
                 "/path/to/song2001".to_string(),
+                "/path/to/song2201".to_string(),
             ],
             album
                 .into_iter()
