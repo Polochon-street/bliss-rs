@@ -25,7 +25,24 @@ used by C-bliss, since it uses
 different, more accurate values, based on
 [actual literature](https://lelele.io/thesis.pdf). It is also faster.
 
+## Dependencies
+
+To use bliss-rs, you'll need a few packages: a C linker, `ffmpeg`, and the associated
+development packages (libavformat, libavutil, libavcodec, libavfilter, libavdevice),
+as well as the clang development packages. These steps are necessary for e.g. run the
+examples below.
+
+On Ubuntu:
+
+    $ sudo apt install build-essential pkg-config libavutil-dev libavformat-dev \
+    libavfilter-dev libavdevice-dev libclang-dev 
+
+On Archlinux:
+
+    $ sudo pacman -S base-devel clang ffmpeg sqlite
+
 ## Examples
+
 For simple analysis / distance computing, take a look at `examples/distance.rs` and
 `examples/analyze.rs`.
 
@@ -47,6 +64,7 @@ this behavior by using `-a <path>` to store this file in a specific place.
 Ready to use code examples:
 
 ### Compute the distance between two songs
+
 ```
 use bliss_audio::decoder::bliss_ffmpeg::FFmpeg as Decoder;
 use bliss_audio::decoder::Decoder as DecoderTrait;
@@ -62,6 +80,7 @@ fn main() -> Result<(), BlissError> {
 ```
 
 ### Make a playlist from a song
+
 ```
 use bliss_audio::decoder::bliss_ffmpeg::FFmpeg as Decoder;
 use bliss_audio::decoder::Decoder as DecoderTrait;

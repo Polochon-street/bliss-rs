@@ -10,8 +10,9 @@ ask questions if you want to tackle an item.
 
 ## Actual TODO
 
-- The album playlist should take into account multi-CDs albums
 - Add a list of dependencies / installation guide
+- bliss: A way to learn a metric with a "user survey" on their own libraries using code from the thesis
+  (probably reuse the interactive-playlist in blissify?)
 - Maybe add playlist functions for single songs as convenience methods?
 - Regularly update the python bindings with the new code
 - Check the chroma feature for anomalies (the last 4 numbers look anomalous in most of my cases -
@@ -32,8 +33,6 @@ ask questions if you want to tackle an item.
   (can probably recycle the "album" feature)
 - Use genre clustering (cf already existing code) to find an appropriate M matrix, and put it as alternative
   Hopefully will make playlists not drift
-- bliss: A way to learn a metric with a "user survey" on their own libraries using code from the thesis
-  (probably reuse the interactive-playlist in blissify?)
 - Improve bliss-python somehow / use it in a small demo project maybe?
   A blissify in python?
 
@@ -44,4 +43,4 @@ ask questions if you want to tackle an item.
   - Make the tests that don't need it not dependent of ffmpeg
   - Make the Song::from_path a trait that is by default implemented with the
     ffmpeg feature (so you can theoretically implement the library trait without ffmpeg)
-
+- The album playlist should take into account multi-CDs albums
