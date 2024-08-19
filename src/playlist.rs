@@ -79,6 +79,66 @@ pub fn cosine_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
     1. - similarity
 }
 
+/// Return a Mahalanobis distance function, usable with the "standard"
+/// playlist-making functions provided here such as [closest_to_songs] and
+/// [song_to_song].
+///
+/// # Arguments
+///
+/// * `m`: a matrix representing the weights of the different features.
+///
+/// # Usage
+///
+/// ```
+/// use bliss_audio::{Song, Analysis, NUMBER_FEATURES};
+/// use bliss_audio::playlist::{closest_to_songs, mahalanobis_distance_builder};
+/// use ndarray::Array2;
+///
+/// // Songs here for the example; in reality, they would be analyzed or
+/// // pulled from a database.
+/// let first_song = Song {
+///     path: "path-to-first".into(),
+///         analysis: Analysis::new([
+///             1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+///         ]),
+///         ..Default::default()
+///     };
+/// let second_song = Song {
+///     path: "path-to-second".into(),
+///     analysis: Analysis::new([
+///         1.5, 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+///     ]),
+///     ..Default::default()
+/// };
+///
+/// let third_song = Song {
+///     path: "path-to-third".into(),
+///     analysis: Analysis::new([
+///         2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
+///     ]),
+///     ..Default::default()
+/// };
+/// // The weights of the features, here, equal to the identity matrix, i.e.,
+/// // it represents the euclidean distance.
+/// let m = Array2::eye(NUMBER_FEATURES);
+/// let distance = mahalanobis_distance_builder(m);
+/// let playlist = closest_to_songs(&[first_song], &[second_song, third_song], &distance).collect::<Vec<_>>();
+/// ```
+pub fn mahalanobis_distance_builder(m: Array2<f32>) -> impl Fn(&Array1<f32>, &Array1<f32>) -> f32 {
+    move |a: &Array1<f32>, b: &Array1<f32>| mahalanobis_distance(a, b, &m)
+}
+
+/// Returns the Mahalanobis distance between two vectors, also the weighted
+/// distance between those two vectors. The weight is made according to the
+/// distance matrix m.
+/// In most cases, building a Mahalanobis distance function using
+/// [mahalanobis_distance_builder] and using it makes more sense, since it
+/// makes it usable with the other provided functions such as [closest_to_songs]2
+/// and [song_to_song].
+pub fn mahalanobis_distance(a: &Array1<f32>, b: &Array1<f32>, m: &Array2<f32>) -> f32 {
+    (a - b).dot(m).dot(&(a - b)).sqrt()
+}
+
 fn feature_array1_to_array(f: &Array1<f32>) -> [f32; NUMBER_FEATURES] {
     f.as_slice()
         .expect("Couldn't convert feature vector to slice")
@@ -768,6 +828,61 @@ mod test {
                 &third_song
             ],
         );
+    }
+
+    #[test]
+    fn test_mahalanobis_distance() {
+        let a = arr1(&[
+            1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 0.,
+        ]);
+        let b = arr1(&[
+            1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1., 0., 0., 0.,
+        ]);
+        let m = Array2::eye(NUMBER_FEATURES)
+            * arr1(&[
+                1., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+            ]);
+
+        let distance = mahalanobis_distance_builder(m);
+        assert_eq!(distance(&a, &b), 1.);
+    }
+
+    #[test]
+    fn test_mahalanobis_distance_with_songs() {
+        let first_song = Song {
+            path: Path::new("path-to-first").to_path_buf(),
+            analysis: Analysis::new([
+                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let second_song = Song {
+            path: Path::new("path-to-second").to_path_buf(),
+            analysis: Analysis::new([
+                1.5, 5., 6., 5., 6., 6., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let third_song = Song {
+            path: Path::new("path-to-third").to_path_buf(),
+            analysis: Analysis::new([
+                5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+            ]),
+            ..Default::default()
+        };
+        let m = Array2::eye(NUMBER_FEATURES)
+            * arr1(&[
+                1.0, 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+            ]);
+        let distance = mahalanobis_distance_builder(m);
+
+        let playlist = closest_to_songs(
+            &[first_song.clone()],
+            &[third_song.clone(), second_song.clone()],
+            &distance,
+        )
+        .collect::<Vec<_>>();
+        assert_eq!(playlist, vec![second_song, third_song,]);
     }
 
     #[test]
