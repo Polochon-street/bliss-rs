@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.9.1
+* Add Mahalanobis distance.
+
 ## bliss 0.9.0
 * Make album playlists take into account disk numbers (no more mixed disks!).
 * Add a `disc_number` field in `Song`s.

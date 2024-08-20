@@ -577,7 +577,8 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     ///
     /// You can use ready-to-use distance metrics such as
     /// [ExtendedIsolationForest](extended_isolation_forest::Forest) or [euclidean_distance],
-    /// and ready-to-use sorting functions like [closest_to_songs] or [song_to_song].
+    /// and ready-to-use sorting functions like [closest_to_songs] or
+    /// [crate::playlist::song_to_song].
     ///
     /// If you want to use the sorting functions in a uniform manner, you can do something like
     /// this:
