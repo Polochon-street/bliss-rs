@@ -814,6 +814,7 @@ dependencies = [
  "num-traits",
  "rawpointer",
  "rayon",
+ "serde",
 ]
 
 [[package]]

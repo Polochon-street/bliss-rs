@@ -126,6 +126,7 @@ use anyhow::{bail, Context, Result};
 use dirs::data_local_dir;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::warn;
+use ndarray::Array2;
 use rusqlite::params;
 use rusqlite::params_from_iter;
 use rusqlite::Connection;
@@ -229,17 +230,27 @@ pub trait AppConfigTrait: Serialize + Sized + DeserializeOwned {
 pub struct BaseConfig {
     /// The path to where the configuration file should be stored,
     /// e.g. `/home/foo/.local/share/bliss-rs/config.json`
-    config_path: PathBuf,
+    pub config_path: PathBuf,
     /// The path to where the database file should be stored,
     /// e.g. `/home/foo/.local/share/bliss-rs/bliss.db`
-    database_path: PathBuf,
+    pub database_path: PathBuf,
     /// The latest features version a song has been analyzed
     /// with.
-    features_version: u16,
+    pub features_version: u16,
     /// The number of CPU cores an analysis will be performed with.
     /// Defaults to the number of CPUs in the user's computer.
-    number_cores: NonZeroUsize,
-    m: Vec<Vec<f32>>,
+    pub number_cores: NonZeroUsize,
+    /// The mahalanobis matrix used for mahalanobis distance.
+    /// Used to customize the distance metric beyond simple euclidean distance.
+    /// Uses ndarray's `serde` feature for serialization / deserialization.
+    /// Field would look like this:
+    /// "m": {"v": 1, "dim": [20, 20], "data": [1.0, 0.0, ..., 1.0]}
+    #[serde(default = "default_m")]
+    pub m: Array2<f32>,
+}
+
+fn default_m() -> Array2<f32> {
+    Array2::eye(NUMBER_FEATURES)
 }
 
 impl BaseConfig {
@@ -294,7 +305,7 @@ impl BaseConfig {
             database_path,
             features_version: FEATURES_VERSION,
             number_cores,
-            m: vec![vec![3.]],
+            m: Array2::eye(NUMBER_FEATURES),
         })
     }
 }
@@ -1441,7 +1452,7 @@ mod test {
     use ndarray::Array1;
     use pretty_assertions::assert_eq;
     use serde::{de::DeserializeOwned, Deserialize};
-    use std::{convert::TryInto, fmt::Debug, sync::MutexGuard, time::Duration};
+    use std::{convert::TryInto, fmt::Debug, str::FromStr, sync::MutexGuard, time::Duration};
     use tempdir::TempDir;
 
     #[cfg(feature = "ffmpeg")]
@@ -3281,11 +3292,21 @@ mod test {
         assert_eq!(
             config_content,
             format!(
-                "{{\"config_path\":\"{}\",\"database_path\":\"{}\",\"features_version\":{},\"number_cores\":{}}}",
+                "{{\"config_path\":\"{}\",\"database_path\":\"{}\",\"\
+                features_version\":{},\"number_cores\":{},\
+                \"m\":{{\"v\":1,\"dim\":[{},{}],\"data\":{}}}}}",
                 library.config.base_config().config_path.display(),
                 library.config.base_config().database_path.display(),
                 FEATURES_VERSION,
                 thread::available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap()),
+                NUMBER_FEATURES,
+                NUMBER_FEATURES,
+                // Terrible code, but would hardcoding be better?
+                format!(
+                    "{:?}",
+                    Array2::<f32>::eye(NUMBER_FEATURES).as_slice().unwrap()
+                )
+                .replace(" ", ""),
             )
         );
     }
@@ -3486,6 +3507,38 @@ mod test {
 
         assert_eq!(library.config, config);
         assert_eq!(song, returned_song);
+    }
+
+    #[test]
+    fn test_config_from_file() {
+        let config = BaseConfig::from_path("./data/sample-config.json").unwrap();
+        let mut m: Array2<f32> = Array2::eye(NUMBER_FEATURES);
+        m[[0, 1]] = 1.;
+        assert_eq!(
+            config,
+            BaseConfig {
+                config_path: PathBuf::from_str("/tmp/bliss-rs/config.json").unwrap(),
+                database_path: PathBuf::from_str("/tmp/bliss-rs/songs.db").unwrap(),
+                features_version: 1,
+                number_cores: NonZeroUsize::new(8).unwrap(),
+                m,
+            }
+        );
+    }
+
+    #[test]
+    fn test_config_old_existing() {
+        let config = BaseConfig::from_path("./data/old_config.json").unwrap();
+        assert_eq!(
+            config,
+            BaseConfig {
+                config_path: PathBuf::from_str("/tmp/bliss-rs/config.json").unwrap(),
+                database_path: PathBuf::from_str("/tmp/bliss-rs/songs.db").unwrap(),
+                features_version: 1,
+                number_cores: NonZeroUsize::new(8).unwrap(),
+                m: Array2::eye(NUMBER_FEATURES),
+            }
+        );
     }
 
     #[test]

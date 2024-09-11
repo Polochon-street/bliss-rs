@@ -1,0 +1,7 @@
+{
+  "config_path": "/tmp/bliss-rs/config.json",
+  "database_path": "/tmp/bliss-rs/songs.db",
+  "features_version": 1,
+  "number_cores": 8,
+  "mpd_base_path": "/tmp/MPD/"
+}
