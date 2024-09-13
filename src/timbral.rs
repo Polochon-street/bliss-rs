@@ -267,7 +267,7 @@ mod tests {
 
     #[test]
     fn test_zcr_boundaries() {
-        let mut zcr_desc = ZeroCrossingRateDesc::default();
+        let mut zcr_desc = ZeroCrossingRateDesc::new(SAMPLE_RATE);
         let chunk = vec![0.; 1024];
         zcr_desc.do_(&chunk);
         assert_eq!(-1., zcr_desc.get_value());
@@ -278,7 +278,7 @@ mod tests {
             .flatten()
             .cloned()
             .collect::<Vec<f32>>();
-        let mut zcr_desc = ZeroCrossingRateDesc::default();
+        let mut zcr_desc = ZeroCrossingRateDesc::new(SAMPLE_RATE);
         zcr_desc.do_(&chunks);
         assert!(0.001 > (0.9980469 - zcr_desc.get_value()).abs());
     }
