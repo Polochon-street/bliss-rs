@@ -115,6 +115,16 @@ mod tests {
     }
 
     #[test]
+    fn test_tempo_error_creating_aubio_tempo() {
+        assert_eq!(
+            BPMDesc::new(0).err().unwrap(),
+            BlissError::AnalysisError(String::from(
+                "error while loading aubio tempo object: creation error"
+            ))
+        )
+    }
+
+    #[test]
     fn test_tempo_artificial() {
         let mut tempo_desc = BPMDesc::new(22050).unwrap();
         // This gives one beat every second, so 60 BPM
