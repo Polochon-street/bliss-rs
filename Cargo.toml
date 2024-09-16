@@ -39,7 +39,7 @@ bench = []
 library = [
     "serde", "dep:rusqlite", "dep:dirs", "dep:tempdir",
     "dep:anyhow", "dep:serde_ini", "dep:serde_json",
-    "dep:indicatif",
+    "dep:indicatif", "ndarray/serde"
 ]
 serde = ["dep:serde", "extended-isolation-forest/serde"]
 

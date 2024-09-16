@@ -126,6 +126,7 @@ use anyhow::{bail, Context, Result};
 use dirs::data_local_dir;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::warn;
+use ndarray::Array2;
 use rusqlite::params;
 use rusqlite::params_from_iter;
 use rusqlite::Connection;
@@ -223,22 +224,33 @@ pub trait AppConfigTrait: Serialize + Sized + DeserializeOwned {
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 /// The minimum configuration an application needs to work with
 /// a [Library].
 pub struct BaseConfig {
     /// The path to where the configuration file should be stored,
     /// e.g. `/home/foo/.local/share/bliss-rs/config.json`
-    config_path: PathBuf,
+    pub config_path: PathBuf,
     /// The path to where the database file should be stored,
     /// e.g. `/home/foo/.local/share/bliss-rs/bliss.db`
-    database_path: PathBuf,
+    pub database_path: PathBuf,
     /// The latest features version a song has been analyzed
     /// with.
-    features_version: u16,
+    pub features_version: u16,
     /// The number of CPU cores an analysis will be performed with.
     /// Defaults to the number of CPUs in the user's computer.
-    number_cores: NonZeroUsize,
+    pub number_cores: NonZeroUsize,
+    /// The mahalanobis matrix used for mahalanobis distance.
+    /// Used to customize the distance metric beyond simple euclidean distance.
+    /// Uses ndarray's `serde` feature for serialization / deserialization.
+    /// Field would look like this:
+    /// "m": {"v": 1, "dim": [20, 20], "data": [1.0, 0.0, ..., 1.0]}
+    #[serde(default = "default_m")]
+    pub m: Array2<f32>,
+}
+
+fn default_m() -> Array2<f32> {
+    Array2::eye(NUMBER_FEATURES)
 }
 
 impl BaseConfig {
@@ -293,6 +305,7 @@ impl BaseConfig {
             database_path,
             features_version: FEATURES_VERSION,
             number_cores,
+            m: Array2::eye(NUMBER_FEATURES),
         })
     }
 }
@@ -400,6 +413,23 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             alter table song rename column track_number_1 to track_number;
         ",
         "alter table song add column disc_number integer;",
+        "
+            -- Training triplets used to do metric learning, in conjunction with
+            -- a human-processed survey. In this table, songs pointed to
+            -- by song_1_id and song_2_id are closer together than they
+            -- are to the song pointed to by odd_one_out_id, i.e.
+            -- d(s1, s2) < d(s1, odd_one_out) and d(s1, s2) < d(s2, odd_one_out)
+            create table training_triplet (
+                id integer primary key,
+                song_1_id integer not null,
+                song_2_id integer not null,
+                odd_one_out_id integer not null,
+                stamp timestamp default current_timestamp,
+                foreign key(song_1_id) references song(id) on delete cascade,
+                foreign key(song_2_id) references song(id) on delete cascade,
+                foreign key(odd_one_out_id) references song(id) on delete cascade
+            )
+        ",
     ];
 
     /// Create a new [Library] object from the given Config struct that
@@ -1422,7 +1452,7 @@ mod test {
     use ndarray::Array1;
     use pretty_assertions::assert_eq;
     use serde::{de::DeserializeOwned, Deserialize};
-    use std::{convert::TryInto, fmt::Debug, sync::MutexGuard, time::Duration};
+    use std::{convert::TryInto, fmt::Debug, str::FromStr, sync::MutexGuard, time::Duration};
     use tempdir::TempDir;
 
     #[cfg(feature = "ffmpeg")]
@@ -1444,7 +1474,7 @@ mod test {
         metadata_bliss_does_not_have: String,
     }
 
-    #[derive(Deserialize, Serialize, PartialEq, Eq, Debug, Clone)]
+    #[derive(Deserialize, Serialize, PartialEq, Debug, Clone)]
     struct CustomConfig {
         #[serde(flatten)]
         base_config: BaseConfig,
@@ -3262,11 +3292,21 @@ mod test {
         assert_eq!(
             config_content,
             format!(
-                "{{\"config_path\":\"{}\",\"database_path\":\"{}\",\"features_version\":{},\"number_cores\":{}}}",
+                "{{\"config_path\":\"{}\",\"database_path\":\"{}\",\"\
+                features_version\":{},\"number_cores\":{},\
+                \"m\":{{\"v\":1,\"dim\":[{},{}],\"data\":{}}}}}",
                 library.config.base_config().config_path.display(),
                 library.config.base_config().database_path.display(),
                 FEATURES_VERSION,
                 thread::available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap()),
+                NUMBER_FEATURES,
+                NUMBER_FEATURES,
+                // Terrible code, but would hardcoding be better?
+                format!(
+                    "{:?}",
+                    Array2::<f32>::eye(NUMBER_FEATURES).as_slice().unwrap()
+                )
+                .replace(" ", ""),
             )
         );
     }
@@ -3355,7 +3395,7 @@ mod test {
         let version: u32 = sqlite_conn
             .query_row("pragma user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
         // Make sure we can call this over and over without any problem
         Library::<BaseConfig, DummyDecoder>::new_from_base(
             Some(config_dir.path().join("config.txt")),
@@ -3366,7 +3406,7 @@ mod test {
         let version: u32 = sqlite_conn
             .query_row("pragma user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
     }
 
     #[test]
@@ -3390,7 +3430,7 @@ mod test {
         let version: u32 = sqlite_conn
             .query_row("pragma user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
     }
 
     #[test]
@@ -3467,6 +3507,38 @@ mod test {
 
         assert_eq!(library.config, config);
         assert_eq!(song, returned_song);
+    }
+
+    #[test]
+    fn test_config_from_file() {
+        let config = BaseConfig::from_path("./data/sample-config.json").unwrap();
+        let mut m: Array2<f32> = Array2::eye(NUMBER_FEATURES);
+        m[[0, 1]] = 1.;
+        assert_eq!(
+            config,
+            BaseConfig {
+                config_path: PathBuf::from_str("/tmp/bliss-rs/config.json").unwrap(),
+                database_path: PathBuf::from_str("/tmp/bliss-rs/songs.db").unwrap(),
+                features_version: 1,
+                number_cores: NonZeroUsize::new(8).unwrap(),
+                m,
+            }
+        );
+    }
+
+    #[test]
+    fn test_config_old_existing() {
+        let config = BaseConfig::from_path("./data/old_config.json").unwrap();
+        assert_eq!(
+            config,
+            BaseConfig {
+                config_path: PathBuf::from_str("/tmp/bliss-rs/config.json").unwrap(),
+                database_path: PathBuf::from_str("/tmp/bliss-rs/songs.db").unwrap(),
+                features_version: 1,
+                number_cores: NonZeroUsize::new(8).unwrap(),
+                m: Array2::eye(NUMBER_FEATURES),
+            }
+        );
     }
 
     #[test]
