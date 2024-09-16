@@ -1,6 +1,10 @@
 # Changelog
 
 ## bliss 0.9.1
+* Expose the Mahalanobis distance in the library feature, reading the
+  learned matrix in metric learning.
+* Add training triplets to the database, used in conjunction with
+  https://github.com/Polochon-street/bliss-metric-learning to do metric learning.
 * Add Mahalanobis distance.
 
 ## bliss 0.9.0
