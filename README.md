@@ -120,6 +120,19 @@ in a sqlite database seamlessly.
 See [blissify](https://crates.io/crates/blissify) for a reference
 implementation.
 
+If you want to experiment with e.g. distance metrics, taking a look at
+the [mahalanobis distance](https://docs.rs/bliss-audio/latest/bliss_audio/playlist/fn.mahalanobis_distance.html) function is a good idea. It allows customizing the distance metric,
+putting more emphasis on certain parts of the features, e.g. making the tempo
+twice as prominent as the timbral features.
+
+It is also possible to perform metric learning, i.e. making playlists tailored
+to your specific tastes by learning a distance metric for the mahalanobis distance
+using the code in the [metric learning](https://github.com/Polochon-street/bliss-metric-learning/)
+repository. [blissify-rs](https://github.com/Polochon-street/blissify-rs/)
+is made to work with it, but it should be fairly straightforward to implement
+it for other uses. The metric learning repo also contains a bit more context
+on what metric learning is.
+
 ## Cross-compilation
 
 To cross-compile bliss-rs from linux to x86_64 windows, install the
