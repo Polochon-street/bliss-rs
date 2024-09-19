@@ -425,10 +425,10 @@ mod test {
 
     #[test]
     fn test_normalize_feature_sequence() {
-        let array = arr2(&[[0.1, 0.3, 0.4], [1.1, 0.53, 1.01]]);
+        let array = arr2(&[[0.1, 0.3, 0.4, 0.], [1.1, 0.53, 1.01, 0.]]);
         let expected_array = arr2(&[
-            [0.08333333, 0.36144578, 0.28368794],
-            [0.91666667, 0.63855422, 0.71631206],
+            [0.08333333, 0.36144578, 0.28368794, 0.],
+            [0.91666667, 0.63855422, 0.71631206, 0.],
         ]);
 
         let normalized_array = normalize_feature_sequence(&array);

@@ -20,10 +20,10 @@ jobs:
         submodules: recursive
     - uses: actions-rs/toolchain@v1
       with:
-        toolchain: nightly-2024-01-16
+        toolchain: nightly-2024-07-21
         override: false
     - name: Packages
-      run: sudo apt-get update && sudo apt-get install build-essential yasm libavutil-dev libavcodec-dev libavformat-dev libavfilter-dev libavfilter-dev libavdevice-dev libswresample-dev libfftw3-dev ffmpeg
+      run: sudo apt-get update && sudo apt-get install build-essential yasm libavutil-dev libavcodec-dev libavformat-dev libavfilter-dev libavfilter-dev libavdevice-dev libswresample-dev libfftw3-dev ffmpeg libsqlite3-dev
     - name: Check format
       run: cargo fmt -- --check
     - name: Lint
@@ -33,7 +33,7 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
     - name: Build benches
-      run: cargo +nightly-2024-01-16 bench --verbose --features=bench --no-run
+      run: cargo +nightly-2024-07-21 bench --verbose --features=bench --no-run
     - name: Run example tests
       run: cargo test --verbose --examples
     - name: Build examples with library

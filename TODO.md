@@ -10,7 +10,7 @@ ask questions if you want to tackle an item.
 
 ## Actual TODO
 
-- Add a list of dependencies / installation guide
+- Add a list of dependencies / installation guide for windows and mac
 - bliss: A way to learn a metric with a "user survey" on their own libraries using code from the thesis
   (probably reuse the interactive-playlist in blissify?)
 - Maybe add playlist functions for single songs as convenience methods?

@@ -20,7 +20,7 @@ The wheels are compiled used [maturin](https://github.com/PyO3/maturin/); the
 sources [are available here](https://github.com/Polochon-street/bliss-python)
 for inspiration.
 
-Note 1: the features bliss-rs outputs is not compatible with the ones
+Note: the features bliss-rs outputs are not compatible with the ones
 used by C-bliss, since it uses
 different, more accurate values, based on
 [actual literature](https://lelele.io/thesis.pdf). It is also faster.
