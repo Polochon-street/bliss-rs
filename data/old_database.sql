@@ -48,7 +48,7 @@ values (
 (
     4, '/random/path4', 'Some Artist', 'A Title', 'Some Album',
     'Some Album Artist', 'test', 'Electronica', '2022-01-01',
-    1, 250, true, '{\"key\": \"value\"}'
+    null, 250, true, '{\"key\": \"value\"}'
 );
 
 insert into feature (song_id, feature, feature_index)
