@@ -36,6 +36,9 @@ ask questions if you want to tackle an item.
 - Improve bliss-python somehow / use it in a small demo project maybe?
   A blissify in python?
 - Investigate what type SAMPLE_RATE is in Aubio - maybe u16 is enough
+- Should library really use `indicatif`? And not leave it up to the CLI program itself?
+- Library: the database should maybe have errored_songs in a separate column (and remove
+  the "analyzed" flag?)
 
 ## Done
 - Split out ffmpeg (see https://github.com/Polochon-street/bliss-rs/issues/63 and https://users.rust-lang.org/t/proper-way-to-abstract-a-third-party-provider/107076/8)

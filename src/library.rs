@@ -335,6 +335,17 @@ pub struct Library<Config, D: ?Sized> {
     decoder: PhantomData<D>,
 }
 
+/// Hold an error that happened while processing songs during analysis.
+#[derive(Debug, Eq, PartialEq)]
+pub struct ProcessingError {
+    /// The path of the song whose analysis was attempted.
+    pub song_path: PathBuf,
+    /// The actual error string.
+    pub error: String,
+    /// Features version the analysis was attempted with.
+    pub features_version: u16,
+}
+
 /// Struct holding both a Bliss song, as well as any extra info
 /// that a user would want to store in the database related to that
 /// song.
@@ -1372,6 +1383,28 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         Ok(())
     }
 
+    /// Return all the songs that failed the analysis.
+    pub fn get_failed_songs(&self) -> Result<Vec<ProcessingError>> {
+        let conn = self.sqlite_conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "
+            select path, error, version
+                from song where error is not null order by id
+            ",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(ProcessingError {
+                song_path: row.get::<_, String>(0)?.into(),
+                error: row.get(1)?,
+                features_version: row.get(2)?,
+            })
+        })?;
+        Ok(rows
+            .into_iter()
+            .map(|r| r.unwrap())
+            .collect::<Vec<ProcessingError>>())
+    }
+
     /// Delete a song with path `song_path` from the database.
     ///
     /// Errors out if the song is not in the database.
@@ -1777,52 +1810,52 @@ mod test {
                     insert into song (
                         id, path, artist, title, album, album_artist, track_number,
                         disc_number, genre, duration, analyzed, version, extra_info,
-                        cue_path, audio_file_path
+                        cue_path, audio_file_path, error
                     ) values (
                         1001, '/path/to/song1001', 'Artist1001', 'Title1001', 'An Album1001',
                         'An Album Artist1001', 3, 1, 'Electronica1001', 310, true,
                         1, '{\"ignore\": true, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie1001\"}', null, null
+                        \"/path/to/charlie1001\"}', null, null, null
                     ),
                     (
                         2001, '/path/to/song2001', 'Artist2001', 'Title2001', 'An Album2001',
                         'An Album Artist2001', 2, 1, 'Electronica2001', 410, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie2001\"}', null, null
+                        \"/path/to/charlie2001\"}', null, null, null
                     ),
                     (
                         2201, '/path/to/song2201', 'Artist2001', 'Title2001', 'An Album2001',
                         'An Album Artist2001', 1, 2, 'Electronica2001', 410, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie2201\"}', null, null
+                        \"/path/to/charlie2201\"}', null, null, null
                     ),
                     (
                         3001, '/path/to/song3001', null, null, null,
-                        null, null, null, null, null, false, 1, '{}', null, null
+                        null, null, null, null, null, false, 1, '{}', null, null, null
                     ),
                     (
                         4001, '/path/to/song4001', 'Artist4001', 'Title4001', 'An Album4001',
                         'An Album Artist4001', 1, 1, 'Electronica4001', 510, true,
                         0, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie4001\"}', null, null
+                        \"/path/to/charlie4001\"}', null, null, null
                     ),
                     (
                         5001, '/path/to/song5001', 'Artist5001', 'Title5001', 'An Album1001',
                         'An Album Artist5001', 1, 1, 'Electronica5001', 610, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie5001\"}', null, null
+                        \"/path/to/charlie5001\"}', null, null, null
                     ),
                     (
                         6001, '/path/to/song6001', 'Artist6001', 'Title6001', 'An Album2001',
                         'An Album Artist6001', 1, 1, 'Electronica6001', 710, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie6001\"}', null, null
+                        \"/path/to/charlie6001\"}', null, null, null
                     ),
                     (
                         7001, '/path/to/song7001', 'Artist7001', 'Title7001', 'An Album7001',
                         'An Album Artist7001', 1, 1, 'Electronica7001', 810, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie7001\"}', null, null
+                        \"/path/to/charlie7001\"}', null, null, null
                     ),
                     (
                         7002, '/path/to/cuetrack.cue/CUE_TRACK001', 'CUE Artist',
@@ -1830,7 +1863,7 @@ mod test {
                         'CUE Album Artist', 1, 1, null, 810, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
                         \"/path/to/charlie7001\"}', '/path/to/cuetrack.cue',
-                        '/path/to/cuetrack.flac'
+                        '/path/to/cuetrack.flac', null
                     ),
                     (
                         7003, '/path/to/cuetrack.cue/CUE_TRACK002', 'CUE Artist',
@@ -1838,19 +1871,29 @@ mod test {
                         'CUE Album Artist', 2, 1, null, 910, true,
                         1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
                         \"/path/to/charlie7001\"}', '/path/to/cuetrack.cue',
-                        '/path/to/cuetrack.flac'
+                        '/path/to/cuetrack.flac', null
                     ),
                     (
                         8001, '/path/to/song8001', 'Artist8001', 'Title8001', 'An Album1001',
                         'An Album Artist8001', 3, 1, 'Electronica8001', 910, true,
                         0, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie8001\"}', null, null
+                        \"/path/to/charlie8001\"}', null, null, null
                     ),
                     (
                         9001, './data/s16_stereo_22_5kHz.flac', 'Artist9001', 'Title9001',
                         'An Album9001', 'An Album Artist8001', 3, 1, 'Electronica8001',
                         1010, true, 0, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie7001\"}', null, null
+                        \"/path/to/charlie7001\"}', null, null, null
+                    ),
+                    (
+                        404, './data/not-existing.m4a', null, null,
+                        null, null, null, null, null,
+                        null, false, 0, null, null, null, 'error finding the file'
+                    ),
+                    (
+                        502, './data/invalid-file.m4a', null, null,
+                        null, null, null, null, null,
+                        null, false, 0, null, null, null, 'error decoding the file'
                     );
                     ",
                     [],
@@ -3643,5 +3686,27 @@ mod test {
         )
         .unwrap();
         assert!(config_dir.is_dir());
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
+    fn test_library_get_failed_songs() {
+        let (mut library, _temp_dir, _) = setup_test_library();
+        let failed_songs = library.get_failed_songs().unwrap();
+        assert_eq!(
+            failed_songs,
+            vec![
+                ProcessingError {
+                    song_path: PathBuf::from("./data/not-existing.m4a"),
+                    error: String::from("error finding the file"),
+                    features_version: 0,
+                },
+                ProcessingError {
+                    song_path: PathBuf::from("./data/invalid-file.m4a"),
+                    error: String::from("error decoding the file"),
+                    features_version: 0,
+                }
+            ]
+        );
     }
 }
