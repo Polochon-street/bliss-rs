@@ -42,6 +42,7 @@ library = [
     "dep:indicatif", "ndarray/serde"
 ]
 serde = ["dep:serde", "extended-isolation-forest/serde"]
+integration-tests = []
 
 [dependencies]
 # Until https://github.com/aubio/aubio/issues/336 is somehow solved
