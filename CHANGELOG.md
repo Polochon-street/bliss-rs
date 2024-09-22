@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.9.2
+* Add a way to retrieve failed analysis for a Library.
+
 ## bliss 0.9.1
 * Expose the Mahalanobis distance in the library feature, reading the
   learned matrix in metric learning.
