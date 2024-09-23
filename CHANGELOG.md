@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.9.2
+* Add an extra "integration-tests" feature.
+
 ## bliss 0.9.1
 * Expose the Mahalanobis distance in the library feature, reading the
   learned matrix in metric learning.

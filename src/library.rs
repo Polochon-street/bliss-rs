@@ -122,7 +122,7 @@ use crate::playlist::dedup_playlist_custom_distance;
 use crate::playlist::euclidean_distance;
 use crate::playlist::DistanceMetricBuilder;
 use anyhow::{bail, Context, Result};
-#[cfg(not(test))]
+#[cfg(all(not(test), not(feature = "integration-tests")))]
 use dirs::data_local_dir;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::warn;
@@ -1437,9 +1437,9 @@ fn repeat_vars(count: usize) -> String {
     s
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "integration-tests"))]
 fn data_local_dir() -> Option<PathBuf> {
-    Some(PathBuf::from("/local/directory"))
+    Some(PathBuf::from("/tmp/"))
 }
 
 #[cfg(test)]
@@ -3276,7 +3276,7 @@ mod test {
         env::remove_var("XDG_DATA_HOME");
 
         assert_eq!(
-            PathBuf::from("/local/directory/bliss-rs"),
+            PathBuf::from("/tmp/bliss-rs/"),
             BaseConfig::get_default_data_folder().unwrap()
         );
     }
