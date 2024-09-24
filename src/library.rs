@@ -123,6 +123,8 @@ use crate::playlist::euclidean_distance;
 use crate::playlist::DistanceMetricBuilder;
 use anyhow::{bail, Context, Result};
 #[cfg(all(not(test), not(feature = "integration-tests")))]
+use dirs::config_local_dir;
+#[cfg(all(not(test), not(feature = "integration-tests")))]
 use dirs::data_local_dir;
 use indicatif::{ProgressBar, ProgressStyle};
 use log::warn;
@@ -254,14 +256,42 @@ fn default_m() -> Array2<f32> {
 }
 
 impl BaseConfig {
+    /// Because we spent some time using XDG_DATA_HOME instead of XDG_CONFIG_HOME
+    /// as the default folder, we have to jump through some hoops:
+    ///
+    /// - Legacy path exists, new path doesn't exist => legacy path should be returned
+    /// - Legacy path exists, new path exists => new path should be returned
+    /// - Legacy path doesn't exist => new path should be returned
     pub(crate) fn get_default_data_folder() -> Result<PathBuf> {
+        let error_message = "No suitable path found to store bliss' song database. Consider specifying such a path.";
+        let default_folder = env::var("XDG_CONFIG_HOME")
+            .map(|path| Path::new(&path).join("bliss-rs"))
+            .or_else(|_| {
+                config_local_dir()
+                    .map(|p| p.join("bliss-rs"))
+                    .with_context(|| error_message)
+            });
+
+        if let Ok(folder) = &default_folder {
+            if folder.exists() {
+                return Ok(folder.clone());
+            }
+        }
+
+        if let Ok(legacy_folder) = BaseConfig::get_legacy_data_folder() {
+            if legacy_folder.exists() {
+                return Ok(legacy_folder);
+            }
+        }
+
+        // If neither default_folder nor legacy_folder exist, return the default folder
+        default_folder
+    }
+
+    fn get_legacy_data_folder() -> Result<PathBuf> {
         let path = match env::var("XDG_DATA_HOME") {
             Ok(path) => Path::new(&path).join("bliss-rs"),
-            Err(_) => {
-                    data_local_dir()
-                    .with_context(|| "No suitable path found to store bliss' song database. Consider specifying such a path.")?
-                    .join("bliss-rs")
-            },
+            Err(_) => data_local_dir().with_context(|| "No suitable path found to store bliss' song database. Consider specifying such a path.")?.join("bliss-rs"),
         };
         Ok(path)
     }
@@ -270,15 +300,25 @@ impl BaseConfig {
     /// written to `config_path`.
     //
     /// Any path omitted will instead default to a "clever" path using
-    /// data directory inference. The number of cores is the number of cores
-    /// that should be used for any analysis. If not provided, it will default
-    /// to the computer's number of cores.
+    /// data directory inference. The "clever" thinking is as follows:
+    /// - If the user specified only one of the paths, it will put the other
+    ///   file in the same folder as the given path.
+    /// - If the user specified both paths, it will go with what the user
+    ///   chose.
+    /// - If the user didn't select any path, it will try to put everything in
+    ///   the user's configuration directory, i.e. XDG_CONFIG_HOME.
+    ///
+    /// The number of cores is the number of cores that should be used for
+    /// any analysis. If not provided, it will default to the computer's
+    /// number of cores.
     pub fn new(
         config_path: Option<PathBuf>,
         database_path: Option<PathBuf>,
         number_cores: Option<NonZeroUsize>,
     ) -> Result<Self> {
-        let config_path = {
+        let provided_database_path = database_path.is_some();
+        let provided_config_path = config_path.is_some();
+        let mut final_config_path = {
             // User provided a path; let the future file creation determine
             // whether it points to something valid or not
             if let Some(path) = config_path {
@@ -288,7 +328,7 @@ impl BaseConfig {
             }
         };
 
-        let database_path = {
+        let mut final_database_path = {
             if let Some(path) = database_path {
                 path
             } else {
@@ -296,13 +336,29 @@ impl BaseConfig {
             }
         };
 
+        if provided_database_path && !provided_config_path {
+            final_config_path = final_database_path
+                .parent()
+                .ok_or(BlissError::ProviderError(String::from(
+                    "provided database path was invalid.",
+                )))?
+                .join(Path::new("config.json"))
+        } else if !provided_database_path && provided_config_path {
+            final_database_path = final_config_path
+                .parent()
+                .ok_or(BlissError::ProviderError(String::from(
+                    "provided config path was invalid.",
+                )))?
+                .join(Path::new("songs.db"))
+        }
+
         let number_cores = number_cores.unwrap_or_else(|| {
             thread::available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap())
         });
 
         Ok(Self {
-            config_path,
-            database_path,
+            config_path: final_config_path,
+            database_path: final_database_path,
             features_version: FEATURES_VERSION,
             number_cores,
             m: Array2::eye(NUMBER_FEATURES),
@@ -1439,6 +1495,11 @@ fn repeat_vars(count: usize) -> String {
 
 #[cfg(any(test, feature = "integration-tests"))]
 fn data_local_dir() -> Option<PathBuf> {
+    Some(PathBuf::from("/tmp/data"))
+}
+
+#[cfg(any(test, feature = "integration-tests"))]
+fn config_local_dir() -> Option<PathBuf> {
     Some(PathBuf::from("/tmp/"))
 }
 
@@ -3268,12 +3329,42 @@ mod test {
 
     #[test]
     fn test_get_default_data_folder_no_default_path() {
-        env::set_var("XDG_DATA_HOME", "/home/foo/.local/share/");
+        // Cases to test:
+        // - Legacy path exists, new path doesn't exist => legacy path should be returned
+        // - Legacy path exists, new path exists => new path should be returned
+        // - Legacy path doesn't exist => new path should be returned
+
+        // Nothing exists: XDG_CONFIG_HOME takes precedence
+        env::set_var("XDG_CONFIG_HOME", "/home/foo/.config");
+        env::set_var("XDG_DATA_HOME", "/home/foo/.local/share");
         assert_eq!(
-            PathBuf::from("/home/foo/.local/share/bliss-rs"),
+            PathBuf::from("/home/foo/.config/bliss-rs"),
             BaseConfig::get_default_data_folder().unwrap()
         );
+        env::remove_var("XDG_CONFIG_HOME");
         env::remove_var("XDG_DATA_HOME");
+
+        // Legacy folder exists, new folder does not exist, it takes precedence
+        let existing_legacy_folder = TempDir::new("tmp").unwrap();
+        create_dir_all(existing_legacy_folder.path().join("bliss-rs")).unwrap();
+        env::set_var("XDG_CONFIG_HOME", "/home/foo/.config");
+        env::set_var("XDG_DATA_HOME", existing_legacy_folder.path().as_os_str());
+        assert_eq!(
+            existing_legacy_folder.path().join("bliss-rs"),
+            BaseConfig::get_default_data_folder().unwrap()
+        );
+
+        // Both exists, new folder takes precedence
+        let existing_folder = TempDir::new("tmp").unwrap();
+        create_dir_all(existing_folder.path().join("bliss-rs")).unwrap();
+        env::set_var("XDG_CONFIG_HOME", existing_folder.path().as_os_str());
+        assert_eq!(
+            existing_folder.path().join("bliss-rs"),
+            BaseConfig::get_default_data_folder().unwrap()
+        );
+
+        env::remove_var("XDG_DATA_HOME");
+        env::remove_var("XDG_CONFIG_HOME");
 
         assert_eq!(
             PathBuf::from("/tmp/bliss-rs/"),
@@ -3446,6 +3537,83 @@ mod test {
         let connection = library.sqlite_conn.lock().unwrap();
         let expected_song = _basic_song_from_database(connection, &song.path.to_string_lossy());
         assert_eq!(expected_song, song);
+    }
+
+    #[test]
+    fn test_base_config_new() {
+        {
+            let xdg_config_home = TempDir::new("test-bliss").unwrap();
+            env::set_var("XDG_CONFIG_HOME", xdg_config_home.path());
+
+            // First test case: default options go to the XDG_CONFIG_HOME path.
+            let base_config = BaseConfig::new(None, None, None).unwrap();
+
+            assert_eq!(
+                base_config.config_path,
+                xdg_config_home.path().join("bliss-rs/config.json"),
+            );
+            assert_eq!(
+                base_config.database_path,
+                xdg_config_home.path().join("bliss-rs/songs.db"),
+            );
+        }
+
+        // Second test case: config path, no db path.
+        {
+            let random_config_home = TempDir::new("config").unwrap();
+            let base_config = BaseConfig::new(
+                Some(random_config_home.path().join("test.json")),
+                None,
+                None,
+            )
+            .unwrap();
+
+            assert_eq!(
+                base_config.config_path,
+                random_config_home.path().join("test.json"),
+            );
+            assert_eq!(
+                base_config.database_path,
+                random_config_home.path().join("songs.db")
+            );
+        }
+
+        // Third test case: no config path, but db path.
+        {
+            let random_config_home = TempDir::new("database").unwrap();
+            let base_config =
+                BaseConfig::new(None, Some(random_config_home.path().join("test.db")), None)
+                    .unwrap();
+
+            assert_eq!(
+                base_config.config_path,
+                random_config_home.path().join("config.json"),
+            );
+            assert_eq!(
+                base_config.database_path,
+                random_config_home.path().join("test.db"),
+            );
+        }
+        // Last test case: both paths specified.
+        {
+            let random_config_home = TempDir::new("config").unwrap();
+            let random_database_home = TempDir::new("database").unwrap();
+            let base_config = BaseConfig::new(
+                Some(random_config_home.path().join("config_test.json")),
+                Some(random_database_home.path().join("test-database.db")),
+                None,
+            )
+            .unwrap();
+
+            assert_eq!(
+                base_config.config_path,
+                random_config_home.path().join("config_test.json"),
+            );
+            assert_eq!(
+                base_config.database_path,
+                random_database_home.path().join("test-database.db"),
+            );
+        }
     }
 
     #[test]

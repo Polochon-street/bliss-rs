@@ -1,5 +1,9 @@
 # Changelog
 
+## bliss 0.9.3
+* Library: make the config file selection "smarter".
+* Library: replace XDG_DATA_HOME with XDG_CONFIG_HOME by default.
+
 ## bliss 0.9.2
 * Add an extra "integration-tests" feature.
 
