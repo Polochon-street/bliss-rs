@@ -237,6 +237,9 @@ fn main() -> BlissResult<()> {
         number_cores: NonZeroUsize,
     ) -> mpsc::IntoIter<(PathBuf, BlissResult<Song>)> {
         let mut cores = thread::available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap());
+        // If the number of cores that we have is greater than the number of cores
+        // that the user asked, comply with the user - otherwise we set a number
+        // that's too great.
         if cores > number_cores {
             cores = number_cores;
         }
@@ -654,10 +657,13 @@ pub mod ffmpeg {
     mod tests {
         use crate::decoder::ffmpeg::FFmpeg as Decoder;
         use crate::decoder::Decoder as DecoderTrait;
+        use crate::decoder::PreAnalyzedSong;
         use crate::BlissError;
+        use crate::Song;
         use crate::SAMPLE_RATE;
         use adler32::RollingAdler32;
         use pretty_assertions::assert_eq;
+        use std::num::NonZero;
         use std::path::Path;
 
         fn _test_decode(path: &Path, expected_hash: u32) {
@@ -800,6 +806,44 @@ pub mod ffmpeg {
         fn test_decode_wav() {
             let expected_hash = 0xde831e82;
             _test_decode(Path::new("data/piano.wav"), expected_hash);
+        }
+
+        #[test]
+        fn test_try_from() {
+            let pre_analyzed_song = PreAnalyzedSong::default();
+            assert!(<PreAnalyzedSong as TryInto<Song>>::try_into(pre_analyzed_song).is_err());
+        }
+
+        #[test]
+        fn test_analyze_paths() {
+            let analysis = Decoder::analyze_paths(["data/nonexistent", "data/piano.flac"])
+                .map(|s| s.1.is_ok())
+                .collect::<Vec<_>>();
+            assert_eq!(analysis, vec![false, true]);
+        }
+
+        #[test]
+        fn test_analyze_paths_with_cores() {
+            // Analyze with a number of cores greater than the system's number of cores.
+            let analysis = Decoder::analyze_paths_with_cores(
+                [
+                    "data/nonexistent",
+                    "data/piano.flac",
+                    "data/nonexistent.cue",
+                ],
+                NonZero::new(usize::MAX).unwrap(),
+            )
+            .map(|s| s.1.is_ok())
+            .collect::<Vec<_>>();
+            assert_eq!(analysis, vec![false, true, false]);
+        }
+
+        #[test]
+        fn test_analyze_paths_with_cores_empty_paths() {
+            let analysis =
+                Decoder::analyze_paths_with_cores::<&str, [_; 0]>([], NonZero::new(1).unwrap())
+                    .collect::<Vec<_>>();
+            assert_eq!(analysis, vec![]);
         }
     }
 
