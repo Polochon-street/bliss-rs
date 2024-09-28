@@ -35,11 +35,15 @@ examples below.
 On Ubuntu:
 
     $ sudo apt install build-essential pkg-config libavutil-dev libavformat-dev \
-    libavfilter-dev libavdevice-dev libclang-dev 
+    libavfilter-dev libavdevice-dev libclang-dev
 
 On Archlinux:
 
-    $ sudo pacman -S base-devel clang ffmpeg sqlite
+    $ sudo pacman -S base-devel clang ffmpeg
+
+If you want to use the `library` trait, in order to e.g. make a bliss plugin for an existing audio player,
+and build the examples associated with it, you will also need `libsqlite3-dev` on Ubuntu, or `sqlite` on
+Archlinux.
 
 ## Examples
 
