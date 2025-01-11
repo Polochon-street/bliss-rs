@@ -51,8 +51,8 @@ where
     }
 }
 
-impl<'a, F: Fn(&Array1<f32>, &Array1<f32>) -> f32 + 'static> DistanceMetric
-    for FunctionDistanceMetric<'a, F>
+impl<F: Fn(&Array1<f32>, &Array1<f32>) -> f32 + 'static> DistanceMetric
+    for FunctionDistanceMetric<'_, F>
 {
     fn distance(&self, vector: &Array1<f32>) -> f32 {
         self.state.iter().map(|v| (self.func)(v, vector)).sum()
@@ -194,7 +194,7 @@ struct SongToSongIterator<'a, T: AsRef<Song> + Clone> {
     metric_builder: &'a dyn DistanceMetricBuilder,
 }
 
-impl<'a, T: AsRef<Song> + Clone> Iterator for SongToSongIterator<'a, T> {
+impl<T: AsRef<Song> + Clone> Iterator for SongToSongIterator<'_, T> {
     type Item = T;
 
     fn next(&mut self) -> Option<T> {
