@@ -48,7 +48,7 @@ integration-tests = []
 # Until https://github.com/aubio/aubio/issues/336 is somehow solved
 # Hopefully we'll be able to use the official aubio-rs at some point.
 bliss-audio-aubio-rs = "0.2.2"
-ffmpeg-next = { version = "7.0.3", optional = true }
+ffmpeg-next = { version = "7.1.0", optional = true }
 ffmpeg-sys-next = { version = "7.0.2", optional = true, default-features = false }
 log = "0.4.17"
 # `rayon` is used only by `par_mapv_inplace` in chroma.rs.
