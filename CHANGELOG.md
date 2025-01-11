@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.9.4
+* bump rust-ffmpeg
+
 ## bliss 0.9.3
 * Library: make the config file selection "smarter".
 * Library: replace XDG_DATA_HOME with XDG_CONFIG_HOME by default.
