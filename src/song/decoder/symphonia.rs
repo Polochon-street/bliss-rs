@@ -221,7 +221,7 @@ impl Decoder for SymphoniaDecoder {
 
         let mono_sample_array = {
             let mut mono_sample_array = Vec::with_capacity(
-                (SAMPLE_RATE as f32 * total_duration.as_secs_f32() + 1.0) as usize,
+                (sample_rate as f32 * total_duration.as_secs_f32() + 1.0) as usize,
             );
             let mut iter = source.into_iter();
             while let Some(left) = iter.next() {
@@ -401,5 +401,22 @@ mod tests {
             sample_array.len(), // + SAMPLE_RATE as usize,
             sample_array.capacity()
         );
+    }
+
+    #[cfg(all(feature = "bench", feature = "symphonia", test))]
+    mod bench {
+        extern crate test;
+        use crate::decoder::symphonia::SymphoniaDecoder as Decoder;
+        use crate::decoder::Decoder as DecoderTrait;
+        use std::path::Path;
+        use test::Bencher;
+
+        #[bench]
+        fn bench_resample_multi(b: &mut Bencher) {
+            let path = Path::new("./data/s32_stereo_44_1_kHz.flac");
+            b.iter(|| {
+                Decoder::decode(&path).unwrap();
+            });
+        }
     }
 }

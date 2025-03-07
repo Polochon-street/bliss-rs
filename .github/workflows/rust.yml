@@ -33,7 +33,7 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
     - name: Build benches
-      run: cargo +nightly-2024-07-21 bench --verbose --features=bench --no-run
+      run: cargo +nightly-2024-07-21 bench --verbose --features=bench,symphonia-flak --no-run
     - name: Run example tests
       run: cargo test --verbose --examples
     - name: Build examples with library
