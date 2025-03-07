@@ -27,7 +27,7 @@ jobs:
     - name: Check format
       run: cargo fmt -- --check
     - name: Lint
-      run: cargo clippy --examples --features=serde,library -- -D warnings
+      run: cargo clippy --examples --features=serde,library,symphonia -- -D warnings
     - name: Build
       run: cargo build --verbose
     - name: Run tests
@@ -51,7 +51,9 @@ jobs:
     - name: Test library without ffmpeg
       run: cargo test --verbose --no-default-features --features=library
     - name: Lint without ffmpeg
-      run: cargo clippy --examples --features=serde,library --no-default-features -- -D warnings
+      run: cargo clippy --examples --features=serde,library,symphonia --no-default-features -- -D warnings
+    - name: Test symphonia
+      run: cargo test --features=symphonia-all
 
   build-test-lint-windows:
     name: Windows - build, test and lint
