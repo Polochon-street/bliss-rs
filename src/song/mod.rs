@@ -232,7 +232,7 @@ impl Song {
         }
 
         thread::scope(|s| -> BlissResult<Analysis> {
-            let child_tempo = s.spawn(|| {
+            let child_tempo = s.spawn(|| -> BlissResult<f32> {
                 let mut tempo_desc = BPMDesc::new(SAMPLE_RATE)?;
                 let windows = sample_array
                     .windows(BPMDesc::WINDOW_SIZE)
@@ -244,14 +244,14 @@ impl Song {
                 Ok(tempo_desc.get_value())
             });
 
-            let child_chroma = s.spawn(|| {
+            let child_chroma = s.spawn(|| -> BlissResult<Vec<f32>> {
                 let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
                 chroma_desc.do_(sample_array)?;
                 Ok(chroma_desc.get_values())
             });
 
             #[allow(clippy::type_complexity)]
-            let child_timbral = s.spawn(|| {
+            let child_timbral = s.spawn(|| -> BlissResult<(Vec<f32>, Vec<f32>, Vec<f32>)> {
                 let mut spectral_desc = SpectralDesc::new(SAMPLE_RATE)?;
                 let windows = sample_array
                     .windows(SpectralDesc::WINDOW_SIZE)
@@ -265,13 +265,13 @@ impl Song {
                 Ok((centroid, rolloff, flatness))
             });
 
-            let child_zcr = s.spawn(|| {
+            let child_zcr = s.spawn(|| -> BlissResult<f32> {
                 let mut zcr_desc = ZeroCrossingRateDesc::default();
                 zcr_desc.do_(sample_array);
                 Ok(zcr_desc.get_value())
             });
 
-            let child_loudness = s.spawn(|| {
+            let child_loudness = s.spawn(|| -> BlissResult<Vec<f32>> {
                 let mut loudness_desc = LoudnessDesc::default();
                 let windows = sample_array.chunks(LoudnessDesc::WINDOW_SIZE);
 

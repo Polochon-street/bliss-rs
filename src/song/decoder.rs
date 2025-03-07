@@ -288,6 +288,7 @@ fn main() -> BlissResult<()> {
     }
 }
 
+#[cfg(feature = "symphonia")]
 pub mod symphonia;
 
 #[cfg(feature = "ffmpeg")]

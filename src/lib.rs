@@ -122,10 +122,6 @@ pub enum BlissError {
     /// An error happened with the music library provider.
     /// Useful to report errors when you implement bliss for an audio player.
     ProviderError(String),
-    // #[cfg(feature = "symphonia")]
-    #[error("error happened while decoding file - {0}")]
-    /// An error happened while decoding an (audio) file.
-    SymphoniaDecoderError(String),
 }
 
 /// bliss error type

@@ -77,10 +77,9 @@ impl From<Error> for SymphoniaDecoderError {
         Self::DecodeError(err.to_string())
     }
 }
-
-impl Into<BlissError> for SymphoniaDecoderError {
-    fn into(self) -> BlissError {
-        BlissError::DecodingError(self.to_string())
+impl From<SymphoniaDecoderError> for BlissError {
+    fn from(err: SymphoniaDecoderError) -> Self {
+        BlissError::DecodingError(err.to_string())
     }
 }
 
@@ -201,13 +200,11 @@ impl Decoder for SymphoniaDecoder {
     #[allow(clippy::missing_inline_in_public_items)]
     fn decode(path: &std::path::Path) -> BlissResult<PreAnalyzedSong> {
         // open the file
-        let file = File::open(path)
-            .map_err(SymphoniaDecoderError::from)
-            .map_err(Into::into)?;
+        let file = File::open(path).map_err(SymphoniaDecoderError::from)?;
         // create the media source stream
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
-        let source = Self::new(mss).map_err(Into::into)?;
+        let source = Self::new(mss)?;
 
         // we need to collapse the audio source into one channel
         // channels are interleaved, so if we have 2 channels, `[1, 2, 3, 4]` and `[5, 6, 7, 8]`,
@@ -249,12 +246,10 @@ impl Decoder for SymphoniaDecoder {
                 mono_sample_array.len(),
                 1,
             )
-            .map_err(SymphoniaDecoderError::from)
-            .map_err(Into::into)?;
+            .map_err(SymphoniaDecoderError::from)?;
             resampler
                 .process(&[&mono_sample_array], None)
-                .map_err(SymphoniaDecoderError::from)
-                .map_err(Into::into)?[0]
+                .map_err(SymphoniaDecoderError::from)?[0]
                 .clone()
         };
 
