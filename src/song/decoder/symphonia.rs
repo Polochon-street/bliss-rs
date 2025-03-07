@@ -5,10 +5,7 @@
 use std::{fs::File, time::Duration};
 
 // use rodio::Source;
-use rubato::{
-    calculate_cutoff, Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType,
-    WindowFunction,
-};
+use rubato::{FastFixedIn, PolynomialDegree, Resampler};
 use symphonia::{
     core::{
         audio::{AudioBufferRef, SampleBuffer, SignalSpec},
@@ -245,19 +242,10 @@ impl Decoder for SymphoniaDecoder {
         let resampled_array = if sample_rate == SAMPLE_RATE {
             mono_sample_array
         } else {
-            let window = WindowFunction::Blackman;
-            let params = SincInterpolationParameters {
-                sinc_len: 256,
-                f_cutoff: calculate_cutoff(256, window),
-                oversampling_factor: 128,
-                interpolation: SincInterpolationType::Cubic,
-                window,
-            };
-
-            let mut resampler = SincFixedIn::new(
+            let mut resampler = FastFixedIn::new(
                 f64::from(SAMPLE_RATE) / f64::from(sample_rate),
                 1.0,
-                params,
+                PolynomialDegree::Cubic,
                 mono_sample_array.len(),
                 1,
             )
