@@ -17,7 +17,7 @@ features = ["bliss-audio-aubio-rs/rustdoc", "library", "ffmpeg"]
 no-default-features = true
 
 [features]
-default = ["ffmpeg", "aubio-static", "symphonia-all"]
+default = ["ffmpeg", "aubio-static"]
 # Enable song decoding with ffmpeg. Activated by default, and needed for
 # almost all use-cases, disable it at your own risk!
 # It is only useful if you want to implement the decoding of the tracks yourself
@@ -37,9 +37,15 @@ python-bindings = ["bliss-audio-aubio-rs/fftw3"]
 # Enable the benchmarks with `cargo +nightly bench --features=bench`
 bench = []
 library = [
-    "serde", "dep:rusqlite", "dep:dirs", "dep:tempdir",
-    "dep:anyhow", "dep:serde_ini", "dep:serde_json",
-    "dep:indicatif", "ndarray/serde"
+    "serde",
+    "dep:rusqlite",
+    "dep:dirs",
+    "dep:tempdir",
+    "dep:anyhow",
+    "dep:serde_ini",
+    "dep:serde_json",
+    "dep:indicatif",
+    "ndarray/serde",
 ]
 serde = ["dep:serde", "extended-isolation-forest/serde"]
 integration-tests = []
