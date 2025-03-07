@@ -288,6 +288,8 @@ fn main() -> BlissResult<()> {
     }
 }
 
+pub mod symphonia;
+
 #[cfg(feature = "ffmpeg")]
 /// The default decoder module. It uses [ffmpeg](https://ffmpeg.org/) in
 /// order to decode and resample songs. A very good choice for 99% of

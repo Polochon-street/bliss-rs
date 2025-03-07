@@ -17,7 +17,7 @@ features = ["bliss-audio-aubio-rs/rustdoc", "library", "ffmpeg"]
 no-default-features = true
 
 [features]
-default = ["ffmpeg", "aubio-static"]
+default = ["ffmpeg", "aubio-static", "symphonia-all"]
 # Enable song decoding with ffmpeg. Activated by default, and needed for
 # almost all use-cases, disable it at your own risk!
 # It is only useful if you want to implement the decoding of the tracks yourself
@@ -43,6 +43,33 @@ library = [
 ]
 serde = ["dep:serde", "extended-isolation-forest/serde"]
 integration-tests = []
+# Use to access the Symphonia-based alternative decoder
+symphonia = ["dep:symphonia", "dep:rubato"]
+symphonia-aac = ["symphonia", "symphonia/aac"]
+symphonia-all = [
+    "symphonia",
+    "symphonia-aac",
+    "symphonia-flac",
+    "symphonia-isomp4",
+    "symphonia-mp3",
+    "symphonia-ogg",
+    "symphonia-vorbis",
+    "symphonia-wav",
+]
+symphonia-flac = ["symphonia", "symphonia/flac"]
+symphonia-isomp4 = ["symphonia", "symphonia/isomp4"]
+symphonia-mp3 = ["symphonia", "symphonia/mp3"]
+symphonia-ogg = ["symphonia", "symphonia/ogg"]
+symphonia-vorbis = ["symphonia", "symphonia/vorbis"]
+symphonia-wav = [
+    "symphonia",
+    "symphonia/wav",
+    "symphonia/pcm",
+    "symphonia/adpcm",
+]
+symphonia-alac = ["symphonia", "symphonia/isomp4", "symphonia/alac"]
+symphonia-aiff = ["symphonia", "symphonia/aiff", "symphonia/pcm"]
+
 
 [dependencies]
 # Until https://github.com/aubio/aubio/issues/336 is somehow solved
@@ -73,6 +100,8 @@ rusqlite = { version = "0.28.0", optional = true }
 dirs = { version = "5.0.0", optional = true }
 anyhow = { version = "1.0.58", optional = true }
 indicatif = { version = "0.17.0", optional = true }
+symphonia = { version = "0.5.4", optional = true, default-features = false }
+rubato = { version = "0.16.0", optional = true }
 
 [dev-dependencies]
 ndarray-npy = { version = "0.8.1", default-features = false }
