@@ -625,6 +625,53 @@ mod tests {
         );
     }
 
+    #[cfg(all(
+        feature = "symphonia-flac",
+        feature = "symphonia-ogg",
+        feature = "symphonia-wav",
+        feature = "symphonia-mp3"
+    ))]
+    #[test]
+    fn compare_ffmpeg_to_symphonia_for_all_test_songs() {
+        let paths_and_tolerances = [
+            ("data/capacity_fix.ogg", 0.0000000017),
+            ("data/no_channel.wav", 0.027),
+            ("data/no_tags.flac", 0.175),
+            ("data/piano.flac", f32::EPSILON),
+            ("data/piano.wav", f32::EPSILON),
+            ("data/s16_mono_22_5kHz.flac", f32::EPSILON),
+            ("data/s16_stereo_22_5kHz.flac", f32::EPSILON),
+            ("data/s32_mono_44_1_kHz.flac", 0.0000069),
+            ("data/s32_stereo_44_1_kHz.flac", 0.00001),
+            ("data/s32_stereo_44_1_kHz.mp3", 0.03),
+            ("data/special-tags.mp3", 0.312),
+            ("data/tone_11080Hz.flac", 0.175),
+            ("data/unsupported-tags.mp3", 0.312),
+            ("data/white_noise.mp3", 0.312),
+        ];
+
+        for (path_str, tolerance) in paths_and_tolerances {
+            let path = Path::new(path_str);
+            let symphonia_decoded = Decoder::decode(&path).unwrap();
+            let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpeg::decode(&path).unwrap();
+
+            // calculate the similarity between the two arrays
+            let mut diff = 0.0;
+            for (a, b) in symphonia_decoded
+                .sample_array
+                .iter()
+                .zip(ffmpeg_decoded.sample_array.iter())
+            {
+                diff += (a - b).abs();
+            }
+            diff /= symphonia_decoded.sample_array.len() as f32;
+            assert!(
+                diff < tolerance,
+                "Difference between symphonia and ffmpeg: {diff}, tolerance: {tolerance}, file: {path_str}",
+            );
+        }
+    }
+
     #[cfg(all(feature = "bench", feature = "symphonia-flac", test))]
     mod bench {
         extern crate test;
