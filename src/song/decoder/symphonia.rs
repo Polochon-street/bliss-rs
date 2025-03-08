@@ -204,7 +204,7 @@ impl SymphoniaDecoder {
         let num_channels = self.spec.channels.count();
         let sample_rate = self.spec.rate;
         let Some(total_duration) = self.total_duration else {
-            return Err(SymphoniaDecoderError::IndeterminantDuration.into());
+            return Err(SymphoniaDecoderError::IndeterminantDuration);
         };
 
         match num_channels {
