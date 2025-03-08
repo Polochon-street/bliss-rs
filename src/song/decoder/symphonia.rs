@@ -5,7 +5,7 @@
 use std::{f32::consts::SQRT_2, fs::File, time::Duration};
 
 // use rodio::Source;
-use rubato::{FastFixedIn, PolynomialDegree, Resampler};
+use rubato::{FftFixedIn, Resampler};
 use symphonia::{
     core::{
         audio::{AudioBufferRef, Layout, SampleBuffer, SignalSpec},
@@ -271,18 +271,52 @@ impl Decoder for SymphoniaDecoder {
             mono_sample_array.shrink_to_fit();
             mono_sample_array
         } else {
-            let mut resampler = FastFixedIn::new(
-                f64::from(SAMPLE_RATE) / f64::from(sample_rate),
-                1.0,
-                PolynomialDegree::Cubic,
-                mono_sample_array.len(),
-                1,
-            )
-            .map_err(SymphoniaDecoderError::from)?;
-            resampler
-                .process(&[&mono_sample_array], None)
-                .map_err(SymphoniaDecoderError::from)?[0]
-                .to_owned()
+            let mut resampled =
+                Vec::with_capacity((total_duration.as_secs() as usize + 1) * SAMPLE_RATE as usize);
+
+            const CHUNK_SIZE: usize = 1024;
+            let mut resampler =
+                FftFixedIn::new(sample_rate as usize, SAMPLE_RATE as usize, CHUNK_SIZE, 1, 1)
+                    .map_err(SymphoniaDecoderError::from)?;
+
+            let delay = resampler.output_delay();
+
+            let new_length = mono_sample_array.len() * SAMPLE_RATE as usize / sample_rate as usize;
+            let mut output_buffer = resampler.output_buffer_allocate(true);
+            let mut input_buffer = Vec::with_capacity(CHUNK_SIZE);
+
+            let mut samples = mono_sample_array.into_iter().peekable();
+
+            while samples.peek().is_some() {
+                debug_assert!(resampler.input_frames_next() == CHUNK_SIZE);
+
+                input_buffer.clear();
+                input_buffer.extend(
+                    samples
+                        .by_ref()
+                        .chain(std::iter::repeat(0.0))
+                        .take(CHUNK_SIZE),
+                );
+
+                let (_, output_written) = resampler
+                    .process_into_buffer(&[&input_buffer], output_buffer.as_mut_slice(), None)
+                    .unwrap();
+                resampled.extend_from_slice(&output_buffer[0][..output_written]);
+            }
+
+            // flush final samples from resampler
+            if resampled.len() < new_length + delay {
+                let (_, output_written) = resampler
+                    .process_partial_into_buffer(
+                        Option::<&[&[f32]]>::None,
+                        output_buffer.as_mut_slice(),
+                        None,
+                    )
+                    .unwrap();
+                resampled.extend_from_slice(&output_buffer[0][..output_written]);
+            }
+
+            resampled[delay..new_length + delay].to_vec()
         };
 
         Ok(PreAnalyzedSong {
@@ -358,12 +392,14 @@ mod tests {
     // expected hashs Obtained through
     // ffmpeg -i data/s16_stereo_22_5kHz.flac -ar 22050 -ac 1 -c:a pcm_f32le -f hash -hash adler32 -
 
+    #[cfg(feature = "symphonia-wav")]
     #[test]
     fn test_decode_wav() {
         let expected_hash = 0xde831e82;
         _test_decode(Path::new("data/piano.wav"), expected_hash);
     }
 
+    #[cfg(feature = "symphonia-flac")]
     #[test]
     #[ignore = "fails when asked to resample to 22050 Hz, ig ffmpeg does it differently, but I'm not sure what the difference actually is"]
     fn test_resample_mono() {
@@ -372,6 +408,81 @@ mod tests {
         _test_decode(&path, expected_hash);
     }
 
+    #[cfg(feature = "symphonia-flac")]
+    #[test]
+    fn test_resample_mono_ffmpeg_v_symphonia() {
+        /*
+        configurations tested:
+
+        | Resampler, and configuration | difference from ffmpeg |
+        - SincFixedIn, on whole buffer, with process_into_buffer:       0.0020331843
+        - SincFixedIn, on whole buffer, with process:                   0.0020285384
+        - FastFixedIn, on whole buffer, with process_into_buffer:       0.0039299703
+        - FastFixedIn, on whole buffer, with process:                   0.0039298288
+        - FftFixedIn, on whole buffer, with process_into_buffer:        0.017518902
+        - FftFixedIn, on whole buffer, with process:                    0.0154156
+
+        - SincFixedIn, on chunks of 1024, Cubic interp, Blackman        0.024933979
+        - SincFixedIn, on chunks of 1024, Linear interp, Blackman       0.024933979
+        - SincFixedIn, on chunks of 1024, Cubic interp, Blackman2       0.024934249
+        - SincFixedIn, on chunks of 1024, Cubic interp, Hann            0.024934188
+        - SincFixedIn, on chunks of 1024, Cubic interp, BlackmanHarris  0.024934053
+        - FastFixedIn, on chunks of 1024, Cubic interp                  0.0039299796
+        - FastFixedIn, on chunks of 8192, Cubic interp                  0.0039299796
+        - FastFixedIn, on chunks of 8192, Linear interp                 0.0039299796
+        - FftFixedIn, on chunks of 128, 1 subchunk                      0.000033739863
+        - FftFixedIn, on chunks of 256, 1 subchunk                      0.000015570473
+        - FftFixedIn, on chunks of 512, 1 subchunk                      0.0000071326162
+        - FftFixedIn, on chunks of 1024, 32 subchunks                   0.0018597797
+        - FftFixedIn, on chunks of 1024, 16 subchunks                   0.000092027316
+        - FftFixedIn, on chunks of 1024, 1 subchunk                     0.0000068506047 // <--
+        - FftFixedIn, on chunks of 2048, 1 subchunk                     0.0000070857413
+        - FftFixedIn, on chunks of 4096, 1 subchunk                     0.0000071542086
+        - FftFixedIn, on chunks of 4096, 4 subchunk                     0.0000068506047 // that makes sense actually, 4096/4 = 1024 so it makes sense this matches the output of CHUNK_SIZE=1024
+        - FftFixedIn, on chunks of 8192, 1 subchunk                     0.000007135614
+        - FftFixedIn, on chunks of 16384, 1 subchunk                    0.0000071084633
+        - FftFixedIn, on chunks of 32768, 1 subchunk                    0.0000071034465
+        - FftFixedIn, on chunks of 65736, 1 subchunk                    0.000007098081
+        - FftFixedIn, on chunks of 1024*128, 1 subchunk                 0.000007097704
+        - FftFixedIn, on chunks of 1024*256, 1 subchunk                 0.000007096261
+
+        so FftFixedIn on chunks is definitely the best, if we make the chunks too small it diverges,
+        and if we make them large we get diminishing returns, so we should probably stick to 1024
+
+        Now, what can we do to eliminate the remaining error?
+
+
+         */
+        let path = Path::new("data/s32_mono_44_1_kHz.flac");
+        let symphonia_decoded = Decoder::decode(&path).unwrap();
+        let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpeg::decode(&path).unwrap();
+        // if the first 100 samples are equal, then the rest should be equal.
+        // we check this first since the sample arrays are large enough that printing the diff would attempt
+        // and fail to allocate memory for the string
+        // assert_eq!(
+        //     symphonia_decoded.sample_array[..100],
+        //     ffmpeg_decoded.sample_array[..100]
+        // );
+        // assert_eq!(symphonia_decoded.sample_array, ffmpeg_decoded.sample_array);
+
+        // calculate the similarity between the two arrays
+        let mut diff = 0.0;
+        for (a, b) in symphonia_decoded
+            .sample_array
+            .iter()
+            .zip(ffmpeg_decoded.sample_array.iter())
+        {
+            diff += (a - b).abs();
+        }
+        diff /= symphonia_decoded.sample_array.len() as f32;
+        assert!(
+            diff < 1.0e-5,
+            "Difference between symphonia and ffmpeg: {}",
+            diff
+        );
+    }
+
+    #[cfg(feature = "symphonia-flac")]
     #[test]
     #[ignore = "fails when asked to resample to 22050 Hz, ig ffmpeg does it differently, but I'm not sure what the difference actually is"]
     fn test_resample_multi() {
@@ -380,6 +491,31 @@ mod tests {
         _test_decode(&path, expected_hash);
     }
 
+    #[cfg(feature = "symphonia-flac")]
+    #[test]
+    fn test_resample_multi_ffmpeg_v_symphonia() {
+        let path = Path::new("data/s32_stereo_44_1_kHz.flac");
+        let symphonia_decoded = Decoder::decode(&path).unwrap();
+        let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpeg::decode(&path).unwrap();
+
+        // calculate the similarity between the two arrays
+        let mut diff = 0.0;
+        for (a, b) in symphonia_decoded
+            .sample_array
+            .iter()
+            .zip(ffmpeg_decoded.sample_array.iter())
+        {
+            diff += (a - b).abs();
+        }
+        diff /= symphonia_decoded.sample_array.len() as f32;
+        assert!(
+            diff < 1.0e-5,
+            "Difference between symphonia and ffmpeg: {}",
+            diff
+        );
+    }
+
+    #[cfg(feature = "symphonia-flac")]
     #[test]
     fn test_resample_stereo() {
         let path = Path::new("data/s16_stereo_22_5kHz.flac");
@@ -387,6 +523,7 @@ mod tests {
         _test_decode(&path, expected_hash);
     }
 
+    #[cfg(feature = "symphonia-flac")]
     #[test]
     // From this test, I was able to determine that multiplying the average of the channels by the square root of 2
     // recovers the exact behavior of ffmpeg when converting stereo to mono
@@ -404,6 +541,7 @@ mod tests {
         assert_eq!(symphonia_decoded.sample_array, ffmpeg_decoded.sample_array);
     }
 
+    #[cfg(feature = "symphonia-flac")]
     #[test]
     fn test_decode_mono() {
         let path = Path::new("data/s16_mono_22_5kHz.flac");
@@ -414,6 +552,7 @@ mod tests {
         _test_decode(&path, expected_hash);
     }
 
+    #[cfg(feature = "symphonia-mp3")]
     #[test]
     #[ignore = "fails when asked to convert stereo to mono, ig ffmpeg does it differently, but I'm not sure what the difference actually is"]
     fn test_decode_mp3() {
@@ -426,12 +565,39 @@ mod tests {
         _test_decode(&path, expected_hash);
     }
 
+    #[cfg(feature = "symphonia-mp3")]
+    #[test]
+    fn test_decode_mp3_ffmpeg_v_symphonia() {
+        // TODO: Figure out how to get the error down to 1.0e-5
+        let path = Path::new("data/s32_stereo_44_1_kHz.mp3");
+        let symphonia_decoded = Decoder::decode(&path).unwrap();
+        let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpeg::decode(&path).unwrap();
+
+        // calculate the similarity between the two arrays
+        let mut diff = 0.0;
+        for (a, b) in symphonia_decoded
+            .sample_array
+            .iter()
+            .zip(ffmpeg_decoded.sample_array.iter())
+        {
+            diff += (a - b).abs();
+        }
+        diff /= symphonia_decoded.sample_array.len() as f32;
+        assert!(
+            diff < 0.05,
+            "Difference between symphonia and ffmpeg: {}",
+            diff
+        );
+    }
+
+    #[cfg(feature = "symphonia-wav")]
     #[test]
     fn test_dont_panic_no_channel_layout() {
         let path = Path::new("data/no_channel.wav");
         Decoder::decode(path).unwrap();
     }
 
+    #[cfg(all(feature = "symphonia-flac", feature = "symphonia-ogg"))]
     #[test]
     fn test_decode_right_capacity_vec() {
         let path = Path::new("data/s16_mono_22_5kHz.flac");
@@ -459,7 +625,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "bench", feature = "symphonia", test))]
+    #[cfg(all(feature = "bench", feature = "symphonia-flac", test))]
     mod bench {
         extern crate test;
         use crate::decoder::symphonia::SymphoniaDecoder as Decoder;
