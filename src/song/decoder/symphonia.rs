@@ -2,13 +2,13 @@
 //!
 //! Upstreamed from the `mecomp-analysis` crate.
 
-use std::{fs::File, time::Duration};
+use std::{f32::consts::SQRT_2, fs::File, time::Duration};
 
 // use rodio::Source;
 use rubato::{FastFixedIn, PolynomialDegree, Resampler};
 use symphonia::{
     core::{
-        audio::{AudioBufferRef, SampleBuffer, SignalSpec},
+        audio::{AudioBufferRef, Layout, SampleBuffer, SignalSpec},
         codecs::{DecoderOptions, CODEC_TYPE_NULL},
         errors::Error,
         formats::{FormatOptions, FormatReader},
@@ -189,6 +189,58 @@ impl SymphoniaDecoder {
         buffer.copy_interleaved_ref(decoded);
         buffer
     }
+
+    /// we need to collapse the audio source into one channel
+    /// channels are interleaved, so if we have 2 channels, `[1, 2, 3, 4]` and `[5, 6, 7, 8]`,
+    /// they will be stored as `[1, 5, 2, 6, 3, 7, 4, 8]`
+    ///
+    /// For stereo sound, we can make this mono by averaging the channels and multiplying by the square root of 2,
+    /// This recovers the exact behavior of ffmpeg when converting stereo to mono, however for 2.1 and 5.1 surround sound,
+    /// ffmpeg might be doing something different, and I'm not sure what that is (don't have a 5.1 surround sound file to test with)
+    ///
+    /// TODO: Figure out how ffmpeg does it for 2.1 and 5.1 surround sound, and do it the same way
+    #[inline]
+    fn into_mono_samples(self) -> Result<Vec<f32>, SymphoniaDecoderError> {
+        let num_channels = self.spec.channels.count();
+        let sample_rate = self.spec.rate;
+        let Some(total_duration) = self.total_duration else {
+            return Err(SymphoniaDecoderError::IndeterminantDuration.into());
+        };
+
+        match num_channels {
+            // mono
+            1 => Ok(self.collect()),
+            // stereo
+            2 => {
+                assert!(self.spec.channels == Layout::Stereo.into_channels());
+
+                let mut mono_sample_array = Vec::with_capacity(
+                    (total_duration.as_secs() as usize + 1) * sample_rate as usize,
+                );
+                let mut iter = self.peekable();
+                while let Some(left) = iter.next() {
+                    let right = iter.next().unwrap_or_default();
+                    let sum = left + right;
+                    let avg = sum * SQRT_2 / 2.0;
+                    mono_sample_array.push(avg);
+                }
+                Ok(mono_sample_array)
+            }
+            // 2.1 surround
+            _ => {
+                log::warn!("The audio source has more than 2 channels (might be 2.1 or 5.1 surround sound), will collapse to mono by averaging the channels");
+                let mut mono_sample_array = Vec::with_capacity(
+                    (total_duration.as_secs() as usize + 1) * sample_rate as usize,
+                );
+                let mut iter = self.into_iter().peekable();
+                while iter.peek().is_some() {
+                    let sum = iter.by_ref().take(num_channels).sum::<f32>();
+                    mono_sample_array.push(sum / (num_channels as f32));
+                }
+                Ok(mono_sample_array)
+            }
+        }
+    }
 }
 
 impl Decoder for SymphoniaDecoder {
@@ -206,37 +258,17 @@ impl Decoder for SymphoniaDecoder {
 
         let source = Self::new(mss)?;
 
-        // we need to collapse the audio source into one channel
-        // channels are interleaved, so if we have 2 channels, `[1, 2, 3, 4]` and `[5, 6, 7, 8]`,
-        // they will be stored as `[1, 5, 2, 6, 3, 7, 4, 8]`
-        //
-        // we can make this mono by averaging the channels
-        //
-        // TODO: Figure out how ffmpeg does it, and do it the same way
-        let num_channels = source.spec.channels.count();
+        // Convert the audio source into a mono channel
         let sample_rate = source.spec.rate;
         let Some(total_duration) = source.total_duration else {
             return Err(SymphoniaDecoderError::IndeterminantDuration.into());
         };
 
-        let mono_sample_array = {
-            let mut mono_sample_array = Vec::with_capacity(
-                (sample_rate as f32 * total_duration.as_secs_f32() + 1.0) as usize,
-            );
-            let mut iter = source.into_iter();
-            while let Some(left) = iter.next() {
-                let mut right = 0.;
-                for _ in 1..num_channels {
-                    right += iter.next().unwrap_or(0.0);
-                }
-                mono_sample_array.push((left + right) / (num_channels as f32));
-            }
-            mono_sample_array.shrink_to_fit();
-            mono_sample_array
-        };
+        let mut mono_sample_array = source.into_mono_samples()?;
 
         // then we need to resample the audio source into 22050 Hz
         let resampled_array = if sample_rate == SAMPLE_RATE {
+            mono_sample_array.shrink_to_fit();
             mono_sample_array
         } else {
             let mut resampler = FastFixedIn::new(
@@ -250,7 +282,7 @@ impl Decoder for SymphoniaDecoder {
             resampler
                 .process(&[&mono_sample_array], None)
                 .map_err(SymphoniaDecoderError::from)?[0]
-                .clone()
+                .to_owned()
         };
 
         Ok(PreAnalyzedSong {
@@ -333,7 +365,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "fails when asked to convert stereo to mono, ig ffmpeg does it differently, but I'm not sure what the difference actually is"]
+    #[ignore = "fails when asked to resample to 22050 Hz, ig ffmpeg does it differently, but I'm not sure what the difference actually is"]
     fn test_resample_multi() {
         let path = Path::new("data/s32_stereo_44_1_kHz.flac");
         let expected_hash = 0xbbcba1cf;
@@ -341,11 +373,28 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "fails when asked to convert stereo to mono, ig ffmpeg does it differently, but I'm not sure what the difference actually is"]
+    #[ignore = "fails when asked to resample to 22050 Hz, ig ffmpeg does it differently, but I'm not sure what the difference actually is"]
     fn test_resample_stereo() {
         let path = Path::new("data/s16_stereo_22_5kHz.flac");
         let expected_hash = 0x1d7b2d6d;
         _test_decode(&path, expected_hash);
+    }
+
+    #[test]
+    // From this test, I was able to determine that multiplying the average of the channels by the square root of 2
+    // recovers the exact behavior of ffmpeg when converting stereo to mono
+    fn test_stereo_ffmpeg_v_symphonia() {
+        let path = Path::new("data/s16_stereo_22_5kHz.flac");
+        let symphonia_decoded = Decoder::decode(&path).unwrap();
+        let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpeg::decode(&path).unwrap();
+        // if the first 100 samples are equal, then the rest should be equal.
+        // we check this first since the sample arrays are large enough that printing the diff would attempt
+        // and fail to allocate memory for the string
+        assert_eq!(
+            symphonia_decoded.sample_array[..100],
+            ffmpeg_decoded.sample_array[..100]
+        );
+        assert_eq!(symphonia_decoded.sample_array, ffmpeg_decoded.sample_array);
     }
 
     #[test]
