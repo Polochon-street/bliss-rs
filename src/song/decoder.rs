@@ -866,6 +866,35 @@ pub mod ffmpeg {
         use test::Bencher;
 
         #[bench]
+        /// No resampling, just decoding
+        fn bench_decode_mono(b: &mut Bencher) {
+            let path = Path::new("./data/s16_mono_22_5kHz.flac");
+            b.iter(|| {
+                Decoder::decode(&path).unwrap();
+            });
+        }
+
+        #[bench]
+        /// needs to convert from stereo to mono
+        fn bench_decode_stereo(b: &mut Bencher) {
+            let path = Path::new("./data/s16_stereo_22_5kHz.flac");
+            b.iter(|| {
+                Decoder::decode(&path).unwrap();
+            });
+        }
+
+        #[bench]
+        /// needs to convert from 44.1 kHz to 22.05 kHz
+        fn bench_resample_mono(b: &mut Bencher) {
+            let path = Path::new("./data/s32_mono_44_1_kHz.flac");
+            b.iter(|| {
+                Decoder::decode(&path).unwrap();
+            });
+        }
+
+        #[bench]
+        /// needs to convert from 44.1 kHz to 22.05 kHz
+        /// and from stereo to mono
         fn bench_resample_multi(b: &mut Bencher) {
             let path = Path::new("./data/s32_stereo_44_1_kHz.flac");
             b.iter(|| {
