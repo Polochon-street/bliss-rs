@@ -367,6 +367,41 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "symphonia-flac")]
+    fn test_analyze_with_symphonia() {
+        use crate::decoder::symphonia::SymphoniaDecoder;
+
+        let song =
+            SymphoniaDecoder::song_from_path(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
+        let expected_analysis = vec![
+            0.3846389,
+            -0.849141,
+            -0.75481045,
+            -0.8790748,
+            -0.63258266,
+            -0.7258959,
+            -0.775738,
+            -0.8146726,
+            0.2716726,
+            0.25779057,
+            -0.35661936,
+            -0.63578653,
+            -0.29593682,
+            0.06421304,
+            0.21852458,
+            -0.581239,
+            -0.9466835,
+            -0.9481153,
+            -0.9820945,
+            -0.95968974,
+        ];
+        for (x, y) in song.analysis.as_vec().iter().zip(expected_analysis) {
+            assert!(0.01 > (x - y).abs());
+        }
+        assert_eq!(FEATURES_VERSION, song.features_version);
+    }
+
+    #[test]
     #[cfg(feature = "ffmpeg")]
     fn test_index_analysis() {
         let song = Decoder::song_from_path("data/s16_mono_22_5kHz.flac").unwrap();
