@@ -724,6 +724,13 @@ pub mod ffmpeg {
         }
 
         #[test]
+        fn test_resample_mono() {
+            let path = Path::new("data/s32_mono_44_1_kHz.flac");
+            let expected_hash = 0xa0f8b8af;
+            _test_decode(&path, expected_hash);
+        }
+
+        #[test]
         fn test_resample_multi() {
             let path = Path::new("data/s32_stereo_44_1_kHz.flac");
             let expected_hash = 0xbbcba1cf;

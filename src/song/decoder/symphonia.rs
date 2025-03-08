@@ -366,6 +366,14 @@ mod tests {
 
     #[test]
     #[ignore = "fails when asked to resample to 22050 Hz, ig ffmpeg does it differently, but I'm not sure what the difference actually is"]
+    fn test_resample_mono() {
+        let path = Path::new("data/s32_mono_44_1_kHz.flac");
+        let expected_hash = 0xa0f8b8af;
+        _test_decode(&path, expected_hash);
+    }
+
+    #[test]
+    #[ignore = "fails when asked to resample to 22050 Hz, ig ffmpeg does it differently, but I'm not sure what the difference actually is"]
     fn test_resample_multi() {
         let path = Path::new("data/s32_stereo_44_1_kHz.flac");
         let expected_hash = 0xbbcba1cf;
@@ -373,7 +381,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "fails when asked to resample to 22050 Hz, ig ffmpeg does it differently, but I'm not sure what the difference actually is"]
     fn test_resample_stereo() {
         let path = Path::new("data/s16_stereo_22_5kHz.flac");
         let expected_hash = 0x1d7b2d6d;
