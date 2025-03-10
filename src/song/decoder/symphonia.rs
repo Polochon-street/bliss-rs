@@ -156,19 +156,14 @@ impl SymphoniaDecoder {
 
             match decoder.decode(&current_span) {
                 Ok(decoded) => break decoded,
-                Err(e) => match e {
-                    Error::DecodeError(_) => {
-                        decode_errors += 1;
-                        if decode_errors > MAX_DECODE_RETRIES {
-                            return Err(e);
-                        } else {
-                            continue;
-                        }
-                    }
-                    _ => return Err(e),
-                },
+                Err(Error::DecodeError(_)) if decode_errors < MAX_DECODE_RETRIES => {
+                    decode_errors += 1;
+                    continue;
+                }
+                Err(e) => return Err(e),
             }
         };
+
         let spec = decoded.spec().to_owned();
         let buffer = Self::get_buffer(decoded, spec);
         Ok(Some(Self {
@@ -236,10 +231,68 @@ impl SymphoniaDecoder {
             }
         }
     }
+
+    /// Resample the given mono samples to 22050 Hz
+    #[inline]
+    fn resample_mono_samples(
+        mut samples: Vec<f32>,
+        sample_rate: u32,
+        total_duration: Duration,
+    ) -> Result<Vec<f32>, SymphoniaDecoderError> {
+        if sample_rate == SAMPLE_RATE {
+            samples.shrink_to_fit();
+            return Ok(samples);
+        }
+
+        let mut resampled =
+            Vec::with_capacity((total_duration.as_secs() as usize + 1) * SAMPLE_RATE as usize);
+
+        let mut resampler =
+            FftFixedIn::new(sample_rate as usize, SAMPLE_RATE as usize, CHUNK_SIZE, 4, 1)
+                .map_err(SymphoniaDecoderError::from)?;
+
+        let delay = resampler.output_delay();
+
+        let new_length = samples.len() * SAMPLE_RATE as usize / sample_rate as usize;
+        let mut output_buffer = resampler.output_buffer_allocate(true);
+
+        // chunks of frames, each being CHUNKSIZE long.
+        let sample_chunks = samples.chunks_exact(CHUNK_SIZE);
+        let remainder = sample_chunks.remainder();
+
+        for chunk in sample_chunks {
+            debug_assert!(resampler.input_frames_next() == CHUNK_SIZE);
+
+            let (_, output_written) =
+                resampler.process_into_buffer(&[chunk], output_buffer.as_mut_slice(), None)?;
+            resampled.extend_from_slice(&output_buffer[0][..output_written]);
+        }
+
+        // process the remainder
+        if !remainder.is_empty() {
+            let (_, output_written) = resampler.process_partial_into_buffer(
+                Some(&[remainder]),
+                output_buffer.as_mut_slice(),
+                None,
+            )?;
+            resampled.extend_from_slice(&output_buffer[0][..output_written]);
+        }
+
+        // flush final samples from resampler
+        if resampled.len() < new_length + delay {
+            let (_, output_written) = resampler.process_partial_into_buffer(
+                Option::<&[&[f32]]>::None,
+                output_buffer.as_mut_slice(),
+                None,
+            )?;
+            resampled.extend_from_slice(&output_buffer[0][..output_written]);
+        }
+
+        Ok(resampled[delay..new_length + delay].to_vec())
+    }
 }
 
-const CHUNK_SIZE: usize = 1024;
-
+const CHUNK_SIZE: usize = 4096;
 
 impl Decoder for SymphoniaDecoder {
     /// A function that should decode and resample a song, optionally
@@ -262,64 +315,11 @@ impl Decoder for SymphoniaDecoder {
             return Err(SymphoniaDecoderError::IndeterminantDuration.into());
         };
 
-        let mut mono_sample_array = source.into_mono_samples()?;
+        let mono_sample_array = source.into_mono_samples()?;
 
         // then we need to resample the audio source into 22050 Hz
-        let resampled_array = if sample_rate == SAMPLE_RATE {
-            mono_sample_array.shrink_to_fit();
-            mono_sample_array
-        } else {
-            let mut resampled =
-                Vec::with_capacity((total_duration.as_secs() as usize + 1) * SAMPLE_RATE as usize);
-
-            let mut resampler =
-                FftFixedIn::new(sample_rate as usize, SAMPLE_RATE as usize, CHUNK_SIZE, 1, 1)
-                    .map_err(SymphoniaDecoderError::from)?;
-
-            let delay = resampler.output_delay();
-
-            let new_length = mono_sample_array.len() * SAMPLE_RATE as usize / sample_rate as usize;
-            let mut output_buffer = resampler.output_buffer_allocate(true);
-
-            // chunks of frames, each being CHUNKSIZE long.
-            let sample_chunks = mono_sample_array.chunks_exact(CHUNK_SIZE);
-            let remainder = sample_chunks.remainder();
-
-            for chunk in sample_chunks {
-                debug_assert!(resampler.input_frames_next() == CHUNK_SIZE);
-
-                let (_, output_written) = resampler
-                    .process_into_buffer(&[chunk], output_buffer.as_mut_slice(), None)
-                    .unwrap();
-                resampled.extend_from_slice(&output_buffer[0][..output_written]);
-            }
-
-            // process the remainder
-            if !remainder.is_empty() {
-                let (_, output_written) = resampler
-                    .process_partial_into_buffer(
-                        Some(&[remainder]),
-                        output_buffer.as_mut_slice(),
-                        None,
-                    )
-                    .unwrap();
-                resampled.extend_from_slice(&output_buffer[0][..output_written]);
-            }
-
-            // flush final samples from resampler
-            if resampled.len() < new_length + delay {
-                let (_, output_written) = resampler
-                    .process_partial_into_buffer(
-                        Option::<&[&[f32]]>::None,
-                        output_buffer.as_mut_slice(),
-                        None,
-                    )
-                    .unwrap();
-                resampled.extend_from_slice(&output_buffer[0][..output_written]);
-            }
-
-            resampled[delay..new_length + delay].to_vec()
-        };
+        let resampled_array =
+            Self::resample_mono_samples(mono_sample_array, sample_rate, total_duration)?;
 
         Ok(PreAnalyzedSong {
             path: path.to_owned(),
@@ -349,34 +349,32 @@ impl Iterator for SymphoniaDecoder {
             let mut decode_errors = 0;
             let decoded = loop {
                 let packet = self.format.next_packet().ok()?;
-                let Ok(decoded) = self.decoder.decode(&packet) else {
-                    decode_errors += 1;
-                    if decode_errors > MAX_DECODE_RETRIES {
-                        return None;
-                    } else {
+                match self.decoder.decode(&packet) {
+                    // Loop until we get a packet with audio frames. This is necessary because some
+                    // formats can have packets with only metadata, particularly when rewinding, in
+                    // which case the iterator would otherwise end with `None`.
+                    // Note: checking `decoded.frames()` is more reliable than `packet.dur()`, which
+                    // can resturn non-zero durations for packets without audio frames.
+                    Ok(decoded) if decoded.frames() > 0 => break decoded,
+                    Ok(_) => continue,
+                    Err(Error::DecodeError(_)) if decode_errors < MAX_DECODE_RETRIES => {
+                        decode_errors += 1;
                         continue;
                     }
-                };
-
-                // Loop until we get a packet with audio frames. This is necessary because some
-                // formats can have packets with only metadata, particularly when rewinding, in
-                // which case the iterator would otherwise end with `None`.
-                // Note: checking `decoded.frames()` is more reliable than `packet.dur()`, which
-                // can resturn non-zero durations for packets without audio frames.
-                if decoded.frames() > 0 {
-                    break decoded;
+                    Err(_) => return None,
                 }
             };
 
             decoded.spec().clone_into(&mut self.spec);
             self.buffer = Self::get_buffer(decoded, self.spec);
-            self.current_span_offset = 0;
+            self.current_span_offset = 1;
+            return self.buffer.samples().get(0).copied();
         }
 
-        let sample = *self.buffer.samples().get(self.current_span_offset)?;
+        let sample = self.buffer.samples().get(self.current_span_offset);
         self.current_span_offset += 1;
 
-        Some(sample)
+        sample.copied()
     }
 }
 
