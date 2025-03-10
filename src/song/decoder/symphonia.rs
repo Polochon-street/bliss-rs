@@ -12,7 +12,7 @@ use symphonia::{
         codecs::{DecoderOptions, CODEC_TYPE_NULL},
         errors::Error,
         formats::{FormatOptions, FormatReader},
-        io::MediaSourceStream,
+        io::{MediaSourceStream, MediaSourceStreamOptions},
         meta::MetadataOptions,
         probe::Hint,
         units,
@@ -26,7 +26,7 @@ use crate::{BlissError, BlissResult, SAMPLE_RATE};
 use super::{Decoder, PreAnalyzedSong};
 
 #[derive(Debug, Error, PartialEq, Eq, Clone)]
-/// Error raised when trying to decode a song with the SymphoniaDecoder.
+/// Error raised when trying to decode a song with the `SymphoniaDecoder`.
 pub enum SymphoniaDecoderError {
     #[error("Failed to resample audio: {0}")]
     /// Error raised when trying to resample audio.
@@ -79,7 +79,7 @@ impl From<Error> for SymphoniaDecoderError {
 }
 impl From<SymphoniaDecoderError> for BlissError {
     fn from(err: SymphoniaDecoderError) -> Self {
-        BlissError::DecodingError(err.to_string())
+        Self::DecodingError(err.to_string())
     }
 }
 
@@ -97,7 +97,7 @@ pub(crate) struct SymphoniaDecoder {
 
 impl SymphoniaDecoder {
     pub fn new(mss: MediaSourceStream) -> Result<Self, SymphoniaDecoderError> {
-        match SymphoniaDecoder::init(mss) {
+        match Self::init(mss) {
             Err(e) => match e {
                 Error::IoError(e) => Err(SymphoniaDecoderError::IoError(e.to_string())),
                 Error::SeekError(_) => {
@@ -111,17 +111,16 @@ impl SymphoniaDecoder {
     }
 
     /// A "substantial portion" of this implementation comes from the `rodio` crate,
-    /// https://github.com/RustAudio/rodio/blob/1c2cd2f6d99c005533b7a2b4c19ef41728f62116/src/decoder/symphonia.rs
+    /// <https://github.com/RustAudio/rodio/blob/1c2cd2f6d99c005533b7a2b4c19ef41728f62116/src/decoder/symphonia.rs>
     /// and is licensed under the MIT License.
-    fn init(mss: MediaSourceStream) -> symphonia::core::errors::Result<Option<SymphoniaDecoder>> {
+    fn init(mss: MediaSourceStream) -> symphonia::core::errors::Result<Option<Self>> {
         let hint = Hint::new();
-        let format_opts: FormatOptions = Default::default();
-        let metadata_opts: MetadataOptions = Default::default();
+        let format_opts = FormatOptions::default();
+        let metadata_opts = MetadataOptions::default();
         let mut probed = get_probe().format(&hint, mss, &format_opts, &metadata_opts)?;
 
-        let stream = match probed.format.default_track() {
-            Some(stream) => stream,
-            None => return Ok(None),
+        let Some(stream) = probed.format.default_track() else {
+            return Ok(None);
         };
 
         // Select the first supported track
@@ -171,8 +170,8 @@ impl SymphoniaDecoder {
             }
         };
         let spec = decoded.spec().to_owned();
-        let buffer = SymphoniaDecoder::get_buffer(decoded, &spec);
-        Ok(Some(SymphoniaDecoder {
+        let buffer = Self::get_buffer(decoded, spec);
+        Ok(Some(Self {
             decoder,
             current_span_offset: 0,
             format: probed.format,
@@ -183,9 +182,9 @@ impl SymphoniaDecoder {
     }
 
     #[inline]
-    fn get_buffer(decoded: AudioBufferRef, spec: &SignalSpec) -> SampleBuffer<f32> {
+    fn get_buffer(decoded: AudioBufferRef, spec: SignalSpec) -> SampleBuffer<f32> {
         let duration = units::Duration::from(decoded.capacity() as u64);
-        let mut buffer = SampleBuffer::<f32>::new(duration, *spec);
+        let mut buffer = SampleBuffer::<f32>::new(duration, spec);
         buffer.copy_interleaved_ref(decoded);
         buffer
     }
@@ -207,6 +206,8 @@ impl SymphoniaDecoder {
         }
 
         match num_channels {
+            // no channels
+            0 => Err(SymphoniaDecoderError::NoStreams),
             // mono
             1 => Ok(self.collect()),
             // stereo
@@ -237,6 +238,9 @@ impl SymphoniaDecoder {
     }
 }
 
+const CHUNK_SIZE: usize = 1024;
+
+
 impl Decoder for SymphoniaDecoder {
     /// A function that should decode and resample a song, optionally
     /// extracting the song's metadata such as the artist, the album, etc.
@@ -248,7 +252,7 @@ impl Decoder for SymphoniaDecoder {
         // open the file
         let file = File::open(path).map_err(SymphoniaDecoderError::from)?;
         // create the media source stream
-        let mss = MediaSourceStream::new(Box::new(file), Default::default());
+        let mss = MediaSourceStream::new(Box::new(file), MediaSourceStreamOptions::default());
 
         let source = Self::new(mss)?;
 
@@ -268,7 +272,6 @@ impl Decoder for SymphoniaDecoder {
             let mut resampled =
                 Vec::with_capacity((total_duration.as_secs() as usize + 1) * SAMPLE_RATE as usize);
 
-            const CHUNK_SIZE: usize = 1024;
             let mut resampler =
                 FftFixedIn::new(sample_rate as usize, SAMPLE_RATE as usize, CHUNK_SIZE, 1, 1)
                     .map_err(SymphoniaDecoderError::from)?;
@@ -277,23 +280,28 @@ impl Decoder for SymphoniaDecoder {
 
             let new_length = mono_sample_array.len() * SAMPLE_RATE as usize / sample_rate as usize;
             let mut output_buffer = resampler.output_buffer_allocate(true);
-            let mut input_buffer = Vec::with_capacity(CHUNK_SIZE);
 
-            let mut samples = mono_sample_array.into_iter().peekable();
+            // chunks of frames, each being CHUNKSIZE long.
+            let sample_chunks = mono_sample_array.chunks_exact(CHUNK_SIZE);
+            let remainder = sample_chunks.remainder();
 
-            while samples.peek().is_some() {
+            for chunk in sample_chunks {
                 debug_assert!(resampler.input_frames_next() == CHUNK_SIZE);
 
-                input_buffer.clear();
-                input_buffer.extend(
-                    samples
-                        .by_ref()
-                        .chain(std::iter::repeat(0.0))
-                        .take(CHUNK_SIZE),
-                );
-
                 let (_, output_written) = resampler
-                    .process_into_buffer(&[&input_buffer], output_buffer.as_mut_slice(), None)
+                    .process_into_buffer(&[chunk], output_buffer.as_mut_slice(), None)
+                    .unwrap();
+                resampled.extend_from_slice(&output_buffer[0][..output_written]);
+            }
+
+            // process the remainder
+            if !remainder.is_empty() {
+                let (_, output_written) = resampler
+                    .process_partial_into_buffer(
+                        Some(&[remainder]),
+                        output_buffer.as_mut_slice(),
+                        None,
+                    )
                     .unwrap();
                 resampled.extend_from_slice(&output_buffer[0][..output_written]);
             }
@@ -322,7 +330,7 @@ impl Decoder for SymphoniaDecoder {
 }
 
 /// This implementation comes from the `rodio` crate,
-/// https://github.com/RustAudio/rodio/blob/1c2cd2f6d99c005533b7a2b4c19ef41728f62116/src/decoder/symphonia.rs
+/// <https://github.com/RustAudio/rodio/blob/1c2cd2f6d99c005533b7a2b4c19ef41728f62116/src/decoder/symphonia.rs>
 /// and is licensed under the MIT License.
 impl Iterator for SymphoniaDecoder {
     type Item = f32;
@@ -341,15 +349,12 @@ impl Iterator for SymphoniaDecoder {
             let mut decode_errors = 0;
             let decoded = loop {
                 let packet = self.format.next_packet().ok()?;
-                let decoded = match self.decoder.decode(&packet) {
-                    Ok(decoded) => decoded,
-                    Err(_) => {
-                        decode_errors += 1;
-                        if decode_errors > MAX_DECODE_RETRIES {
-                            return None;
-                        } else {
-                            continue;
-                        }
+                let Ok(decoded) = self.decoder.decode(&packet) else {
+                    decode_errors += 1;
+                    if decode_errors > MAX_DECODE_RETRIES {
+                        return None;
+                    } else {
+                        continue;
                     }
                 };
 
@@ -364,7 +369,7 @@ impl Iterator for SymphoniaDecoder {
             };
 
             decoded.spec().clone_into(&mut self.spec);
-            self.buffer = SymphoniaDecoder::get_buffer(decoded, &self.spec);
+            self.buffer = Self::get_buffer(decoded, self.spec);
             self.current_span_offset = 0;
         }
 
