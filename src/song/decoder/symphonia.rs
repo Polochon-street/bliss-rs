@@ -4,7 +4,6 @@
 
 use std::{f32::consts::SQRT_2, fs::File, time::Duration};
 
-// use rodio::Source;
 use rubato::{FftFixedIn, Resampler};
 use symphonia::{
     core::{
@@ -84,9 +83,10 @@ impl From<SymphoniaDecoderError> for BlissError {
 }
 
 const MAX_DECODE_RETRIES: usize = 3;
+const CHUNK_SIZE: usize = 4096;
 
-#[allow(clippy::module_name_repetitions)]
-pub(crate) struct SymphoniaDecoder {
+/// Struct used by the symphonia-based bliss decoders to decode audio files
+struct SymphoniaSource {
     decoder: Box<dyn symphonia::core::codecs::Decoder>,
     current_span_offset: usize,
     format: Box<dyn FormatReader>,
@@ -95,7 +95,7 @@ pub(crate) struct SymphoniaDecoder {
     spec: SignalSpec,
 }
 
-impl SymphoniaDecoder {
+impl SymphoniaSource {
     pub fn new(mss: MediaSourceStream) -> Result<Self, SymphoniaDecoderError> {
         match Self::init(mss) {
             Err(e) => match e {
@@ -183,7 +183,61 @@ impl SymphoniaDecoder {
         buffer.copy_interleaved_ref(decoded);
         buffer
     }
+}
 
+/// This implementation comes from the `rodio` crate,
+/// <https://github.com/RustAudio/rodio/blob/1c2cd2f6d99c005533b7a2b4c19ef41728f62116/src/decoder/symphonia.rs>
+/// and is licensed under the MIT License.
+impl Iterator for SymphoniaSource {
+    type Item = f32;
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (
+            self.buffer.samples().len(),
+            self.total_duration.map(|dur| {
+                (dur.as_secs() + 1) as usize * self.spec.rate as usize * self.spec.channels.count()
+            }),
+        )
+    }
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_span_offset >= self.buffer.len() {
+            let mut decode_errors = 0;
+            let decoded = loop {
+                let packet = self.format.next_packet().ok()?;
+                match self.decoder.decode(&packet) {
+                    // Loop until we get a packet with audio frames. This is necessary because some
+                    // formats can have packets with only metadata, particularly when rewinding, in
+                    // which case the iterator would otherwise end with `None`.
+                    // Note: checking `decoded.frames()` is more reliable than `packet.dur()`, which
+                    // can resturn non-zero durations for packets without audio frames.
+                    Ok(decoded) if decoded.frames() > 0 => break decoded,
+                    Ok(_) => continue,
+                    Err(Error::DecodeError(_)) if decode_errors < MAX_DECODE_RETRIES => {
+                        decode_errors += 1;
+                        continue;
+                    }
+                    Err(_) => return None,
+                }
+            };
+
+            decoded.spec().clone_into(&mut self.spec);
+            self.buffer = Self::get_buffer(decoded, self.spec);
+            self.current_span_offset = 1;
+            return self.buffer.samples().first().copied();
+        }
+
+        let sample = self.buffer.samples().get(self.current_span_offset);
+        self.current_span_offset += 1;
+
+        sample.copied()
+    }
+}
+
+/// Sequential, single-threaded decoder based on Symphonia
+pub struct SymphoniaDecoder;
+
+impl SymphoniaDecoder {
     /// we need to collapse the audio source into one channel
     /// channels are interleaved, so if we have 2 channels, `[1, 2, 3, 4]` and `[5, 6, 7, 8]`,
     /// they will be stored as `[1, 5, 2, 6, 3, 7, 4, 8]`
@@ -194,9 +248,9 @@ impl SymphoniaDecoder {
     ///
     /// TODO: Figure out how ffmpeg does it for 2.1 and 5.1 surround sound, and do it the same way
     #[inline]
-    fn into_mono_samples(self) -> Result<Vec<f32>, SymphoniaDecoderError> {
-        let num_channels = self.spec.channels.count();
-        if self.total_duration.is_none() {
+    fn into_mono_samples(source: SymphoniaSource) -> Result<Vec<f32>, SymphoniaDecoderError> {
+        let num_channels = source.spec.channels.count();
+        if source.total_duration.is_none() {
             return Err(SymphoniaDecoderError::IndeterminantDuration);
         }
 
@@ -204,12 +258,12 @@ impl SymphoniaDecoder {
             // no channels
             0 => Err(SymphoniaDecoderError::NoStreams),
             // mono
-            1 => Ok(self.collect()),
+            1 => Ok(source.collect()),
             // stereo
             2 => {
-                assert!(self.spec.channels == Layout::Stereo.into_channels());
+                assert!(source.spec.channels == Layout::Stereo.into_channels());
 
-                let mono_samples = self
+                let mono_samples = source
                     .collect::<Vec<_>>()
                     .chunks_exact(2)
                     .map(|chunk| (chunk[0] + chunk[1]) * SQRT_2 / 2.)
@@ -221,7 +275,7 @@ impl SymphoniaDecoder {
             _ => {
                 log::warn!("The audio source has more than 2 channels (might be 2.1 or 5.1 surround sound), will collapse to mono by averaging the channels");
 
-                let mono_samples = self
+                let mono_samples = source
                     .collect::<Vec<_>>()
                     .chunks_exact(num_channels)
                     .map(|chunk| chunk.iter().sum::<f32>() / num_channels as f32)
@@ -292,8 +346,6 @@ impl SymphoniaDecoder {
     }
 }
 
-const CHUNK_SIZE: usize = 4096;
-
 impl Decoder for SymphoniaDecoder {
     /// A function that should decode and resample a song, optionally
     /// extracting the song's metadata such as the artist, the album, etc.
@@ -307,7 +359,7 @@ impl Decoder for SymphoniaDecoder {
         // create the media source stream
         let mss = MediaSourceStream::new(Box::new(file), MediaSourceStreamOptions::default());
 
-        let source = Self::new(mss)?;
+        let source = SymphoniaSource::new(mss)?;
 
         // Convert the audio source into a mono channel
         let sample_rate = source.spec.rate;
@@ -315,7 +367,7 @@ impl Decoder for SymphoniaDecoder {
             return Err(SymphoniaDecoderError::IndeterminantDuration.into());
         };
 
-        let mono_sample_array = source.into_mono_samples()?;
+        let mono_sample_array = Self::into_mono_samples(source)?;
 
         // then we need to resample the audio source into 22050 Hz
         let resampled_array =
@@ -326,55 +378,6 @@ impl Decoder for SymphoniaDecoder {
             sample_array: resampled_array,
             ..Default::default()
         })
-    }
-}
-
-/// This implementation comes from the `rodio` crate,
-/// <https://github.com/RustAudio/rodio/blob/1c2cd2f6d99c005533b7a2b4c19ef41728f62116/src/decoder/symphonia.rs>
-/// and is licensed under the MIT License.
-impl Iterator for SymphoniaDecoder {
-    type Item = f32;
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        (
-            self.buffer.samples().len(),
-            self.total_duration.map(|dur| {
-                (dur.as_secs() + 1) as usize * self.spec.rate as usize * self.spec.channels.count()
-            }),
-        )
-    }
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.current_span_offset >= self.buffer.len() {
-            let mut decode_errors = 0;
-            let decoded = loop {
-                let packet = self.format.next_packet().ok()?;
-                match self.decoder.decode(&packet) {
-                    // Loop until we get a packet with audio frames. This is necessary because some
-                    // formats can have packets with only metadata, particularly when rewinding, in
-                    // which case the iterator would otherwise end with `None`.
-                    // Note: checking `decoded.frames()` is more reliable than `packet.dur()`, which
-                    // can resturn non-zero durations for packets without audio frames.
-                    Ok(decoded) if decoded.frames() > 0 => break decoded,
-                    Ok(_) => continue,
-                    Err(Error::DecodeError(_)) if decode_errors < MAX_DECODE_RETRIES => {
-                        decode_errors += 1;
-                        continue;
-                    }
-                    Err(_) => return None,
-                }
-            };
-
-            decoded.spec().clone_into(&mut self.spec);
-            self.buffer = Self::get_buffer(decoded, self.spec);
-            self.current_span_offset = 1;
-            return self.buffer.samples().get(0).copied();
-        }
-
-        let sample = self.buffer.samples().get(self.current_span_offset);
-        self.current_span_offset += 1;
-
-        sample.copied()
     }
 }
 
