@@ -901,5 +901,13 @@ pub mod ffmpeg {
                 Decoder::decode(&path).unwrap();
             });
         }
+
+        #[bench]
+        fn bench_mp3(b: &mut Bencher) {
+            let path = Path::new("./data/s32_stereo_44_1_kHz.mp3");
+            b.iter(|| {
+                Decoder::decode(&path).unwrap();
+            });
+        }
     }
 }
