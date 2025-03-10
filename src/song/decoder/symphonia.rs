@@ -202,10 +202,9 @@ impl SymphoniaDecoder {
     #[inline]
     fn into_mono_samples(self) -> Result<Vec<f32>, SymphoniaDecoderError> {
         let num_channels = self.spec.channels.count();
-        let sample_rate = self.spec.rate;
-        let Some(total_duration) = self.total_duration else {
+        if self.total_duration.is_none() {
             return Err(SymphoniaDecoderError::IndeterminantDuration);
-        };
+        }
 
         match num_channels {
             // mono
@@ -214,30 +213,25 @@ impl SymphoniaDecoder {
             2 => {
                 assert!(self.spec.channels == Layout::Stereo.into_channels());
 
-                let mut mono_sample_array = Vec::with_capacity(
-                    (total_duration.as_secs() as usize + 1) * sample_rate as usize,
-                );
-                let mut iter = self.peekable();
-                while let Some(left) = iter.next() {
-                    let right = iter.next().unwrap_or_default();
-                    let sum = left + right;
-                    let avg = sum * SQRT_2 / 2.0;
-                    mono_sample_array.push(avg);
-                }
-                Ok(mono_sample_array)
+                let mono_samples = self
+                    .collect::<Vec<_>>()
+                    .chunks_exact(2)
+                    .map(|chunk| (chunk[0] + chunk[1]) * SQRT_2 / 2.)
+                    .collect();
+
+                Ok(mono_samples)
             }
-            // 2.1 surround
+            // 2.1 or 5.1 surround
             _ => {
                 log::warn!("The audio source has more than 2 channels (might be 2.1 or 5.1 surround sound), will collapse to mono by averaging the channels");
-                let mut mono_sample_array = Vec::with_capacity(
-                    (total_duration.as_secs() as usize + 1) * sample_rate as usize,
-                );
-                let mut iter = self.into_iter().peekable();
-                while iter.peek().is_some() {
-                    let sum = iter.by_ref().take(num_channels).sum::<f32>();
-                    mono_sample_array.push(sum / (num_channels as f32));
-                }
-                Ok(mono_sample_array)
+
+                let mono_samples = self
+                    .collect::<Vec<_>>()
+                    .chunks_exact(num_channels)
+                    .map(|chunk| chunk.iter().sum::<f32>() / num_channels as f32)
+                    .collect();
+
+                Ok(mono_samples)
             }
         }
     }
@@ -332,6 +326,15 @@ impl Decoder for SymphoniaDecoder {
 /// and is licensed under the MIT License.
 impl Iterator for SymphoniaDecoder {
     type Item = f32;
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (
+            self.buffer.samples().len(),
+            self.total_duration.map(|dur| {
+                (dur.as_secs() + 1) as usize * self.spec.rate as usize * self.spec.channels.count()
+            }),
+        )
+    }
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_span_offset >= self.buffer.len() {
