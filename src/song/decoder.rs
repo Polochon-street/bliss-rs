@@ -909,5 +909,13 @@ pub mod ffmpeg {
                 Decoder::decode(&path).unwrap();
             });
         }
+
+        #[bench]
+        fn bench_long_song(b: &mut Bencher) {
+            let path = Path::new("./data/5_mins_of_noise_stereo_48kHz.ogg");
+            b.iter(|| {
+                Decoder::decode(&path).unwrap();
+            });
+        }
     }
 }

@@ -637,6 +637,7 @@ mod tests {
     #[cfg(all(
         feature = "symphonia-flac",
         feature = "symphonia-ogg",
+        feature = "symphonia-vorbis",
         feature = "symphonia-wav",
         feature = "symphonia-mp3"
     ))]
@@ -730,6 +731,15 @@ mod tests {
         #[cfg(feature = "symphonia-mp3")]
         fn bench_mp3(b: &mut Bencher) {
             let path = Path::new("./data/s32_stereo_44_1_kHz.mp3");
+            b.iter(|| {
+                Decoder::decode(&path).unwrap();
+            });
+        }
+
+        #[bench]
+        #[cfg(all(feature = "symphonia-ogg", feature = "symphonia-vorbis"))]
+        fn bench_long_song(b: &mut Bencher) {
+            let path = Path::new("./data/5_mins_of_noise_stereo_48kHz.ogg");
             b.iter(|| {
                 Decoder::decode(&path).unwrap();
             });
