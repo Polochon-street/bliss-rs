@@ -26,7 +26,7 @@ use super::utils::{mean, Normalize};
  * way more visual)
  */
 #[derive(Default)]
-pub(crate) struct LoudnessDesc {
+pub struct LoudnessDesc {
     pub values: Vec<f32>,
 }
 
