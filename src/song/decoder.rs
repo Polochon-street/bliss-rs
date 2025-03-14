@@ -288,6 +288,9 @@ fn main() -> BlissResult<()> {
     }
 }
 
+#[cfg(feature = "symphonia")]
+pub mod symphonia;
+
 #[cfg(feature = "ffmpeg")]
 /// The default decoder module. It uses [ffmpeg](https://ffmpeg.org/) in
 /// order to decode and resample songs. A very good choice for 99% of
@@ -721,6 +724,13 @@ pub mod ffmpeg {
         }
 
         #[test]
+        fn test_resample_mono() {
+            let path = Path::new("data/s32_mono_44_1_kHz.flac");
+            let expected_hash = 0xa0f8b8af;
+            _test_decode(&path, expected_hash);
+        }
+
+        #[test]
         fn test_resample_multi() {
             let path = Path::new("data/s32_stereo_44_1_kHz.flac");
             let expected_hash = 0xbbcba1cf;
@@ -856,8 +866,53 @@ pub mod ffmpeg {
         use test::Bencher;
 
         #[bench]
+        /// No resampling, just decoding
+        fn bench_decode_mono(b: &mut Bencher) {
+            let path = Path::new("./data/s16_mono_22_5kHz.flac");
+            b.iter(|| {
+                Decoder::decode(&path).unwrap();
+            });
+        }
+
+        #[bench]
+        /// needs to convert from stereo to mono
+        fn bench_decode_stereo(b: &mut Bencher) {
+            let path = Path::new("./data/s16_stereo_22_5kHz.flac");
+            b.iter(|| {
+                Decoder::decode(&path).unwrap();
+            });
+        }
+
+        #[bench]
+        /// needs to convert from 44.1 kHz to 22.05 kHz
+        fn bench_resample_mono(b: &mut Bencher) {
+            let path = Path::new("./data/s32_mono_44_1_kHz.flac");
+            b.iter(|| {
+                Decoder::decode(&path).unwrap();
+            });
+        }
+
+        #[bench]
+        /// needs to convert from 44.1 kHz to 22.05 kHz
+        /// and from stereo to mono
         fn bench_resample_multi(b: &mut Bencher) {
             let path = Path::new("./data/s32_stereo_44_1_kHz.flac");
+            b.iter(|| {
+                Decoder::decode(&path).unwrap();
+            });
+        }
+
+        #[bench]
+        fn bench_mp3(b: &mut Bencher) {
+            let path = Path::new("./data/s32_stereo_44_1_kHz.mp3");
+            b.iter(|| {
+                Decoder::decode(&path).unwrap();
+            });
+        }
+
+        #[bench]
+        fn bench_long_song(b: &mut Bencher) {
+            let path = Path::new("./data/5_mins_of_noise_stereo_48kHz.ogg");
             b.iter(|| {
                 Decoder::decode(&path).unwrap();
             });
