@@ -28,7 +28,7 @@ use noisy_float::prelude::*;
  * has trouble to identify tempo > 190 BPM - did not investigate too much)
  *
  */
-pub(crate) struct BPMDesc {
+pub struct BPMDesc {
     aubio_obj: Tempo,
     bpms: Vec<f32>,
 }

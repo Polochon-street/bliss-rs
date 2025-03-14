@@ -24,7 +24,7 @@ use crate::{BlissError, BlissResult, SAMPLE_RATE};
  *
  * All descriptors are currently summarized by their mean only.
  */
-pub(crate) struct SpectralDesc {
+pub struct SpectralDesc {
     phase_vocoder: PVoc,
     sample_rate: u32,
 
@@ -226,7 +226,7 @@ impl Normalize for SpectralDesc {
  * The value range is between 0 and 1.
  */
 #[derive(Default)]
-pub(crate) struct ZeroCrossingRateDesc {
+pub struct ZeroCrossingRateDesc {
     values: Vec<u32>,
     number_samples: usize,
 }
@@ -437,32 +437,5 @@ mod tests {
         {
             assert!(0.00001 > (expected - actual).abs());
         }
-    }
-}
-
-#[cfg(all(feature = "bench", test))]
-mod bench {
-    extern crate test;
-    use crate::timbral::{SpectralDesc, ZeroCrossingRateDesc};
-    use test::Bencher;
-
-    #[bench]
-    fn bench_spectral_desc(b: &mut Bencher) {
-        let mut spectral_desc = SpectralDesc::new(10).unwrap();
-        let chunk = vec![0.; 512];
-
-        b.iter(|| {
-            spectral_desc.do_(&chunk).unwrap();
-        });
-    }
-
-    #[bench]
-    fn bench_zcr_desc(b: &mut Bencher) {
-        let mut zcr_desc = ZeroCrossingRateDesc::new(10);
-        let chunk = vec![0.; 512];
-
-        b.iter(|| {
-            zcr_desc.do_(&chunk);
-        });
     }
 }
