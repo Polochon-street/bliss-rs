@@ -20,8 +20,9 @@ jobs:
         submodules: recursive
     - uses: actions-rs/toolchain@v1
       with:
-        toolchain: nightly-2024-07-21
-        override: false
+        toolchain: stable
+        override: true
+        components: rustfmt, clippy
     - name: Packages
       run: sudo apt-get update && sudo apt-get install build-essential yasm libavutil-dev libavcodec-dev libavformat-dev libavfilter-dev libavfilter-dev libavdevice-dev libswresample-dev libfftw3-dev ffmpeg libsqlite3-dev
     - name: Check format
@@ -33,7 +34,7 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
     - name: Build benches
-      run: cargo +nightly-2024-07-21 bench --verbose --features=bench,symphonia-flac --no-run
+      run: cargo bench --verbose --features=bench,symphonia-all --no-run
     - name: Run example tests
       run: cargo test --verbose --examples
     - name: Build examples with library
