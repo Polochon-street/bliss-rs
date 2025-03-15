@@ -310,7 +310,7 @@ impl Song {
 mod tests {
     use super::*;
     #[cfg(feature = "ffmpeg")]
-    use crate::decoder::ffmpeg::FFmpeg as Decoder;
+    use crate::decoder::ffmpeg::FFmpegDecoder as Decoder;
     #[cfg(feature = "ffmpeg")]
     use crate::decoder::Decoder as DecoderTrait;
     #[cfg(feature = "ffmpeg")]

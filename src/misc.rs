@@ -64,7 +64,7 @@ impl Normalize for LoudnessDesc {
 mod tests {
     use super::*;
     #[cfg(feature = "ffmpeg")]
-    use crate::song::decoder::ffmpeg::FFmpeg as Decoder;
+    use crate::song::decoder::ffmpeg::FFmpegDecoder as Decoder;
     #[cfg(feature = "ffmpeg")]
     use crate::song::decoder::Decoder as DecoderTrait;
     #[cfg(feature = "ffmpeg")]

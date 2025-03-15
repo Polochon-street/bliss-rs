@@ -5,7 +5,7 @@
 /// For simplicity's sake, this example recursively gets songs from a folder
 /// to emulate an audio player library, without handling CUE files.
 use anyhow::Result;
-use bliss_audio::decoder::ffmpeg::FFmpeg as Decoder;
+use bliss_audio::decoder::ffmpeg::FFmpegDecoder as Decoder;
 use bliss_audio::library::{AppConfigTrait, BaseConfig, Library};
 use clap::{App, Arg, SubCommand};
 use glob::glob;

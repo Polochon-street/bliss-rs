@@ -167,7 +167,7 @@ pub(crate) fn convolve(input: &Array1<f64>, kernel: &Array1<f64>) -> Array1<f64>
 mod tests {
     use super::*;
     #[cfg(feature = "ffmpeg")]
-    use crate::song::decoder::ffmpeg::FFmpeg as Decoder;
+    use crate::song::decoder::ffmpeg::FFmpegDecoder as Decoder;
     #[cfg(feature = "ffmpeg")]
     use crate::song::decoder::Decoder as DecoderTrait;
     #[cfg(feature = "ffmpeg")]
@@ -529,7 +529,7 @@ mod bench {
     extern crate test;
     use super::*;
     #[cfg(feature = "ffmpeg")]
-    use crate::song::decoder::ffmpeg::FFmpeg as Decoder;
+    use crate::song::decoder::ffmpeg::FFmpegDecoder as Decoder;
     use crate::song::decoder::Decoder as DecoderTrait;
     use ndarray::Array;
     use std::path::Path;

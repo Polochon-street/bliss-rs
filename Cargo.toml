@@ -1,6 +1,6 @@
 [package]
 name = "bliss-audio"
-version = "0.9.4"
+version = "0.10.0"
 build = "build.rs"
 authors = ["Polochon-street <polochonstreet@gmx.fr>"]
 edition = "2021"

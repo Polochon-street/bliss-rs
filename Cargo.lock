@@ -142,7 +142,7 @@ checksum = "b048fb63fd8b5923fc5aa7b340d8e156aec7ec02f0c78fa8a6ddc2613f6f71de"
 
 [[package]]
 name = "bliss-audio"
-version = "0.9.4"
+version = "0.10.0"
 dependencies = [
  "adler32",
  "anyhow",
@@ -1578,6 +1578,7 @@ dependencies = [
  "bytemuck",
  "lazy_static 1.5.0",
  "log",
+ "rustfft",
 ]
 
 [[package]]
