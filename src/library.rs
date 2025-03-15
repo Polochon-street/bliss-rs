@@ -75,13 +75,13 @@
 ```no_run
   use anyhow::{Error, Result};
   use bliss_audio::library::{BaseConfig, Library};
-  use bliss_audio::decoder::ffmpeg::FFmpeg;
+  use bliss_audio::decoder::ffmpeg::FFmpegDecoder;
   use std::path::PathBuf;
 
   let config_path = Some(PathBuf::from("path/to/config/config.json"));
   let database_path = Some(PathBuf::from("path/to/config/bliss.db"));
   let config = BaseConfig::new(config_path, database_path, None)?;
-  let library: Library<BaseConfig, FFmpeg> = Library::new(config)?;
+  let library: Library<BaseConfig, FFmpegDecoder> = Library::new(config)?;
   # Ok::<(), Error>(())
 ```"##
 )]
@@ -1517,7 +1517,7 @@ mod test {
     use tempdir::TempDir;
 
     #[cfg(feature = "ffmpeg")]
-    use crate::song::decoder::ffmpeg::FFmpeg as Decoder;
+    use crate::song::decoder::ffmpeg::FFmpegDecoder as Decoder;
     use crate::song::decoder::Decoder as DecoderTrait;
 
     struct DummyDecoder;

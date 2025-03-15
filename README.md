@@ -45,6 +45,16 @@ If you want to use the `library` trait, in order to e.g. make a bliss plugin for
 and build the examples associated with it, you will also need `libsqlite3-dev` on Ubuntu, or `sqlite` on
 Archlinux.
 
+Note: it is also possible to use the [Symphonia](https://github.com/pdeljanov/Symphonia)
+crate instead of [FFmpeg](https://www.ffmpeg.org) to handle the decoding of songs.
+See the [Decoders](#decoders) section below for more information.
+
+The Symphonia decoder is slightly slower, but using it makes bliss-rs easier to
+package, since it removes a big dependency to FFmpeg.
+
+The [examples](#examples) section below shows how to use both Symphonia and FFmpeg.
+Take a look at the [decoders](#decoders) for more information on the two.
+
 ## Examples
 
 For simple analysis / distance computing, take a look at `examples/distance.rs` and
@@ -54,9 +64,13 @@ If you simply want to try out making playlists from a folder containing songs,
 [this example](https://github.com/Polochon-street/bliss-rs/blob/master/examples/playlist.rs)
 contains all you need. Usage:
 
-        cargo run --features=serde --release --example=playlist /path/to/folder /path/to/first/song
+        cargo run --release --example=playlist --features=serde /path/to/folder /path/to/first/song
 
 Don't forget the `--release` flag!
+
+To use Symphonia instead of FFmpeg to decode songs, use the symphonia-all feature flag instead:
+
+        cargo run --release --example=playlist --no-default-features --features=serde,aubio-static,symphonia-all /path/to/folder /path/to/first/song
 
 By default, it outputs the playlist to stdout, but you can use `-o <path>`
 to output it to a specific path.
@@ -70,7 +84,7 @@ Ready to use code examples:
 ### Compute the distance between two songs
 
 ```
-use bliss_audio::decoder::bliss_ffmpeg::FFmpeg as Decoder;
+use bliss_audio::decoder::bliss_ffmpeg::FFmpegDecoder as Decoder;
 use bliss_audio::decoder::Decoder as DecoderTrait;
 use bliss_audio::BlissError;
 
@@ -86,7 +100,7 @@ fn main() -> Result<(), BlissError> {
 ### Make a playlist from a song
 
 ```
-use bliss_audio::decoder::bliss_ffmpeg::FFmpeg as Decoder;
+use bliss_audio::decoder::bliss_ffmpeg::FFmpegDecoder as Decoder;
 use bliss_audio::decoder::Decoder as DecoderTrait;
 use bliss_audio::{BlissError, Song};
 use noisy_float::prelude::n32;
@@ -112,6 +126,37 @@ fn main() -> Result<(), BlissError> {
     Ok(())
 }
 ```
+
+## Decoders
+
+bliss-rs is decoder-agnostic, meaning that, if fed the proper audio format
+(raw single-channeled, floating-point (f32), little-endian PCM samples
+sampled at 22050 Hz), the analysis of the same track should return the same
+analysis results.
+
+For convenience's sake, two different decoder suites have been implemented:
+* [FFmpeg](https://www.ffmpeg.org/), used in most examples and used by
+  default. It is fast, and supports the widest array of esoteric containers.
+  However, it requires the user to install libav* (see [Dependencies](#dependencies)),
+  which might be inconvenient for maintainers looking to package bliss-rs.
+* [Symphonia](https://github.com/pdeljanov/Symphonia), which is a pure rust
+  audio decoding library.
+  This means that users won't have to install a third-party program to decode songs.
+  While it makes the decoding of songs slightly slower, its impact is neligible when compared to the time
+  spent running the actual analysis (the whole process gets ~5-10% slower compared
+  to decoding with FFmpeg. For instance, it took around 56 minutes to decode & analyze 10k
+  files with FFmpeg, and around 1 hour 5 minutes with Symphonia).
+  It might also yield very slightly different analysis results (which shouldn't impact
+  the playlist-making process).
+
+To turn off the FFmpeg dependency, and use Symphonia instead:
+
+        cargo build --release --no-default-features --features=aubio-static,symphonia-all
+
+Otherwise, FFmpeg will be used automatically.
+
+It is also possible to turn both decoders off, and implement your own decoder
+pretty easily - see the [decoder module](https://github.com/Polochon-street/bliss-rs/blob/master/src/song/decoder.rs).
 
 ## Further use
 
@@ -168,8 +213,8 @@ You can of course test the examples yourself by compiling them as .exe:
         FFMPEG_DIR=/path/to/prebuilt/ffmpeg cargo build --target x86_64-pc-windows-gnu --release --examples
 
 WARNING: Doing all of the above and making it work on windows requires to have
-ffmpeg's dll on your Windows `%PATH%` (`avcodec-59.dll`, etc).
-Usually installing ffmpeg on the target windows is enough, but you can also just
+FFmpeg's dll on your Windows `%PATH%` (`avcodec-59.dll`, etc).
+Usually installing FFmpeg on the target windows is enough, but you can also just
 extract them from `/path/to/prebuilt/ffmpeg/bin` and put them next to the thing
 you generated from cargo (either bliss' dll or executable).
 

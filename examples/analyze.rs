@@ -1,4 +1,4 @@
-use bliss_audio::decoder::ffmpeg::FFmpeg as Decoder;
+use bliss_audio::decoder::ffmpeg::FFmpegDecoder as Decoder;
 use bliss_audio::decoder::Decoder as DecoderTrait;
 use std::env;
 

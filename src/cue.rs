@@ -218,14 +218,14 @@ mod tests {
     #[cfg(feature = "ffmpeg")]
     use super::*;
     #[cfg(feature = "ffmpeg")]
-    use crate::decoder::ffmpeg::FFmpeg;
+    use crate::decoder::ffmpeg::FFmpegDecoder;
     #[cfg(feature = "ffmpeg")]
     use pretty_assertions::assert_eq;
 
     #[test]
     #[cfg(feature = "ffmpeg")]
     fn test_empty_cue() {
-        let songs = BlissCue::<FFmpeg>::songs_from_path("data/empty.cue").unwrap();
+        let songs = BlissCue::<FFmpegDecoder>::songs_from_path("data/empty.cue").unwrap();
         let error = songs[0].to_owned().unwrap_err();
         assert_eq!(
             error,
@@ -236,7 +236,7 @@ mod tests {
     #[test]
     #[cfg(feature = "ffmpeg")]
     fn test_cue_analysis() {
-        let songs = BlissCue::<FFmpeg>::songs_from_path("data/testcue.cue").unwrap();
+        let songs = BlissCue::<FFmpegDecoder>::songs_from_path("data/testcue.cue").unwrap();
         let expected = vec![
             Ok(Song {
                 path: Path::new("data/testcue.cue/CUE_TRACK001").to_path_buf(),
@@ -372,7 +372,7 @@ mod tests {
     #[test]
     #[cfg(feature = "ffmpeg")]
     fn test_cue_minimal() {
-        let songs = BlissCue::<FFmpeg>::songs_from_path("data/no-tags-cue.cue").unwrap();
+        let songs = BlissCue::<FFmpegDecoder>::songs_from_path("data/no-tags-cue.cue").unwrap();
         let expected = vec![
             Ok(Song {
                 path: Path::new("data/no-tags-cue.cue/CUE_TRACK001").to_path_buf(),
