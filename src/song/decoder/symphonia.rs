@@ -464,7 +464,7 @@ mod tests {
          */
         let path = Path::new("data/s32_mono_44_1_kHz.flac");
         let symphonia_decoded = Decoder::decode(&path).unwrap();
-        let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpeg::decode(&path).unwrap();
+        let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpegDecoder::decode(&path).unwrap();
         // if the first 100 samples are equal, then the rest should be equal.
         // we check this first since the sample arrays are large enough that printing the diff would attempt
         // and fail to allocate memory for the string
@@ -505,7 +505,7 @@ mod tests {
     fn test_resample_multi_ffmpeg_v_symphonia() {
         let path = Path::new("data/s32_stereo_44_1_kHz.flac");
         let symphonia_decoded = Decoder::decode(&path).unwrap();
-        let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpeg::decode(&path).unwrap();
+        let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpegDecoder::decode(&path).unwrap();
 
         // calculate the similarity between the two arrays
         let mut diff = 0.0;
@@ -539,7 +539,7 @@ mod tests {
     fn test_stereo_ffmpeg_v_symphonia() {
         let path = Path::new("data/s16_stereo_22_5kHz.flac");
         let symphonia_decoded = Decoder::decode(&path).unwrap();
-        let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpeg::decode(&path).unwrap();
+        let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpegDecoder::decode(&path).unwrap();
         // if the first 100 samples are equal, then the rest should be equal.
         // we check this first since the sample arrays are large enough that printing the diff would attempt
         // and fail to allocate memory for the string
@@ -580,7 +580,7 @@ mod tests {
         // TODO: Figure out how to get the error down to 1.0e-5
         let path = Path::new("data/s32_stereo_44_1_kHz.mp3");
         let symphonia_decoded = Decoder::decode(&path).unwrap();
-        let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpeg::decode(&path).unwrap();
+        let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpegDecoder::decode(&path).unwrap();
 
         // calculate the similarity between the two arrays
         let mut diff = 0.0;
@@ -663,7 +663,7 @@ mod tests {
         for (path_str, tolerance) in paths_and_tolerances {
             let path = Path::new(path_str);
             let symphonia_decoded = Decoder::decode(&path).unwrap();
-            let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpeg::decode(&path).unwrap();
+            let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpegDecoder::decode(&path).unwrap();
 
             // calculate the similarity between the two arrays
             let mut diff = 0.0;
