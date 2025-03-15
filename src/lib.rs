@@ -76,7 +76,7 @@ fn main() -> BlissResult<()> {
 ```
 "##
 )]
-#![cfg_attr(not(feature = "bench"), warn(missing_docs))]
+#![warn(missing_docs)]
 
 pub mod cue;
 #[cfg(feature = "library")]
@@ -96,14 +96,19 @@ mod timbral;
 mod utils;
 
 #[cfg(feature = "bench")]
+#[doc(hidden)]
 pub mod chroma;
 #[cfg(feature = "bench")]
+#[doc(hidden)]
 pub mod misc;
 #[cfg(feature = "bench")]
+#[doc(hidden)]
 pub mod temporal;
 #[cfg(feature = "bench")]
+#[doc(hidden)]
 pub mod timbral;
 #[cfg(feature = "bench")]
+#[doc(hidden)]
 pub mod utils;
 
 #[cfg(feature = "serde")]

@@ -24,6 +24,7 @@ use crate::{BlissError, BlissResult, SAMPLE_RATE};
  *
  * All descriptors are currently summarized by their mean only.
  */
+#[doc(hidden)]
 pub struct SpectralDesc {
     phase_vocoder: PVoc,
     sample_rate: u32,
@@ -226,6 +227,7 @@ impl Normalize for SpectralDesc {
  * The value range is between 0 and 1.
  */
 #[derive(Default)]
+#[doc(hidden)]
 pub struct ZeroCrossingRateDesc {
     values: Vec<u32>,
     number_samples: usize,

@@ -3,11 +3,11 @@
 use std::fs::File;
 use std::time::Duration;
 
-use bliss_audio::chroma::{
+use bliss_audio::chroma::bench::{
     chroma_filter, chroma_stft, estimate_tuning, normalize_feature_sequence, pip_track,
     pitch_tuning,
 };
-use bliss_audio::utils::stft;
+use bliss_audio::utils::bench::stft;
 use common::{test_file, DECODERS};
 use criterion::{criterion_group, criterion_main, Criterion};
 use ndarray::{arr2, Array1, Array2};

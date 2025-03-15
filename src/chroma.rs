@@ -23,6 +23,7 @@ use noisy_float::prelude::*;
  * without consequences, this one performs better if the full song is used at
  * once.
  */
+#[doc(hidden)]
 pub struct ChromaDesc {
     sample_rate: u32,
     n_chroma: u32,
@@ -124,7 +125,7 @@ fn extract_interval_features(chroma: &Array2<f64>, templates: &Array2<i32>) -> A
     f_intervals.t().to_owned()
 }
 
-pub fn normalize_feature_sequence(feature: &Array2<f64>) -> Array2<f64> {
+fn normalize_feature_sequence(feature: &Array2<f64>) -> Array2<f64> {
     let mut normalized_sequence = feature.to_owned();
     for mut column in normalized_sequence.columns_mut() {
         let mut sum = column.mapv(|x| x.abs()).sum();
@@ -144,7 +145,7 @@ pub fn normalize_feature_sequence(feature: &Array2<f64>) -> Array2<f64> {
 // Could be precomputed, but it takes very little time to compute it
 // on the fly compared to the rest of the functions, and we'd lose the
 // possibility to tweak parameters.
-pub fn chroma_filter(
+fn chroma_filter(
     sample_rate: u32,
     n_fft: usize,
     n_chroma: u32,
@@ -216,7 +217,7 @@ pub fn chroma_filter(
     Ok(wts.slice_move(s![.., ..non_aliased]))
 }
 
-pub fn pip_track(
+fn pip_track(
     sample_rate: u32,
     spectrum: &Array2<f64>,
     n_fft: usize,
@@ -281,7 +282,7 @@ pub fn pip_track(
 }
 
 // Only use this with strictly positive `frequencies`.
-pub fn pitch_tuning(
+fn pitch_tuning(
     frequencies: &mut Array1<f64>,
     resolution: f64,
     bins_per_octave: u32,
@@ -308,7 +309,7 @@ pub fn pitch_tuning(
     Ok((-50. + (100. * resolution * max_index as f64)) / 100.)
 }
 
-pub fn estimate_tuning(
+fn estimate_tuning(
     sample_rate: u32,
     spectrum: &Array2<f64>,
     n_fft: usize,
@@ -340,7 +341,7 @@ pub fn estimate_tuning(
     pitch_tuning(&mut pitch, resolution, bins_per_octave)
 }
 
-pub fn chroma_stft(
+fn chroma_stft(
     sample_rate: u32,
     spectrum: &mut Array2<f64>,
     n_fft: usize,
@@ -359,6 +360,71 @@ pub fn chroma_stft(
         row /= sum;
     }
     Ok(raw_chroma)
+}
+
+#[cfg(feature = "bench")]
+#[doc(hidden)]
+pub mod bench {
+    //! Re-exports of private functions for benchmarking purposes.
+
+    use ndarray::{Array1, Array2};
+
+    use crate::BlissResult;
+
+    #[inline(always)]
+    pub fn normalize_feature_sequence(feature: &Array2<f64>) -> Array2<f64> {
+        super::normalize_feature_sequence(feature)
+    }
+
+    #[inline(always)]
+    pub fn chroma_filter(
+        sample_rate: u32,
+        n_fft: usize,
+        n_chroma: u32,
+        tuning: f64,
+    ) -> BlissResult<Array2<f64>> {
+        super::chroma_filter(sample_rate, n_fft, n_chroma, tuning)
+    }
+
+    #[inline(always)]
+    pub fn pip_track(
+        sample_rate: u32,
+        spectrum: &Array2<f64>,
+        n_fft: usize,
+    ) -> BlissResult<(Vec<f64>, Vec<f64>)> {
+        super::pip_track(sample_rate, spectrum, n_fft)
+    }
+
+    #[inline(always)]
+    pub fn pitch_tuning(
+        frequencies: &mut Array1<f64>,
+        resolution: f64,
+        bins_per_octave: u32,
+    ) -> BlissResult<f64> {
+        super::pitch_tuning(frequencies, resolution, bins_per_octave)
+    }
+
+    #[inline(always)]
+    pub fn estimate_tuning(
+        sample_rate: u32,
+        spectrum: &Array2<f64>,
+        n_fft: usize,
+        resolution: f64,
+        bins_per_octave: u32,
+    ) -> BlissResult<f64> {
+        super::estimate_tuning(sample_rate, spectrum, n_fft, resolution, bins_per_octave)
+    }
+
+    #[inline(always)]
+    pub fn chroma_stft(
+        sample_rate: u32,
+        spectrum: &mut Array2<f64>,
+        n_fft: usize,
+        n_chroma: u32,
+        tuning: f64,
+    ) -> BlissResult<Array2<f64>> {
+        super::chroma_stft(sample_rate, spectrum, n_fft, n_chroma, tuning)
+    }
 }
 
 #[cfg(test)]

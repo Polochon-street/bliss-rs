@@ -2,7 +2,7 @@
 
 mod common;
 
-use bliss_audio::utils::{convolve, geometric_mean, reflect_pad, stft};
+use bliss_audio::utils::bench::{convolve, geometric_mean, reflect_pad, stft};
 use common::test_file;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use ndarray::{Array, Array1};

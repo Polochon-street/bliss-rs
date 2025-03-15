@@ -8,7 +8,7 @@ extern crate ffmpeg_next as ffmpeg;
 use log::warn;
 use std::f32::consts::PI;
 
-pub fn reflect_pad(array: &[f32], pad: usize) -> Vec<f32> {
+pub(crate) fn reflect_pad(array: &[f32], pad: usize) -> Vec<f32> {
     let prefix = array[1..=pad].iter().rev().copied().collect::<Vec<f32>>();
     let suffix = array[(array.len() - 2) - pad + 1..array.len() - 1]
         .iter()
@@ -23,7 +23,7 @@ pub fn reflect_pad(array: &[f32], pad: usize) -> Vec<f32> {
     output
 }
 
-pub fn stft(signal: &[f32], window_length: usize, hop_length: usize) -> Array2<f64> {
+pub(crate) fn stft(signal: &[f32], window_length: usize, hop_length: usize) -> Array2<f64> {
     // Take advantage of raw-major order to have contiguous window for the
     // `assign`, reversing the axes to have the expected shape at the end only.
     let mut stft = Array2::zeros((
@@ -98,7 +98,7 @@ pub(crate) fn number_crossings(input: &[f32]) -> u32 {
 // of 8), with values belonging to [0; 2^65].
 // This finely optimized geometric mean courtesy of
 // Jacques-Henri Jourdan (https://jhjourdan.mketjh.fr/)
-pub fn geometric_mean(input: &[f32]) -> f32 {
+pub(crate) fn geometric_mean(input: &[f32]) -> f32 {
     let mut exponents: i32 = 0;
     let mut mantissas: f64 = 1.;
     for ch in input.chunks_exact(8) {
@@ -129,7 +129,7 @@ pub(crate) fn hz_to_octs_inplace(
 }
 
 #[allow(dead_code)]
-pub fn convolve(input: &Array1<f64>, kernel: &Array1<f64>) -> Array1<f64> {
+pub(crate) fn convolve(input: &Array1<f64>, kernel: &Array1<f64>) -> Array1<f64> {
     let mut common_length = input.len() + kernel.len();
     if (common_length % 2) != 0 {
         common_length -= 1;
@@ -161,6 +161,33 @@ pub fn convolve(input: &Array1<f64>, kernel: &Array1<f64>) -> Array1<f64> {
         ])
         .mapv(|x| x.re);
     multiplication / multiplication_length
+}
+
+#[cfg(feature = "bench")]
+#[doc(hidden)]
+pub mod bench {
+    //! Re-exports of private functions for benchmarking purposes.
+    use ndarray::{Array1, Array2};
+
+    #[inline(always)]
+    pub fn convolve(input: &Array1<f64>, kernel: &Array1<f64>) -> Array1<f64> {
+        super::convolve(input, kernel)
+    }
+
+    #[inline(always)]
+    pub fn geometric_mean(input: &[f32]) -> f32 {
+        super::geometric_mean(input)
+    }
+
+    #[inline(always)]
+    pub fn reflect_pad(array: &[f32], pad: usize) -> Vec<f32> {
+        super::reflect_pad(array, pad)
+    }
+
+    #[inline(always)]
+    pub fn stft(signal: &[f32], window_length: usize, hop_length: usize) -> Array2<f64> {
+        super::stft(signal, window_length, hop_length)
+    }
 }
 
 #[cfg(test)]
