@@ -1,5 +1,10 @@
 # Changelog
 
+## bliss 0.10.0
+* Add support for the [Symphonia](https://github.com/pdeljanov/Symphonia)
+  decoder (Thanks @AnthonyMichaelTDM!).
+* Breaking: rename `FFmpeg` to `FFmpegDecoder`.
+
 ## bliss 0.9.4
 * bump rust-ffmpeg
 

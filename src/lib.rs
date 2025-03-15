@@ -32,7 +32,7 @@
 
 ```no_run
 use bliss_audio::decoder::Decoder as DecoderTrait;
-use bliss_audio::decoder::ffmpeg::FFmpeg as Decoder;
+use bliss_audio::decoder::ffmpeg::FFmpegDecoder as Decoder;
 use bliss_audio::playlist::euclidean_distance;
 use bliss_audio::BlissResult;
 
@@ -51,7 +51,7 @@ fn main() -> BlissResult<()> {
 ### Make a playlist from a song, discarding failed songs
 ```no_run
 use bliss_audio::decoder::Decoder as DecoderTrait;
-use bliss_audio::decoder::ffmpeg::FFmpeg as Decoder;
+use bliss_audio::decoder::ffmpeg::FFmpegDecoder as Decoder;
 use bliss_audio::{
     playlist::{closest_to_songs, euclidean_distance},
     BlissResult, Song,
