@@ -23,7 +23,8 @@ use noisy_float::prelude::*;
  * without consequences, this one performs better if the full song is used at
  * once.
  */
-pub(crate) struct ChromaDesc {
+#[doc(hidden)]
+pub struct ChromaDesc {
     sample_rate: u32,
     n_chroma: u32,
     values_chroma: Array2<f64>,
@@ -361,6 +362,71 @@ fn chroma_stft(
     Ok(raw_chroma)
 }
 
+#[cfg(feature = "bench")]
+#[doc(hidden)]
+pub mod bench {
+    //! Re-exports of private functions for benchmarking purposes.
+
+    use ndarray::{Array1, Array2};
+
+    use crate::BlissResult;
+
+    #[inline(always)]
+    pub fn normalize_feature_sequence(feature: &Array2<f64>) -> Array2<f64> {
+        super::normalize_feature_sequence(feature)
+    }
+
+    #[inline(always)]
+    pub fn chroma_filter(
+        sample_rate: u32,
+        n_fft: usize,
+        n_chroma: u32,
+        tuning: f64,
+    ) -> BlissResult<Array2<f64>> {
+        super::chroma_filter(sample_rate, n_fft, n_chroma, tuning)
+    }
+
+    #[inline(always)]
+    pub fn pip_track(
+        sample_rate: u32,
+        spectrum: &Array2<f64>,
+        n_fft: usize,
+    ) -> BlissResult<(Vec<f64>, Vec<f64>)> {
+        super::pip_track(sample_rate, spectrum, n_fft)
+    }
+
+    #[inline(always)]
+    pub fn pitch_tuning(
+        frequencies: &mut Array1<f64>,
+        resolution: f64,
+        bins_per_octave: u32,
+    ) -> BlissResult<f64> {
+        super::pitch_tuning(frequencies, resolution, bins_per_octave)
+    }
+
+    #[inline(always)]
+    pub fn estimate_tuning(
+        sample_rate: u32,
+        spectrum: &Array2<f64>,
+        n_fft: usize,
+        resolution: f64,
+        bins_per_octave: u32,
+    ) -> BlissResult<f64> {
+        super::estimate_tuning(sample_rate, spectrum, n_fft, resolution, bins_per_octave)
+    }
+
+    #[inline(always)]
+    pub fn chroma_stft(
+        sample_rate: u32,
+        spectrum: &mut Array2<f64>,
+        n_fft: usize,
+        n_chroma: u32,
+        tuning: f64,
+    ) -> BlissResult<Array2<f64>> {
+        super::chroma_stft(sample_rate, spectrum, n_fft, n_chroma, tuning)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -556,101 +622,5 @@ mod test {
         for (expected, actual) in expected_filter.iter().zip(filter.iter()) {
             assert!(0.000000001 > (expected - actual).abs());
         }
-    }
-}
-
-#[cfg(all(feature = "bench", test))]
-mod bench {
-    extern crate test;
-    use super::*;
-    use crate::song::decoder::ffmpeg::FFmpegDecoder as Decoder;
-    use crate::song::decoder::Decoder as DecoderTrait;
-    use crate::utils::stft;
-    use crate::SAMPLE_RATE;
-    use ndarray::{arr2, Array1, Array2};
-    use ndarray_npy::ReadNpyExt;
-    use std::fs::File;
-    use std::path::Path;
-    use test::Bencher;
-
-    #[bench]
-    fn bench_estimate_tuning(b: &mut Bencher) {
-        let file = File::open("data/spectrum-chroma.npy").unwrap();
-        let arr = Array2::<f64>::read_npy(file).unwrap();
-
-        b.iter(|| {
-            estimate_tuning(22050, &arr, 2048, 0.01, 12).unwrap();
-        });
-    }
-
-    #[bench]
-    fn bench_pitch_tuning(b: &mut Bencher) {
-        let file = File::open("data/pitch-tuning.npy").unwrap();
-        let pitch = Array1::<f64>::read_npy(file).unwrap();
-        b.iter(|| {
-            pitch_tuning(&mut pitch.to_owned(), 0.05, 12).unwrap();
-        });
-    }
-
-    #[bench]
-    fn bench_pip_track(b: &mut Bencher) {
-        let file = File::open("data/spectrum-chroma.npy").unwrap();
-        let spectrum = Array2::<f64>::read_npy(file).unwrap();
-
-        b.iter(|| {
-            pip_track(22050, &spectrum, 2048).unwrap();
-        });
-    }
-
-    #[bench]
-    fn bench_chroma_filter(b: &mut Bencher) {
-        b.iter(|| {
-            chroma_filter(22050, 2048, 12, -0.1).unwrap();
-        });
-    }
-
-    #[bench]
-    fn bench_normalize_feature_sequence(b: &mut Bencher) {
-        let array = arr2(&[[0.1, 0.3, 0.4], [1.1, 0.53, 1.01]]);
-        b.iter(|| {
-            normalize_feature_sequence(&array);
-        });
-    }
-
-    #[bench]
-    #[cfg(feature = "ffmpeg")]
-    fn bench_chroma_desc(b: &mut Bencher) {
-        let song = Decoder::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
-        let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
-        let signal = song.sample_array;
-        b.iter(|| {
-            chroma_desc.do_(&signal).unwrap();
-            chroma_desc.get_values();
-        });
-    }
-
-    #[bench]
-    #[cfg(feature = "ffmpeg")]
-    fn bench_chroma_stft(b: &mut Bencher) {
-        let song = Decoder::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
-        let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
-        let signal = song.sample_array;
-        b.iter(|| {
-            chroma_desc.do_(&signal).unwrap();
-            chroma_desc.get_values();
-        });
-    }
-
-    #[bench]
-    #[cfg(feature = "ffmpeg")]
-    fn bench_chroma_stft_decode(b: &mut Bencher) {
-        let signal = Decoder::decode(Path::new("data/s16_mono_22_5kHz.flac"))
-            .unwrap()
-            .sample_array;
-        let mut stft = stft(&signal, 8192, 2205);
-
-        b.iter(|| {
-            chroma_stft(22050, &mut stft, 8192, 12, -0.04999999999999999).unwrap();
-        });
     }
 }
