@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.10.1
+* Add a way to retrieve failed analysis for a Library.
+
 ## bliss 0.10.0
 * Add support for the [Symphonia](https://github.com/pdeljanov/Symphonia)
   decoder (Thanks @AnthonyMichaelTDM!).
