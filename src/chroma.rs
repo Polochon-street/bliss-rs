@@ -207,7 +207,7 @@ fn chroma_filter(
         uninit.set_len(wts.len());
     }
     let mut b = Array::from(uninit)
-        .into_shape(wts.dim())
+        .into_shape_with_order(wts.dim())
         .map_err(|e| BlissError::AnalysisError(format!("in chroma: {e}")))?;
     b.slice_mut(s![-3.., ..]).assign(&wts.slice(s![..3, ..]));
     b.slice_mut(s![..-3, ..]).assign(&wts.slice(s![3.., ..]));

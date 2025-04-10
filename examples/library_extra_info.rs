@@ -7,7 +7,7 @@
 use anyhow::Result;
 use bliss_audio::decoder::ffmpeg::FFmpegDecoder as Decoder;
 use bliss_audio::library::{AppConfigTrait, BaseConfig, Library};
-use clap::{App, Arg, SubCommand};
+use clap::{value_parser, Arg, Command};
 use glob::glob;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -109,109 +109,109 @@ struct ExtraInfo {
 // Note that `Library::new` is used only on init, and subsequent
 // commands use `Library::from_path`.
 fn main() -> Result<()> {
-    let matches = App::new("library-example")
+    let matches = Command::new("library-example")
         .version(env!("CARGO_PKG_VERSION"))
         .author("Polochon_street")
         .about("Example binary implementing bliss for an audio player.")
         .subcommand(
-            SubCommand::with_name("init")
+            Command::new("init")
                 .about(
                     "Initialize a Library, both storing the config and analyzing folders
                 containing songs.",
                 )
                 .arg(
-                    Arg::with_name("FOLDER")
+                    Arg::new("FOLDER")
                         .help("A folder containing the music library to analyze.")
                         .required(true),
                 )
                 .arg(
-                    Arg::with_name("database-path")
-                        .short("d")
+                    Arg::new("database-path")
+                        .short('d')
                         .long("database-path")
                         .help(
                             "Optional path where to store the database file containing
                  the songs' analysis. Defaults to XDG_DATA_HOME/bliss-rs/bliss.db.",
                         )
-                        .takes_value(true),
+                        .num_args(1),
                 )
                 .arg(
-                    Arg::with_name("config-path")
-                        .short("c")
+                    Arg::new("config-path")
+                        .short('c')
                         .long("config-path")
                         .help(
                             "Optional path where to store the config file containing
                  the library setup. Defaults to XDG_DATA_HOME/bliss-rs/config.json.",
                         )
-                        .takes_value(true),
+                        .num_args(1),
                 ),
         )
         .subcommand(
-            SubCommand::with_name("update")
+            Command::new("update")
                 .about(
                     "Update a Library's songs, trying to analyze failed songs,
                     as well as songs not in the library.",
                 )
                 .arg(
-                    Arg::with_name("config-path")
-                        .short("c")
+                    Arg::new("config-path")
+                        .short('c')
                         .long("config-path")
                         .help(
                             "Optional path where to load the config file containing
                  the library setup. Defaults to XDG_DATA_HOME/bliss-rs/config.json.",
                         )
-                        .takes_value(true),
+                        .num_args(1),
                 ),
         )
         .subcommand(
-            SubCommand::with_name("playlist")
+            Command::new("playlist")
                 .about(
                     "Make a playlist, starting with the song at SONG_PATH, returning
                        the songs' paths.",
                 )
-                .arg(Arg::with_name("SONG_PATH").takes_value(true))
+                .arg(Arg::new("SONG_PATH").num_args(1).required(true))
                 .arg(
-                    Arg::with_name("config-path")
-                        .short("c")
+                    Arg::new("config-path")
+                        .short('c')
                         .long("config-path")
                         .help(
                             "Optional path where to load the config file containing
                  the library setup. Defaults to XDG_DATA_HOME/bliss-rs/config.json.",
                         )
-                        .takes_value(true),
+                        .num_args(1),
                 )
                 .arg(
-                    Arg::with_name("playlist-length")
-                        .short("l")
+                    Arg::new("playlist-length")
+                        .short('l')
                         .long("playlist-length")
+                        .value_parser(value_parser!(usize))
+                        .default_value("20")
                         .help("Optional playlist length. Defaults to 20.")
-                        .takes_value(true),
+                        .num_args(1),
                 ),
         )
         .get_matches();
     if let Some(sub_m) = matches.subcommand_matches("init") {
-        let folder = PathBuf::from(sub_m.value_of("FOLDER").unwrap());
-        let config_path = sub_m.value_of("config-path").map(PathBuf::from);
-        let database_path = sub_m.value_of("database-path").map(PathBuf::from);
+        let folder = PathBuf::from(sub_m.get_one::<String>("FOLDER").unwrap());
+        let config_path = sub_m.get_one::<String>("config-path").map(PathBuf::from);
+        let database_path = sub_m.get_one::<String>("database-path").map(PathBuf::from);
 
         let config = Config::new(folder, config_path, database_path, None)?;
         let mut library = Library::new(config)?;
 
         library.analyze_paths_extra_info(library.song_paths_info()?, true)?;
     } else if let Some(sub_m) = matches.subcommand_matches("update") {
-        let config_path = sub_m.value_of("config-path").map(PathBuf::from);
+        let config_path = sub_m.get_one::<String>("config-path").map(PathBuf::from);
         let mut library: Library<Config, Decoder> = Library::from_config_path(config_path)?;
         library.update_library_extra_info(library.song_paths_info()?, true, true)?;
     } else if let Some(sub_m) = matches.subcommand_matches("playlist") {
-        let song_path = sub_m.value_of("SONG_PATH").unwrap();
-        let config_path = sub_m.value_of("config-path").map(PathBuf::from);
-        let playlist_length = sub_m
-            .value_of("playlist-length")
-            .unwrap_or("20")
-            .parse::<usize>()?;
+        let song_path = sub_m.get_one::<&str>("SONG_PATH").unwrap();
+        let config_path = sub_m.get_one::<String>("config-path").map(PathBuf::from);
+        let playlist_length = sub_m.get_one("playlist-length").unwrap();
+
         let library: Library<Config, Decoder> = Library::from_config_path(config_path)?;
         let playlist = library
             .playlist_from::<ExtraInfo>(&[song_path])?
-            .take(playlist_length)
+            .take(*playlist_length)
             .map(|s| {
                 (
                     s.bliss_song.path.to_string_lossy().to_string(),
