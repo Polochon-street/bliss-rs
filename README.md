@@ -218,6 +218,17 @@ Usually installing FFmpeg on the target windows is enough, but you can also just
 extract them from `/path/to/prebuilt/ffmpeg/bin` and put them next to the thing
 you generated from cargo (either bliss' dll or executable).
 
+## Troubleshooting
+
+Do not hesitate to open an [issue](https://github.com/Polochon-street/bliss-rs/issues)
+if anything's amiss, providing as much output as possible (code / command-line used,
+terminal output, screenshots, etc).
+
+Note: if you're using bliss on a raspberry pi, don't forget to use the `rpi`
+feature, like so:
+
+    cargo build --release --features=rpi
+
 ## Acknowledgements
 
 * This library relies heavily on [aubio](https://aubio.org/)'s
