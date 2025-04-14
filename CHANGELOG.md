@@ -1,7 +1,7 @@
 # Changelog
 
 ## bliss 0.10.1
-* Add a way to retrieve failed analysis for a Library.
+* Add a way to retrieve failed analyses for a Library.
 * Update dependencies.
 
 ## bliss 0.10.0
