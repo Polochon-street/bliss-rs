@@ -37,11 +37,10 @@ ask questions if you want to tackle an item.
 - Find a way to differenciate classic vs contemporary music (new feature? Or better use of existing features?)
   For instance, Cigarettes after sex / Sweet doesn't seem to give similar enough tracks?
 - Get the feature processing examined by a data scientist.
-- Make it possible to return failed songs from the library module, so plugins can
-  store the errors.
 - Should library really use `indicatif`? And not leave it up to the CLI program itself?
 - Library: the database should maybe have errored_songs in a separate column (and remove
   the "analyzed" flag?)
+- Library: Add a command to dump the contents of the library?
 
 ### Maintenance tasks
 
@@ -68,3 +67,5 @@ ask questions if you want to tackle an item.
 - The album playlist should take into account multi-CDs albums
 - A "song group" feature (I want to make a playlist that's in the vibe of these n songs [like 4-5])
   (can probably recycle the "album" feature) - done https://github.com/Polochon-street/bliss-rs/pull/72
+- Make it possible to return failed songs from the library module, so plugins can
+  store the errors.
