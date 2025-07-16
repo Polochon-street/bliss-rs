@@ -262,7 +262,7 @@ fn main() -> BlissResult<()> {
             let owned_chunk = chunk.to_owned();
             let child = thread::spawn(move || {
                 for path in owned_chunk {
-                    info!("Analyzing file '{:?}'", path);
+                    info!("Analyzing file '{path:?}'");
                     if let Some(extension) = Path::new(&path).extension() {
                         let extension = extension.to_string_lossy().to_lowercase();
                         if extension == "cue" {
