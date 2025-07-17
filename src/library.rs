@@ -559,7 +559,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         let sqlite_conn = Connection::open(&config.base_config().database_path)?;
 
         Library::<Config, D>::upgrade(&sqlite_conn).map_err(|e| {
-            BlissError::ProviderError(format!("Could not run database upgrade: {}", e))
+            BlissError::ProviderError(format!("Could not run database upgrade: {e}"))
         })?;
 
         config.write()?;
@@ -574,7 +574,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         let version: u32 = sqlite_conn
             .query_row("pragma user_version", [], |row| row.get(0))
             .map_err(|e| {
-                BlissError::ProviderError(format!("Could not get database version: {}.", e))
+                BlissError::ProviderError(format!("Could not get database version: {e}."))
             })?;
 
         let migrations = Library::<Config, D>::SQLITE_MIGRATIONS;
@@ -594,8 +594,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             })
             .map_err(|e| {
                 BlissError::ProviderError(format!(
-                    "Could not query initial database information: {}",
-                    e
+                    "Could not query initial database information: {e}",
                 ))
             })?;
         let is_database_new = number_tables <= 2;
@@ -604,12 +603,12 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             sqlite_conn
                 .execute_batch(Library::<Config, D>::SQLITE_SCHEMA)
                 .map_err(|e| {
-                    BlissError::ProviderError(format!("Could not initialize schema: {}.", e))
+                    BlissError::ProviderError(format!("Could not initialize schema: {e}."))
                 })?;
         } else {
             for migration in migrations.iter().skip(version as usize) {
                 sqlite_conn.execute_batch(migration).map_err(|e| {
-                    BlissError::ProviderError(format!("Could not execute migration: {}.", e))
+                    BlissError::ProviderError(format!("Could not execute migration: {e}."))
                 })?;
             }
         }
@@ -617,7 +616,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         sqlite_conn
             .execute(&format!("pragma user_version = {}", migrations.len()), [])
             .map_err(|e| {
-                BlissError::ProviderError(format!("Could not update database version: {}.", e))
+                BlissError::ProviderError(format!("Could not update database version: {e}."))
             })?;
 
         Ok(())
@@ -1017,10 +1016,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             log::info!("No (new) songs found.");
             return Ok(());
         }
-        log::info!(
-            "Analyzing {} song(s), this might take some time…",
-            number_songs
-        );
+        log::info!("Analyzing {number_songs} song(s), this might take some time…",);
         let pb = if show_progress_bar {
             ProgressBar::new(number_songs.try_into().unwrap())
         } else {
@@ -1107,11 +1103,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             "Analyzed {success_count} song(s) successfully. {failure_count} Failure(s).",
         ));
 
-        log::info!(
-            "Analyzed {} song(s) successfully. {} Failure(s).",
-            success_count,
-            failure_count,
-        );
+        log::info!("Analyzed {success_count} song(s) successfully. {failure_count} Failure(s).",);
 
         self.config.base_config_mut().features_version = FEATURES_VERSION;
         self.config.write()?;
@@ -3912,5 +3904,25 @@ mod test {
                 }
             ]
         );
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
+    fn test_analyze_store_failed_songs() {
+        let (mut library, _temp_dir, _) = setup_test_library();
+        library.config.base_config_mut().features_version = 0;
+
+        let paths = vec![
+            "./data/s16_mono_22_5kHz.flac",
+            "./data/s16_stereo_22_5kHz.flac",
+            "non-existing",
+        ];
+        library.analyze_paths(paths.to_owned(), false).unwrap();
+        let failed_songs = library.get_failed_songs().unwrap();
+        assert!(failed_songs.contains(&ProcessingError {
+            song_path: PathBuf::from("non-existing"),
+            error: String::from("error happened while decoding file - while opening format for file 'non-existing': ffmpeg::Error(2: No such file or directory)."),
+            features_version: 1,
+        }));
     }
 }
