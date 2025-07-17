@@ -152,6 +152,7 @@ use crate::decoder::Decoder as DecoderTrait;
 use crate::Song;
 use crate::FEATURES_VERSION;
 use crate::{Analysis, BlissError, NUMBER_FEATURES};
+use kiddo::{ImmutableKdTree, SquaredEuclidean};
 use rusqlite::Error as RusqliteError;
 use std::convert::TryInto;
 use std::time::Duration;
@@ -683,6 +684,67 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         Self::new(config)
     }
 
+    pub fn magic_mix<T: Serialize + DeserializeOwned + Clone>(
+        &self,
+        song_paths: &[&str],
+    ) -> Result<Vec<LibrarySong<T>>> {
+        let initial_songs: Vec<LibrarySong<T>> = song_paths
+            .iter()
+            .map(|s| {
+                self.song_from_path(s).map_err(|_| {
+                    BlissError::ProviderError(format!("song '{s}' has not been analyzed"))
+                })
+            })
+            .collect::<Result<Vec<_>, BlissError>>()?;
+
+        let songs = self
+            .songs_from_library()?
+            .into_iter()
+            .filter(|s: &LibrarySong<T>| {
+                !song_paths.contains(&&*s.bliss_song.path.to_string_lossy().to_string())
+            })
+            .collect::<Vec<_>>();
+
+        let tree: ImmutableKdTree<_, 20> = ImmutableKdTree::new_from_slice(
+            songs
+                .iter()
+                .map(|s| {
+                    s.bliss_song
+                        .analysis
+                        .as_vec()
+                        .as_slice()
+                        .try_into()
+                        .unwrap()
+                })
+                .collect::<Vec<_>>()
+                .as_slice(),
+        );
+        let neighbors = tree.nearest_n::<SquaredEuclidean>(
+            initial_songs[0]
+                .bliss_song
+                .analysis
+                .as_vec()
+                .as_slice()
+                .try_into()
+                .unwrap(),
+            NonZeroUsize::new(30).unwrap(),
+        );
+
+        let idx = neighbors.into_iter().map(|n| n.item).collect::<Vec<_>>();
+        let final_songs = songs
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, s)| {
+                if idx.contains(&(i as u64)) {
+                    Some(s)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        Ok(final_songs)
+    }
     /// Build a playlist of `playlist_length` items from a set of already analyzed
     /// songs in the library at `song_path`.
     ///

@@ -46,6 +46,7 @@ library = [
     "dep:serde_json",
     "dep:indicatif",
     "ndarray/serde",
+    #"kiddo",
 ]
 serde = ["dep:serde", "extended-isolation-forest/serde"]
 integration-tests = []
@@ -100,6 +101,7 @@ extended-isolation-forest = { version = "0.2.3", default-features = false }
 # Deps for the library feature
 serde = { version = "1.0", optional = true, features = ["derive"] }
 serde_json = { version = "1.0.59", optional = true }
+kiddo = { version = "5.2.2" }
 serde_ini = { version = "0.2.0", optional = true }
 tempdir = { version = "0.3.7", optional = true }
 rusqlite = { version = "0.34.0", optional = true }
