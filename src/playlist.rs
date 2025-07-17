@@ -9,10 +9,15 @@
 //! suit you.
 use crate::{BlissError, BlissResult, Song, NUMBER_FEATURES};
 use extended_isolation_forest::{Forest, ForestOptions};
+use kiddo::{ImmutableKdTree, SquaredEuclidean};
 use ndarray::{Array, Array1, Array2, Axis};
 use ndarray_stats::QuantileExt;
 use noisy_float::prelude::*;
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    fmt::Debug,
+    num::{NonZero, NonZeroUsize},
+};
 
 /// Trait for creating a distance metric, measuring the distance to a set of vectors. If this
 /// metric requires any kind of training, this should be done in the build function so that the
@@ -57,6 +62,42 @@ impl<F: Fn(&Array1<f32>, &Array1<f32>) -> f32 + 'static> DistanceMetric
     fn distance(&self, vector: &Array1<f32>) -> f32 {
         self.state.iter().map(|v| (self.func)(v, vector)).sum()
     }
+}
+
+pub fn magic_sort<'a, T: AsRef<Song> + Clone + Debug + std::cmp::PartialEq + 'a>(
+    initial_songs: &[T],
+    song_pool: &[T],
+    metric_builder: &'a dyn DistanceMetricBuilder,
+) -> impl Iterator<Item = T> + 'a {
+    // Filter out initial_songs
+    let song_pool = song_pool
+        .iter()
+        .filter(|s| !initial_songs.contains(s))
+        .collect::<Vec<_>>();
+    let features = initial_songs
+        .iter()
+        .map(|s| s.as_ref().analysis.as_arr1())
+        .collect::<Vec<_>>();
+
+    let centroid = features.into_iter().reduce(|a, b| a + b).unwrap() / initial_songs.len() as f32;
+    let tree: ImmutableKdTree<_, NUMBER_FEATURES> = ImmutableKdTree::new_from_slice(
+        song_pool
+            .iter()
+            .map(|s| s.as_ref().analysis.as_vec().as_slice().try_into().unwrap())
+            .collect::<Vec<_>>()
+            .as_slice(),
+    );
+    let neighbors = tree.nearest_n::<SquaredEuclidean>(
+        centroid.to_vec().as_slice().try_into().unwrap(),
+        NonZeroUsize::new(song_pool.len()).unwrap(),
+    );
+
+    let idx = neighbors.into_iter().map(|n| n.item).collect::<Vec<_>>();
+    let mut playlist = Vec::with_capacity(idx.len());
+    for i in idx {
+        playlist.push(song_pool[i as usize].to_owned());
+    }
+    playlist.into_iter()
 }
 
 /// Return the [euclidean
@@ -145,6 +186,10 @@ fn feature_array1_to_array(f: &Array1<f32>) -> [f32; NUMBER_FEATURES] {
         .try_into()
         .expect("Couldn't convert slice to array")
 }
+
+//impl DistanceMetricBuilder for ImmutableKdTree<&[f32], NUMBER_FEATURES> {
+//    fn build(&self, vectors: &[Array1<f32>]) -
+//}
 
 impl DistanceMetricBuilder for ForestOptions {
     fn build(&self, vectors: &[Array1<f32>]) -> Box<dyn DistanceMetric> {
