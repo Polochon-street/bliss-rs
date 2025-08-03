@@ -15,4 +15,9 @@ fn main() {
             );
         }
     }
+
+    if env::var("CARGO_CFG_TARGET_ARCH").unwrap().contains("wasm") {
+        println!("cargo:rustc-link-arg=-sALLOW_MEMORY_GROWTH=1");
+        println!("cargo:rustc-link-arg=--no-entry");
+    }
 }

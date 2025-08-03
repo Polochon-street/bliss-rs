@@ -1,5 +1,9 @@
 # Changelog
 
+## bliss 0.10.2
+* Bump bliss-audio-aubio-rs.
+* Add resource on how to compile for WASM.
+
 ## bliss 0.10.1
 * Add a way to retrieve failed analyses for a Library.
 * Update dependencies.
