@@ -218,6 +218,22 @@ Usually installing FFmpeg on the target windows is enough, but you can also just
 extract them from `/path/to/prebuilt/ffmpeg/bin` and put them next to the thing
 you generated from cargo (either bliss' dll or executable).
 
+## WASM compilation
+
+If you want to compile bliss-rs to WASM, you can use emscripten. Note that
+since WASM doesn't have stdlib functions (e.g. to open files), the most
+reasonable use case is to pass raw byte arrays to bliss using the less intuitive
+method [Song::analyze](https://docs.rs/bliss-audio/latest/bliss_audio/struct.Song.html#method.analyze).
+
+First set up emscripten using the [documentation](https://emscripten.org/docs/getting_started/downloads.html),
+`source /path/to/emsdk_env.sh`, then build bliss using
+`cargo build --target wasm32-unknown-emscripten --features=update-aubio-bindings --no-default-features`
+while having the target `wasm32-unknown-emscripten`, that can be installed by
+running `rustup target add wasm32-unknown-emscripten`.
+
+A small repository demonstrating on how to use it further is available
+[here](https://github.com/Polochon-street/bliss-wasm-example)
+
 ## Troubleshooting
 
 Do not hesitate to open an [issue](https://github.com/Polochon-street/bliss-rs/issues)
