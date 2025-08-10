@@ -31,7 +31,7 @@ pub struct ChromaDesc {
 }
 
 impl Normalize for ChromaDesc {
-    const MAX_VALUE: f32 = 0.12;
+    const MAX_VALUE: f32 = 1.0;
     const MIN_VALUE: f32 = 0.;
 }
 
@@ -77,8 +77,27 @@ impl ChromaDesc {
      * Music").
      */
     pub fn get_values(&mut self) -> Vec<f32> {
+        let mut raw_features = chroma_interval_features(&self.values_chroma);
+        let (mut interval_class, mut interval_class_mode) =
+            raw_features.view_mut().split_at(Axis(0), 6);
+        // Compute those two norms separately because the values for the IC1-6 and IC7-10 don't
+        // have the same range.
+        let l2_norm_interval_class = interval_class.dot(&interval_class).sqrt();
+        let l2_norm_interval_class_mode = interval_class_mode.dot(&interval_class_mode).sqrt();
+        if l2_norm_interval_class > 0. {
+            interval_class /= l2_norm_interval_class;
+        }
+        if l2_norm_interval_class_mode > 0. {
+            interval_class_mode /= l2_norm_interval_class_mode;
+        }
+        raw_features
+            .mapv_into_any(|x| self.normalize(x as f32))
+            .to_vec()
+    }
+
+    pub(crate) fn get_values_version_1(&mut self) -> Vec<f32> {
         chroma_interval_features(&self.values_chroma)
-            .mapv(|x| self.normalize(x as f32))
+            .mapv(|x| 2. * (x as f32 - 0.) / (0.12 - 0.) - 1.)
             .to_vec()
     }
 }
@@ -440,6 +459,7 @@ mod test {
     use crate::SAMPLE_RATE;
     use ndarray::{arr1, arr2, Array2};
     use ndarray_npy::ReadNpyExt;
+    use pretty_assertions::assert_eq;
     use std::fs::File;
     #[cfg(feature = "ffmpeg")]
     use std::path::Path;
@@ -512,17 +532,17 @@ mod test {
         let song = Decoder::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
         chroma_desc.do_(&song.sample_array).unwrap();
-        let expected_values = vec![
-            -0.35661936,
-            -0.63578653,
-            -0.29593682,
-            0.06421304,
-            0.21852458,
-            -0.581239,
-            -0.9466835,
-            -0.9481153,
-            -0.9820945,
-            -0.95968974,
+        let expected_values = [
+            -0.34292513,
+            -0.62803423,
+            -0.28095096,
+            0.08686459,
+            0.24446082,
+            -0.5723257,
+            0.23292065,
+            0.19981146,
+            -0.58594406,
+            -0.06784296,
         ];
         for (expected, actual) in expected_values.iter().zip(chroma_desc.get_values().iter()) {
             assert!(0.0000001 > (expected - actual).abs());
@@ -621,6 +641,76 @@ mod test {
 
         for (expected, actual) in expected_filter.iter().zip(filter.iter()) {
             assert!(0.000000001 > (expected - actual).abs());
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
+    fn test_end_result_triads() {
+        // High 6 should be a major triad, 7 minor, 8 diminished and 9 augmented.
+        let triads = [
+            ("data/chroma/Cmaj.ogg", 6),
+            ("data/chroma/Dmaj.ogg", 6),
+            ("data/chroma/Cmin.ogg", 7),
+            ("data/chroma/Cdim.ogg", 8),
+            ("data/chroma/Caug.ogg", 9),
+        ];
+        for (path, expected_dominant_chroma_feature_index) in triads {
+            let song = Decoder::decode(Path::new(path)).unwrap();
+            let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
+            chroma_desc.do_(&song.sample_array).unwrap();
+            let chroma_values = chroma_desc.get_values();
+
+            let mut indices: Vec<usize> = (0..chroma_values.len()).collect();
+            indices.sort_by(|&i, &j| chroma_values[j].partial_cmp(&chroma_values[i]).unwrap());
+            assert!(indices[0] == expected_dominant_chroma_feature_index);
+            for (i, v) in chroma_values.into_iter().enumerate() {
+                if i >= 6 {
+                    if i == expected_dominant_chroma_feature_index {
+                        assert!(v > 0.8);
+                    } else {
+                        assert!(v < 0.0);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
+    fn test_end_result_intervals() {
+        let intervals = [
+            ("data/chroma/minor_second.ogg", 0),
+            ("data/chroma/major_second.ogg", 1),
+            ("data/chroma/minor_third.ogg", 2),
+            ("data/chroma/major_third.ogg", 3),
+            ("data/chroma/perfect_fourth.ogg", 4),
+            ("data/chroma/perfect_fifth.ogg", 4),
+            ("data/chroma/tritone.ogg", 5),
+            ("data/chroma/minor_sixth.ogg", 3),
+            ("data/chroma/major_sixth.ogg", 2),
+            ("data/chroma/minor_seventh.ogg", 1),
+            ("data/chroma/major_seventh.ogg", 0),
+        ];
+        for (path, expected_dominant_chroma_feature_index) in intervals {
+            let song = Decoder::decode(Path::new(path)).unwrap();
+            let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
+            chroma_desc.do_(&song.sample_array).unwrap();
+            let chroma_values = chroma_desc.get_values();
+
+            let mut indices: Vec<usize> = (0..chroma_values.len()).collect();
+            indices.sort_by(|&i, &j| chroma_values[j].partial_cmp(&chroma_values[i]).unwrap());
+            println!("{:?}", path);
+            assert_eq!(indices[0], expected_dominant_chroma_feature_index);
+            for (i, v) in chroma_values.into_iter().enumerate() {
+                if i < 6 {
+                    if i == expected_dominant_chroma_feature_index {
+                        assert!(v > 0.9);
+                    } else {
+                        assert!(v < 0.0);
+                    }
+                }
+            }
         }
     }
 }

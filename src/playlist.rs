@@ -67,7 +67,6 @@ pub fn euclidean_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
     // just no metric learning has been done yet.
     // See https://lelele.io/thesis.pdf chapter 4.
     let m = Array::eye(NUMBER_FEATURES);
-
     (a - b).dot(&m).dot(&(a - b)).sqrt()
 }
 
