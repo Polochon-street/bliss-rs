@@ -10,7 +10,9 @@
 //! to implement other decoders is probably a good starting point.
 use log::info;
 
-use crate::{cue::BlissCue, BlissError, BlissResult, Song, FEATURES_VERSION};
+use crate::{
+    cue::BlissCue, song::AnalysisOptions, BlissError, BlissResult, Song, FEATURES_VERSION,
+};
 use std::{
     num::NonZeroUsize,
     path::{Path, PathBuf},
@@ -83,6 +85,25 @@ impl TryFrom<PreAnalyzedSong> for Song {
     }
 }
 
+impl PreAnalyzedSong {
+    fn to_song_with_options(&self, analysis_options: AnalysisOptions) -> BlissResult<Song> {
+        Ok(Song {
+            path: self.path.clone(),
+            artist: self.artist.clone(),
+            album_artist: self.album_artist.clone(),
+            title: self.title.clone(),
+            album: self.album.clone(),
+            track_number: self.track_number,
+            disc_number: self.disc_number,
+            genre: self.genre.clone(),
+            duration: self.duration,
+            analysis: Song::analyze_with_options(&self.sample_array, &analysis_options)?,
+            features_version: analysis_options.features_version,
+            cue_info: None,
+        })
+    }
+}
+
 /// Trait used to implement your own decoder.
 ///
 /// The `decode` function should be implemented so that it
@@ -129,6 +150,33 @@ pub trait Decoder {
     /// ([AnalysisError](BlissError::AnalysisError)) error.
     fn song_from_path<P: AsRef<Path>>(path: P) -> BlissResult<Song> {
         Self::decode(path.as_ref())?.try_into()
+    }
+
+    /// Returns a decoded [Song] given a file path, processed with the options
+    /// `analysis_options` or an error if the song
+    /// could not be analyzed for some reason.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - A [Path] holding a valid file path to a valid audio file.
+    /// * `analysis_options`: An [AnalysisOptions] struct holding various
+    ///   analysis options, such as the feature version. The `number_cores`
+    ///   parameter is not used here, since only a single song is processed.
+    ///
+    /// # Errors
+    ///
+    /// This function will return an error if the file path is invalid, if
+    /// the file path points to a file containing no or corrupted audio stream,
+    /// or if the analysis could not be conducted to the end for some reason.
+    ///
+    /// The error type returned should give a hint as to whether it was a
+    /// decoding ([DecodingError](BlissError::DecodingError)) or an analysis
+    /// ([AnalysisError](BlissError::AnalysisError)) error.
+    fn song_from_path_with_options<P: AsRef<Path>>(
+        path: P,
+        analysis_options: AnalysisOptions,
+    ) -> BlissResult<Song> {
+        Self::decode(path.as_ref())?.to_song_with_options(analysis_options)
     }
 
     /// Analyze songs in `paths` using multiple threads, and return the
@@ -182,8 +230,7 @@ fn main() -> BlissResult<()> {
     fn analyze_paths<P: Into<PathBuf>, F: IntoIterator<Item = P>>(
         paths: F,
     ) -> mpsc::IntoIter<(PathBuf, BlissResult<Song>)> {
-        let cores = thread::available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap());
-        Self::analyze_paths_with_cores(paths, cores)
+        Self::analyze_paths_with_options(paths, AnalysisOptions::default())
     }
 
     /// Analyze songs in `paths`, and return the analyzed [Song] objects through an
@@ -232,16 +279,17 @@ fn main() -> BlissResult<()> {
 }
 ```"##
     )]
-    fn analyze_paths_with_cores<P: Into<PathBuf>, F: IntoIterator<Item = P>>(
+    fn analyze_paths_with_options<P: Into<PathBuf>, F: IntoIterator<Item = P>>(
         paths: F,
-        number_cores: NonZeroUsize,
+        analysis_options: AnalysisOptions,
     ) -> mpsc::IntoIter<(PathBuf, BlissResult<Song>)> {
         let mut cores = thread::available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap());
+        let desired_number_cores = analysis_options.number_cores;
         // If the number of cores that we have is greater than the number of cores
         // that the user asked, comply with the user - otherwise we set a number
         // that's too great.
-        if cores > number_cores {
-            cores = number_cores;
+        if cores > desired_number_cores {
+            cores = desired_number_cores;
         }
         let paths: Vec<PathBuf> = paths.into_iter().map(|p| p.into()).collect();
         #[allow(clippy::type_complexity)]

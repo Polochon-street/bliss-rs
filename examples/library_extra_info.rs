@@ -7,11 +7,11 @@
 use anyhow::Result;
 use bliss_audio::decoder::ffmpeg::FFmpegDecoder as Decoder;
 use bliss_audio::library::{AppConfigTrait, BaseConfig, Library};
+use bliss_audio::AnalysisOptions;
 use clap::{value_parser, Arg, Command};
 use glob::glob;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -33,9 +33,9 @@ impl Config {
         music_library_path: PathBuf,
         config_path: Option<PathBuf>,
         database_path: Option<PathBuf>,
-        number_cores: Option<NonZeroUsize>,
+        analysis_options: Option<AnalysisOptions>,
     ) -> Result<Self> {
-        let base_config = BaseConfig::new(config_path, database_path, number_cores)?;
+        let base_config = BaseConfig::new(config_path, database_path, analysis_options)?;
         Ok(Self {
             base_config,
             music_library_path,
@@ -198,7 +198,11 @@ fn main() -> Result<()> {
         let config = Config::new(folder, config_path, database_path, None)?;
         let mut library = Library::new(config)?;
 
-        library.analyze_paths_extra_info(library.song_paths_info()?, true)?;
+        library.analyze_paths_extra_info(
+            library.song_paths_info()?,
+            true,
+            AnalysisOptions::default(),
+        )?;
     } else if let Some(sub_m) = matches.subcommand_matches("update") {
         let config_path = sub_m.get_one::<String>("config-path").map(PathBuf::from);
         let mut library: Library<Config, Decoder> = Library::from_config_path(config_path)?;
