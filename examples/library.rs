@@ -78,7 +78,7 @@ impl CustomLibrary for Library<Config, Decoder> {
         Ok(glob(&pattern.to_string_lossy())?
             .map(|e| fs::canonicalize(e.unwrap()).unwrap())
             .filter(|e| match mime_guess::from_path(e).first() {
-                Some(m) => m.type_() == "audio",
+                Some(m) => m.type_() == "audio" && !e.is_dir(),
                 None => false,
             })
             .map(|x| x.to_string_lossy().to_string())
