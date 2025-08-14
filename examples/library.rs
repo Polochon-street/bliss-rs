@@ -77,12 +77,10 @@ impl CustomLibrary for Library<Config, Decoder> {
 
         Ok(glob(&pattern.to_string_lossy())?
             .map(|e| fs::canonicalize(e.unwrap()).unwrap())
-            .filter(|e| match e.is_dir() {
-                true => false,
-                false => match mime_guess::from_path(e).first() {
-                    Some(m) => m.type_() == "audio",
-                    None => false,
-                },
+            .filter(|e| 
+                match mime_guess::from_path(e).first() {
+                Some(m) => m.type_() == "audio" && !e.is_dir(),
+                None => false,
             })
             .map(|x| x.to_string_lossy().to_string())
             .collect::<Vec<String>>())
