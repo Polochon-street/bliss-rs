@@ -29,7 +29,7 @@
 //!     use serde::{Deserialize, Serialize};
 //!     use std::path::PathBuf;
 //!     use std::num::NonZeroUsize;
-//!     use bliss_audio::BlissError;
+//!     use bliss_audio::{BlissError, FeaturesVersion};
 //!     use bliss_audio::library::{AppConfigTrait, BaseConfig};
 //!
 //!     #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -54,10 +54,12 @@
 //!             config_path: Option<PathBuf>,
 //!             database_path: Option<PathBuf>,
 //!             number_cores: Option<NonZeroUsize>,
+//!             features_version: Option<FeaturesVersion>
 //!         ) -> Result<Self> {
 //!             // Note that by passing `(None, None)` here, the paths will
 //!             // be inferred automatically using user data dirs.
-//!             let base_config = BaseConfig::new(config_path, database_path, number_cores)?;
+//!             let base_config = BaseConfig::new(config_path, database_path, number_cores,
+//!             features_version)?;
 //!             Ok(Self {
 //!                 base_config,
 //!                 music_library_path,
@@ -80,7 +82,7 @@
 
   let config_path = Some(PathBuf::from("path/to/config/config.json"));
   let database_path = Some(PathBuf::from("path/to/config/bliss.db"));
-  let config = BaseConfig::new(config_path, database_path, None)?;
+  let config = BaseConfig::new(config_path, database_path, None, None)?;
   let library: Library<BaseConfig, FFmpegDecoder> = Library::new(config)?;
   # Ok::<(), Error>(())
 ```"##
@@ -121,6 +123,8 @@ use crate::playlist::closest_to_songs;
 use crate::playlist::dedup_playlist_custom_distance;
 use crate::playlist::euclidean_distance;
 use crate::playlist::DistanceMetricBuilder;
+use crate::song::AnalysisOptions;
+use crate::FeaturesVersion;
 use anyhow::{bail, Context, Result};
 #[cfg(all(not(test), not(feature = "integration-tests")))]
 use dirs::config_local_dir;
@@ -152,9 +156,28 @@ use crate::decoder::Decoder as DecoderTrait;
 use crate::Song;
 use crate::FEATURES_VERSION;
 use crate::{Analysis, BlissError, NUMBER_FEATURES};
+use rusqlite::types::ToSqlOutput;
 use rusqlite::Error as RusqliteError;
+use rusqlite::{
+    types::{FromSql, FromSqlResult, ValueRef},
+    ToSql,
+};
 use std::convert::TryInto;
 use std::time::Duration;
+
+impl ToSql for FeaturesVersion {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(*self as u16))
+    }
+}
+
+impl FromSql for FeaturesVersion {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let value = value.as_i64()?;
+        FeaturesVersion::try_from(u16::try_from(value).unwrap())
+            .map_err(|e| rusqlite::types::FromSqlError::Other(Box::new(e)))
+    }
+}
 
 /// Configuration trait, used for instance to customize
 /// the format in which the configuration file should be written.
@@ -238,7 +261,7 @@ pub struct BaseConfig {
     pub database_path: PathBuf,
     /// The latest features' version a song has been analyzed
     /// with.
-    pub features_version: u16,
+    pub features_version: FeaturesVersion,
     /// The number of CPU cores an analysis will be performed with.
     /// Defaults to the number of CPUs in the user's computer.
     pub number_cores: NonZeroUsize,
@@ -315,6 +338,7 @@ impl BaseConfig {
         config_path: Option<PathBuf>,
         database_path: Option<PathBuf>,
         number_cores: Option<NonZeroUsize>,
+        features_version: Option<FeaturesVersion>,
     ) -> Result<Self> {
         let provided_database_path = database_path.is_some();
         let provided_config_path = config_path.is_some();
@@ -359,7 +383,7 @@ impl BaseConfig {
         Ok(Self {
             config_path: final_config_path,
             database_path: final_database_path,
-            features_version: FEATURES_VERSION,
+            features_version: features_version.unwrap_or(FeaturesVersion::default()),
             number_cores,
             m: Array2::eye(NUMBER_FEATURES),
         })
@@ -399,7 +423,7 @@ pub struct ProcessingError {
     /// The actual error string.
     pub error: String,
     /// Features version the analysis was attempted with.
-    pub features_version: u16,
+    pub features_version: FeaturesVersion,
 }
 
 /// Struct holding both a Bliss song, as well as any extra info
@@ -627,8 +651,10 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     /// If no configuration path is provided, the path is
     /// set using default data folder path.
     pub fn from_config_path(config_path: Option<PathBuf>) -> Result<Self> {
-        let config_path: Result<PathBuf> =
-            config_path.map_or_else(|| Ok(BaseConfig::new(None, None, None)?.config_path), Ok);
+        let config_path: Result<PathBuf> = config_path.map_or_else(
+            || Ok(BaseConfig::new(None, None, None, None)?.config_path),
+            Ok,
+        );
         let config_path = config_path?;
         let data = fs::read_to_string(config_path)?;
         let config = Config::deserialize_config(&data)?;
@@ -674,11 +700,12 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         config_path: Option<PathBuf>,
         database_path: Option<PathBuf>,
         number_cores: Option<NonZeroUsize>,
+        features_version: Option<FeaturesVersion>,
     ) -> Result<Self>
     where
         BaseConfig: Into<Config>,
     {
-        let base = BaseConfig::new(config_path, database_path, number_cores)?;
+        let base = BaseConfig::new(config_path, database_path, number_cores, features_version)?;
         let config = base.into();
         Self::new(config)
     }
@@ -829,6 +856,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             delete_everything_else,
             show_progress_bar,
             |x, _, _| x,
+            AnalysisOptions::default(),
         )
     }
 
@@ -852,6 +880,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             delete_everything_else,
             show_progress_bar,
             |extra_info, _, _| extra_info,
+            AnalysisOptions::default(),
         )
     }
 
@@ -889,6 +918,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         delete_everything_else: bool,
         show_progress_bar: bool,
         convert_extra_info: fn(U, &Song, &Self) -> T,
+        analysis_options: AnalysisOptions,
     ) -> Result<()> {
         let existing_paths = {
             let connection = self
@@ -935,6 +965,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             paths_to_analyze,
             show_progress_bar,
             convert_extra_info,
+            analysis_options,
         )
     }
 
@@ -955,7 +986,27 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         show_progress_bar: bool,
     ) -> Result<()> {
         let paths_extra_info = paths.into_iter().map(|path| (path, ())).collect::<Vec<_>>();
-        self.analyze_paths_convert_extra_info(paths_extra_info, show_progress_bar, |x, _, _| x)
+        self.analyze_paths_convert_extra_info(
+            paths_extra_info,
+            show_progress_bar,
+            |x, _, _| x,
+            AnalysisOptions::default(),
+        )
+    }
+
+    pub fn analyze_paths_with_options<P: Into<PathBuf>>(
+        &mut self,
+        paths: Vec<P>,
+        show_progress_bar: bool,
+        analysis_options: AnalysisOptions,
+    ) -> Result<()> {
+        let paths_extra_info = paths.into_iter().map(|path| (path, ())).collect::<Vec<_>>();
+        self.analyze_paths_convert_extra_info(
+            paths_extra_info,
+            show_progress_bar,
+            |x, _, _| x,
+            analysis_options,
+        )
     }
 
     /// Analyze and store all songs in `paths_extra_info`, along with some
@@ -974,11 +1025,13 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         &mut self,
         paths_extra_info: Vec<(P, T)>,
         show_progress_bar: bool,
+        analysis_options: AnalysisOptions,
     ) -> Result<()> {
         self.analyze_paths_convert_extra_info(
             paths_extra_info,
             show_progress_bar,
             |extra_info, _, _| extra_info,
+            analysis_options,
         )
     }
 
@@ -1010,6 +1063,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         paths_extra_info: Vec<(P, U)>,
         show_progress_bar: bool,
         convert_extra_info: fn(U, &Song, &Self) -> T,
+        analysis_options: AnalysisOptions,
     ) -> Result<()> {
         let number_songs = paths_extra_info.len();
         if number_songs == 0 {
@@ -1105,7 +1159,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
 
         log::info!("Analyzed {success_count} song(s) successfully. {failure_count} Failure(s).",);
 
-        self.config.base_config_mut().features_version = FEATURES_VERSION;
+        self.config.base_config_mut().features_version = analysis_options.features_version;
         self.config.write()?;
 
         Ok(())
@@ -1648,6 +1702,7 @@ mod test {
             Some(config_file),
             Some(database_file),
             None,
+            None,
         )
         .unwrap();
 
@@ -1669,7 +1724,7 @@ mod test {
                 internal_analysis: analysis_vector,
             },
             duration: Duration::from_secs(310),
-            features_version: 1,
+            features_version: FEATURES_VERSION,
             cue_info: None,
         };
         let first_song = LibrarySong {
@@ -1698,7 +1753,7 @@ mod test {
                 internal_analysis: analysis_vector,
             },
             duration: Duration::from_secs(410),
-            features_version: 1,
+            features_version: FEATURES_VERSION,
             cue_info: None,
         };
         let second_song = LibrarySong {
@@ -1727,7 +1782,7 @@ mod test {
                 internal_analysis: analysis_vector,
             },
             duration: Duration::from_secs(410),
-            features_version: 1,
+            features_version: FEATURES_VERSION,
             cue_info: None,
         };
         let second_song_dupe = LibrarySong {
@@ -1756,7 +1811,7 @@ mod test {
                 internal_analysis: analysis_vector,
             },
             duration: Duration::from_secs(610),
-            features_version: 1,
+            features_version: FEATURES_VERSION,
             cue_info: None,
         };
         let third_song = LibrarySong {
@@ -1785,7 +1840,7 @@ mod test {
                 internal_analysis: analysis_vector,
             },
             duration: Duration::from_secs(710),
-            features_version: 1,
+            features_version: FEATURES_VERSION,
             cue_info: None,
         };
         let fourth_song = LibrarySong {
@@ -1814,7 +1869,7 @@ mod test {
                 internal_analysis: analysis_vector,
             },
             duration: Duration::from_secs(810),
-            features_version: 1,
+            features_version: FEATURES_VERSION,
             cue_info: None,
         };
         let fifth_song = LibrarySong {
@@ -1844,7 +1899,7 @@ mod test {
                 internal_analysis: analysis_vector,
             },
             duration: Duration::from_secs(810),
-            features_version: 1,
+            features_version: FEATURES_VERSION,
             cue_info: Some(CueInfo {
                 cue_path: PathBuf::from("/path/to/cuetrack.cue"),
                 audio_file_path: PathBuf::from("/path/to/cuetrack.flac"),
@@ -1877,7 +1932,7 @@ mod test {
                 internal_analysis: analysis_vector,
             },
             duration: Duration::from_secs(910),
-            features_version: 1,
+            features_version: FEATURES_VERSION,
             cue_info: Some(CueInfo {
                 cue_path: PathBuf::from("/path/to/cuetrack.cue"),
                 audio_file_path: PathBuf::from("/path/to/cuetrack.flac"),
@@ -1895,7 +1950,8 @@ mod test {
             let connection = library.sqlite_conn.lock().unwrap();
             connection
                 .execute(
-                    "
+                    &format!(
+                        "
                     insert into song (
                         id, path, artist, title, album, album_artist, track_number,
                         disc_number, genre, duration, analyzed, version, extra_info,
@@ -1903,88 +1959,91 @@ mod test {
                     ) values (
                         1001, '/path/to/song1001', 'Artist1001', 'Title1001', 'An Album1001',
                         'An Album Artist1001', 3, 1, 'Electronica1001', 310, true,
-                        1, '{\"ignore\": true, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie1001\"}', null, null, null
+                        {new_version}, '{{\"ignore\": true, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie1001\"}}', null, null, null
                     ),
                     (
                         2001, '/path/to/song2001', 'Artist2001', 'Title2001', 'An Album2001',
                         'An Album Artist2001', 2, 1, 'Electronica2001', 410, true,
-                        1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie2001\"}', null, null, null
+                        {new_version}, '{{\"ignore\": false, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie2001\"}}', null, null, null
                     ),
                     (
                         2201, '/path/to/song2201', 'Artist2001', 'Title2001', 'An Album2001',
                         'An Album Artist2001', 1, 2, 'Electronica2001', 410, true,
-                        1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie2201\"}', null, null, null
+                        {new_version}, '{{\"ignore\": false, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie2201\"}}', null, null, null
                     ),
                     (
                         3001, '/path/to/song3001', null, null, null,
-                        null, null, null, null, null, false, 1, '{}', null, null, null
+                        null, null, null, null, null, false, {new_version}, '{{}}', null, null, null
                     ),
                     (
                         4001, '/path/to/song4001', 'Artist4001', 'Title4001', 'An Album4001',
                         'An Album Artist4001', 1, 1, 'Electronica4001', 510, true,
-                        0, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie4001\"}', null, null, null
+                        {old_version}, '{{\"ignore\": false, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie4001\"}}', null, null, null
                     ),
                     (
                         5001, '/path/to/song5001', 'Artist5001', 'Title5001', 'An Album1001',
                         'An Album Artist5001', 1, 1, 'Electronica5001', 610, true,
-                        1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie5001\"}', null, null, null
+                        {new_version}, '{{\"ignore\": false, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie5001\"}}', null, null, null
                     ),
                     (
                         6001, '/path/to/song6001', 'Artist6001', 'Title6001', 'An Album2001',
                         'An Album Artist6001', 1, 1, 'Electronica6001', 710, true,
-                        1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie6001\"}', null, null, null
+                        {new_version}, '{{\"ignore\": false, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie6001\"}}', null, null, null
                     ),
                     (
                         7001, '/path/to/song7001', 'Artist7001', 'Title7001', 'An Album7001',
                         'An Album Artist7001', 1, 1, 'Electronica7001', 810, true,
-                        1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie7001\"}', null, null, null
+                        {new_version}, '{{\"ignore\": false, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie7001\"}}', null, null, null
                     ),
                     (
                         7002, '/path/to/cuetrack.cue/CUE_TRACK001', 'CUE Artist',
                         'CUE Title 01', 'CUE Album',
                         'CUE Album Artist', 1, 1, null, 810, true,
-                        1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie7001\"}', '/path/to/cuetrack.cue',
+                        {new_version}, '{{\"ignore\": false, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie7001\"}}', '/path/to/cuetrack.cue',
                         '/path/to/cuetrack.flac', null
                     ),
                     (
                         7003, '/path/to/cuetrack.cue/CUE_TRACK002', 'CUE Artist',
                         'CUE Title 02', 'CUE Album',
                         'CUE Album Artist', 2, 1, null, 910, true,
-                        1, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie7001\"}', '/path/to/cuetrack.cue',
+                        {new_version}, '{{\"ignore\": false, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie7001\"}}', '/path/to/cuetrack.cue',
                         '/path/to/cuetrack.flac', null
                     ),
                     (
                         8001, '/path/to/song8001', 'Artist8001', 'Title8001', 'An Album1001',
                         'An Album Artist8001', 3, 1, 'Electronica8001', 910, true,
-                        0, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie8001\"}', null, null, null
+                        {old_version}, '{{\"ignore\": false, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie8001\"}}', null, null, null
                     ),
                     (
                         9001, './data/s16_stereo_22_5kHz.flac', 'Artist9001', 'Title9001',
                         'An Album9001', 'An Album Artist8001', 3, 1, 'Electronica8001',
-                        1010, true, 0, '{\"ignore\": false, \"metadata_bliss_does_not_have\":
-                        \"/path/to/charlie7001\"}', null, null, null
+                        1010, true, {old_version}, '{{\"ignore\": false, \"metadata_bliss_does_not_have\":
+                        \"/path/to/charlie7001\"}}', null, null, null
                     ),
                     (
                         404, './data/not-existing.m4a', null, null,
                         null, null, null, null, null,
-                        null, false, 0, null, null, null, 'error finding the file'
+                        null, false, {old_version}, null, null, null, 'error finding the file'
                     ),
                     (
                         502, './data/invalid-file.m4a', null, null,
                         null, null, null, null, null,
-                        null, false, 0, null, null, null, 'error decoding the file'
+                        null, false, {old_version}, null, null, null, 'error decoding the file'
                     );
                     ",
+                        new_version = FEATURES_VERSION as u16,
+                        old_version = FeaturesVersion::Version1 as u16,
+                    ),
                     [],
                 )
                 .unwrap();
@@ -2202,7 +2261,7 @@ mod test {
                 internal_analysis: analysis_vector,
             },
             duration: Duration::from_secs(80),
-            features_version: 1,
+            features_version: FEATURES_VERSION,
             cue_info: None,
         }
     }
@@ -2684,7 +2743,7 @@ mod test {
     #[cfg(feature = "ffmpeg")]
     fn test_analyze_paths_cue() {
         let (mut library, _temp_dir, _) = setup_test_library();
-        library.config.base_config_mut().features_version = 0;
+        library.config.base_config_mut().features_version = FeaturesVersion::Version1;
         {
             let sqlite_conn =
                 Connection::open(&library.config.base_config().database_path).unwrap();
@@ -2696,7 +2755,15 @@ mod test {
             "./data/testcue.cue",
             "non-existing",
         ];
-        library.analyze_paths(paths.to_owned(), false).unwrap();
+        library
+            .analyze_paths_with_options(
+                paths.to_owned(),
+                false,
+                AnalysisOptions {
+                    features_version: FeaturesVersion::Version2,
+                },
+            )
+            .unwrap();
         let expected_analyzed_paths = vec![
             "./data/s16_mono_22_5kHz.flac",
             "./data/testcue.cue/CUE_TRACK001",
@@ -2734,7 +2801,7 @@ mod test {
     #[cfg(feature = "ffmpeg")]
     fn test_analyze_paths() {
         let (mut library, _temp_dir, _) = setup_test_library();
-        library.config.base_config_mut().features_version = 0;
+        library.config.base_config_mut().features_version = FeaturesVersion::Version1;
 
         let paths = vec![
             "./data/s16_mono_22_5kHz.flac",
@@ -2768,23 +2835,33 @@ mod test {
     #[cfg(feature = "ffmpeg")]
     fn test_analyze_paths_convert_extra_info() {
         let (mut library, _temp_dir, _) = setup_test_library();
-        library.config.base_config_mut().features_version = 0;
+        library.config.base_config_mut().features_version = FeaturesVersion::Version1;
         let paths = vec![
             ("./data/s16_mono_22_5kHz.flac", true),
             ("./data/s16_stereo_22_5kHz.flac", false),
             ("non-existing", false),
         ];
         library
-            .analyze_paths_convert_extra_info(paths.to_owned(), true, |b, _, _| ExtraInfo {
-                ignore: b,
-                metadata_bliss_does_not_have: String::from("coucou"),
-            })
+            .analyze_paths_convert_extra_info(
+                paths.to_owned(),
+                true,
+                |b, _, _| ExtraInfo {
+                    ignore: b,
+                    metadata_bliss_does_not_have: String::from("coucou"),
+                },
+                AnalysisOptions::default(),
+            )
             .unwrap();
         library
-            .analyze_paths_convert_extra_info(paths.to_owned(), false, |b, _, _| ExtraInfo {
-                ignore: b,
-                metadata_bliss_does_not_have: String::from("coucou"),
-            })
+            .analyze_paths_convert_extra_info(
+                paths.to_owned(),
+                false,
+                |b, _, _| ExtraInfo {
+                    ignore: b,
+                    metadata_bliss_does_not_have: String::from("coucou"),
+                },
+                AnalysisOptions::default(),
+            )
             .unwrap();
         let songs = paths[..2]
             .iter()
@@ -2849,7 +2926,7 @@ mod test {
             ),
         ];
         library
-            .analyze_paths_extra_info(paths.to_owned(), false)
+            .analyze_paths_extra_info(paths.to_owned(), false, AnalysisOptions::default())
             .unwrap();
         let songs = paths[..2]
             .iter()
@@ -2887,7 +2964,7 @@ mod test {
     // analyzed again on updates.
     fn test_update_skip_analyzed() {
         let (mut library, _temp_dir, _) = setup_test_library();
-        library.config.base_config_mut().features_version = 0;
+        library.config.base_config_mut().features_version = FeaturesVersion::Version1;
 
         for input in vec![
             ("./data/s16_mono_22_5kHz.flac", true),
@@ -2897,12 +2974,16 @@ mod test {
         {
             let paths = vec![input.to_owned()];
             library
-                .update_library_convert_extra_info(paths.to_owned(), true, false, |b, _, _| {
-                    ExtraInfo {
+                .update_library_convert_extra_info(
+                    paths.to_owned(),
+                    true,
+                    false,
+                    |b, _, _| ExtraInfo {
                         ignore: b,
                         metadata_bliss_does_not_have: String::from("coucou"),
-                    }
-                })
+                    },
+                    AnalysisOptions::default(),
+                )
                 .unwrap();
             let song = {
                 let connection = library.sqlite_conn.lock().unwrap();
@@ -3000,7 +3081,7 @@ mod test {
     #[cfg(feature = "ffmpeg")]
     fn test_update_library() {
         let (mut library, _temp_dir, _) = setup_test_library();
-        library.config.base_config_mut().features_version = 0;
+        library.config.base_config_mut().features_version = FeaturesVersion::Version1;
 
         {
             let connection = library.sqlite_conn.lock().unwrap();
@@ -3053,7 +3134,7 @@ mod test {
     #[cfg(feature = "ffmpeg")]
     fn test_update_extra_info() {
         let (mut library, _temp_dir, _) = setup_test_library();
-        library.config.base_config_mut().features_version = 0;
+        library.config.base_config_mut().features_version = FeaturesVersion::Version1;
 
         {
             let connection = library.sqlite_conn.lock().unwrap();
@@ -3101,7 +3182,7 @@ mod test {
     #[cfg(feature = "ffmpeg")]
     fn test_update_convert_extra_info() {
         let (mut library, _temp_dir, _) = setup_test_library();
-        library.config.base_config_mut().features_version = 0;
+        library.config.base_config_mut().features_version = FeaturesVersion::Version1;
 
         {
             let connection = library.sqlite_conn.lock().unwrap();
@@ -3121,10 +3202,16 @@ mod test {
             ("non-existing", false),
         ];
         library
-            .update_library_convert_extra_info(paths.to_owned(), true, false, |b, _, _| ExtraInfo {
-                ignore: b,
-                metadata_bliss_does_not_have: String::from("coucou"),
-            })
+            .update_library_convert_extra_info(
+                paths.to_owned(),
+                true,
+                false,
+                |b, _, _| ExtraInfo {
+                    ignore: b,
+                    metadata_bliss_does_not_have: String::from("coucou"),
+                },
+                AnalysisOptions::default(),
+            )
             .unwrap();
         let songs = paths[..2]
             .iter()
@@ -3178,7 +3265,7 @@ mod test {
     // TODO maybe we can merge / DRY this and the function ⬆
     fn test_update_convert_extra_info_do_not_delete() {
         let (mut library, _temp_dir, _) = setup_test_library();
-        library.config.base_config_mut().features_version = 0;
+        library.config.base_config_mut().features_version = FeaturesVersion::Version1;
 
         {
             let connection = library.sqlite_conn.lock().unwrap();
@@ -3198,12 +3285,16 @@ mod test {
             ("non-existing", false),
         ];
         library
-            .update_library_convert_extra_info(paths.to_owned(), false, false, |b, _, _| {
-                ExtraInfo {
+            .update_library_convert_extra_info(
+                paths.to_owned(),
+                false,
+                false,
+                |b, _, _| ExtraInfo {
                     ignore: b,
                     metadata_bliss_does_not_have: String::from("coucou"),
-                }
-            })
+                },
+                AnalysisOptions::default(),
+            )
             .unwrap();
         let songs = paths[..2]
             .iter()
@@ -3272,7 +3363,7 @@ mod test {
                 internal_analysis: analysis_vector,
             },
             duration: Duration::from_secs(410),
-            features_version: 1,
+            features_version: FeaturesVersion::Version2,
             cue_info: None,
         };
         let expected_song = LibrarySong {
@@ -3459,7 +3550,7 @@ mod test {
                 \"m\":{{\"v\":1,\"dim\":[{},{}],\"data\":{}}}}}",
                 library.config.base_config().config_path.display(),
                 library.config.base_config().database_path.display(),
-                FEATURES_VERSION,
+                FEATURES_VERSION as u16,
                 thread::available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap()),
                 NUMBER_FEATURES,
                 NUMBER_FEATURES,
@@ -3535,6 +3626,7 @@ mod test {
             Some(config_dir.path().join("config.txt")),
             Some(sqlite_db_path.clone()),
             NonZeroUsize::new(1),
+            None,
         )
         .unwrap();
         let sqlite_conn = library.sqlite_conn.lock().unwrap();
@@ -3563,6 +3655,7 @@ mod test {
             Some(config_dir.path().join("config.txt")),
             Some(sqlite_db_path),
             NonZeroUsize::new(1),
+            None,
         )
         .unwrap();
         let version: u32 = sqlite_conn
@@ -3580,12 +3673,14 @@ mod test {
             Some(config_dir.path().join("config.txt")),
             Some(sqlite_db_path.clone()),
             NonZeroUsize::new(1),
+            None,
         )
         .unwrap();
         let library = Library::<BaseConfig, DummyDecoder>::new_from_base(
             Some(config_dir.path().join("config.txt")),
             Some(sqlite_db_path.clone()),
             NonZeroUsize::new(1),
+            None,
         )
         .unwrap();
         let sqlite_conn = library.sqlite_conn.lock().unwrap();
@@ -3617,7 +3712,7 @@ mod test {
             env::set_var("XDG_CONFIG_HOME", xdg_config_home.path());
 
             // First test case: default options go to the XDG_CONFIG_HOME path.
-            let base_config = BaseConfig::new(None, None, None).unwrap();
+            let base_config = BaseConfig::new(None, None, None, None).unwrap();
 
             assert_eq!(
                 base_config.config_path,
@@ -3636,6 +3731,7 @@ mod test {
                 Some(random_config_home.path().join("test.json")),
                 None,
                 None,
+                None,
             )
             .unwrap();
 
@@ -3652,9 +3748,13 @@ mod test {
         // Third test case: no config path, but db path.
         {
             let random_config_home = TempDir::new("database").unwrap();
-            let base_config =
-                BaseConfig::new(None, Some(random_config_home.path().join("test.db")), None)
-                    .unwrap();
+            let base_config = BaseConfig::new(
+                None,
+                Some(random_config_home.path().join("test.db")),
+                None,
+                None,
+            )
+            .unwrap();
 
             assert_eq!(
                 base_config.config_path,
@@ -3672,6 +3772,7 @@ mod test {
             let base_config = BaseConfig::new(
                 Some(random_config_home.path().join("config_test.json")),
                 Some(random_database_home.path().join("test-database.db")),
+                None,
                 None,
             )
             .unwrap();
@@ -3721,6 +3822,7 @@ mod test {
             Some(config_file.to_owned()),
             Some(database_file),
             Some(nzus(1)),
+            None,
         )
         .unwrap();
 
@@ -3758,7 +3860,7 @@ mod test {
             BaseConfig {
                 config_path: PathBuf::from_str("/tmp/bliss-rs/config.json").unwrap(),
                 database_path: PathBuf::from_str("/tmp/bliss-rs/songs.db").unwrap(),
-                features_version: 1,
+                features_version: FeaturesVersion::Version1,
                 number_cores: NonZeroUsize::new(8).unwrap(),
                 m,
             }
@@ -3773,7 +3875,7 @@ mod test {
             BaseConfig {
                 config_path: PathBuf::from_str("/tmp/bliss-rs/config.json").unwrap(),
                 database_path: PathBuf::from_str("/tmp/bliss-rs/songs.db").unwrap(),
-                features_version: 1,
+                features_version: FeaturesVersion::Version1,
                 number_cores: NonZeroUsize::new(8).unwrap(),
                 m: Array2::eye(NUMBER_FEATURES),
             }
@@ -3792,6 +3894,7 @@ mod test {
             Some(config_file.to_owned()),
             Some(database_file),
             Some(nzus(1)),
+            None,
         )
         .unwrap();
 
@@ -3839,6 +3942,7 @@ mod test {
             Some(config_file.to_owned()),
             Some(database_file.to_owned()),
             None,
+            None,
         )
         .unwrap();
         let config = CustomConfig {
@@ -3853,7 +3957,7 @@ mod test {
         );
 
         let base_config =
-            BaseConfig::new(Some(config_file), Some(database_file), Some(nzus(1))).unwrap();
+            BaseConfig::new(Some(config_file), Some(database_file), Some(nzus(1)), None).unwrap();
         let mut config = CustomConfig {
             base_config,
             second_path_to_music_library: "/path/to/somewhere".into(),
@@ -3879,6 +3983,7 @@ mod test {
             Some(config_file),
             Some(database_file),
             Some(nzus(1)),
+            None,
         )
         .unwrap();
         assert!(config_dir.is_dir());
@@ -3895,12 +4000,12 @@ mod test {
                 ProcessingError {
                     song_path: PathBuf::from("./data/not-existing.m4a"),
                     error: String::from("error finding the file"),
-                    features_version: 0,
+                    features_version: FeaturesVersion::Version1,
                 },
                 ProcessingError {
                     song_path: PathBuf::from("./data/invalid-file.m4a"),
                     error: String::from("error decoding the file"),
-                    features_version: 0,
+                    features_version: FeaturesVersion::Version1,
                 }
             ]
         );
@@ -3910,7 +4015,7 @@ mod test {
     #[cfg(feature = "ffmpeg")]
     fn test_analyze_store_failed_songs() {
         let (mut library, _temp_dir, _) = setup_test_library();
-        library.config.base_config_mut().features_version = 0;
+        library.config.base_config_mut().features_version = FeaturesVersion::Version1;
 
         let paths = vec![
             "./data/s16_mono_22_5kHz.flac",
@@ -3922,7 +4027,7 @@ mod test {
         assert!(failed_songs.contains(&ProcessingError {
             song_path: PathBuf::from("non-existing"),
             error: String::from("error happened while decoding file - while opening format for file 'non-existing': ffmpeg::Error(2: No such file or directory)."),
-            features_version: 1,
+            features_version: FeaturesVersion::Version2,
         }));
     }
 }

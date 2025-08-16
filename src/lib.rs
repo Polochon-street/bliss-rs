@@ -117,7 +117,7 @@ extern crate serde;
 
 use thiserror::Error;
 
-pub use song::{decoder, Analysis, AnalysisIndex, Song, NUMBER_FEATURES};
+pub use song::{decoder, Analysis, AnalysisIndex, AnalysisOptions, Song, NUMBER_FEATURES};
 
 #[allow(dead_code)]
 /// The number of channels the raw samples must have to be analyzed by bliss-rs
@@ -129,7 +129,37 @@ const SAMPLE_RATE: u32 = 22050;
 /// Stores the current version of bliss-rs' features.
 /// It is bumped every time one or more feature is added, updated or removed,
 /// so plug-ins can rescan libraries when there is a major change.
-pub const FEATURES_VERSION: u16 = 1;
+pub const FEATURES_VERSION: FeaturesVersion = FeaturesVersion::Version2;
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Debug, Eq, PartialEq, Default, Clone, Copy)]
+#[serde(into = "u16", try_from = "u16")]
+pub enum FeaturesVersion {
+    #[default]
+    Version2 = 2,
+    Version1 = 1,
+}
+
+impl From<FeaturesVersion> for u16 {
+    fn from(v: FeaturesVersion) -> Self {
+        v as u16
+    }
+}
+
+impl TryFrom<u16> for FeaturesVersion {
+    type Error = BlissError;
+
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        match value {
+            2 => Ok(FeaturesVersion::Version2),
+            1 => Ok(FeaturesVersion::Version1),
+            _ => Err(BlissError::ProviderError(format!(
+                "This features' version ({}) does not exist",
+                value
+            ))),
+        }
+    }
+}
 
 #[derive(Error, Clone, Debug, PartialEq, Eq)]
 /// Umbrella type for bliss error types

@@ -6,6 +6,7 @@
 use anyhow::Result;
 use bliss_audio::decoder::ffmpeg::FFmpegDecoder as Decoder;
 use bliss_audio::library::{AppConfigTrait, BaseConfig, Library};
+use bliss_audio::FeaturesVersion;
 use clap::{value_parser, Arg, Command};
 use glob::glob;
 use serde::{Deserialize, Serialize};
@@ -33,8 +34,10 @@ impl Config {
         config_path: Option<PathBuf>,
         database_path: Option<PathBuf>,
         number_cores: Option<NonZeroUsize>,
+        features_version: Option<FeaturesVersion>,
     ) -> Result<Self> {
-        let base_config = BaseConfig::new(config_path, database_path, number_cores)?;
+        let base_config =
+            BaseConfig::new(config_path, database_path, number_cores, features_version)?;
         Ok(Self {
             base_config,
             music_library_path,
@@ -177,7 +180,7 @@ fn main() -> Result<()> {
         let config_path = sub_m.get_one::<String>("config-path").map(PathBuf::from);
         let database_path = sub_m.get_one::<String>("database-path").map(PathBuf::from);
 
-        let config = Config::new(folder, config_path, database_path, None)?;
+        let config = Config::new(folder, config_path, database_path, None, None)?;
         let mut library = Library::new(config)?;
 
         library.analyze_paths(library.song_paths()?, true)?;

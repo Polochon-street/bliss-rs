@@ -10,7 +10,9 @@
 //! to implement other decoders is probably a good starting point.
 use log::info;
 
-use crate::{cue::BlissCue, BlissError, BlissResult, Song, FEATURES_VERSION};
+use crate::{
+    cue::BlissCue, song::AnalysisOptions, BlissError, BlissResult, Song, FEATURES_VERSION,
+};
 use std::{
     num::NonZeroUsize,
     path::{Path, PathBuf},
@@ -83,6 +85,25 @@ impl TryFrom<PreAnalyzedSong> for Song {
     }
 }
 
+impl PreAnalyzedSong {
+    fn to_song_with_options(&self, analysis_options: AnalysisOptions) -> BlissResult<Song> {
+        Ok(Song {
+            path: self.path.clone(),
+            artist: self.artist.clone(),
+            album_artist: self.album_artist.clone(),
+            title: self.title.clone(),
+            album: self.album.clone(),
+            track_number: self.track_number.clone(),
+            disc_number: self.disc_number,
+            genre: self.genre.clone(),
+            duration: self.duration,
+            analysis: Song::analyze_with_options(&self.sample_array, &analysis_options)?,
+            features_version: analysis_options.features_version,
+            cue_info: None,
+        })
+    }
+}
+
 /// Trait used to implement your own decoder.
 ///
 /// The `decode` function should be implemented so that it
@@ -129,6 +150,13 @@ pub trait Decoder {
     /// ([AnalysisError](BlissError::AnalysisError)) error.
     fn song_from_path<P: AsRef<Path>>(path: P) -> BlissResult<Song> {
         Self::decode(path.as_ref())?.try_into()
+    }
+
+    fn song_from_path_with_options<P: AsRef<Path>>(
+        path: P,
+        analysis_options: AnalysisOptions,
+    ) -> BlissResult<Song> {
+        Self::decode(path.as_ref())?.to_song_with_options(analysis_options)
     }
 
     /// Analyze songs in `paths` using multiple threads, and return the
