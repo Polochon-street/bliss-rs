@@ -368,6 +368,7 @@ mod tests {
     use crate::decoder::ffmpeg::FFmpegDecoder as Decoder;
     use crate::decoder::Decoder as DecoderTrait;
     use crate::decoder::PreAnalyzedSong;
+    use crate::AnalysisOptions;
     use crate::BlissError;
     use crate::Song;
     use crate::SAMPLE_RATE;
@@ -542,13 +543,16 @@ mod tests {
     #[test]
     fn test_analyze_paths_with_cores() {
         // Analyze with a number of cores greater than the system's number of cores.
-        let analysis = Decoder::analyze_paths_with_cores(
+        let analysis = Decoder::analyze_paths_with_options(
             [
                 "data/nonexistent",
                 "data/piano.flac",
                 "data/nonexistent.cue",
             ],
-            NonZero::new(usize::MAX).unwrap(),
+            AnalysisOptions {
+                number_cores: NonZero::new(usize::MAX).unwrap(),
+                ..Default::default()
+            },
         )
         .map(|s| s.1.is_ok())
         .collect::<Vec<_>>();
@@ -557,9 +561,14 @@ mod tests {
 
     #[test]
     fn test_analyze_paths_with_cores_empty_paths() {
-        let analysis =
-            Decoder::analyze_paths_with_cores::<&str, [_; 0]>([], NonZero::new(1).unwrap())
-                .collect::<Vec<_>>();
+        let analysis = Decoder::analyze_paths_with_options::<&str, [_; 0]>(
+            [],
+            AnalysisOptions {
+                number_cores: NonZero::new(1).unwrap(),
+                ..Default::default()
+            },
+        )
+        .collect::<Vec<_>>();
         assert_eq!(analysis, vec![]);
     }
 }

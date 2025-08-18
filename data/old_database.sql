@@ -33,17 +33,17 @@ insert into song (
 values (
     1, '/random/path', 'Some Artist', 'A Title', 'Some Album',
     'Some Album Artist', '01', 'Electronica', '2022-01-01',
-    1, 250, true, '{\"key\": \"value\"}'
+    2, 250, true, '{\"key\": \"value\"}'
 ),
 (
     2, '/random/path2', 'Some Artist', 'A Title', 'Some Album',
     'Some Album Artist', '', 'Electronica', '2022-01-01',
-    1, 250, true, '{\"key\": \"value\"}'
+    2, 250, true, '{\"key\": \"value\"}'
 ),
 (
     3, '/random/path3', 'Some Artist', 'A Title', 'Some Album',
     'Some Album Artist', null, 'Electronica', '2022-01-01',
-    1, 250, true, '{\"key\": \"value\"}'
+    2, 250, true, '{\"key\": \"value\"}'
 ),
 (
     4, '/random/path4', 'Some Artist', 'A Title', 'Some Album',

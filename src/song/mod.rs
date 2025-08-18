@@ -17,11 +17,12 @@ use crate::cue::CueInfo;
 use crate::misc::LoudnessDesc;
 use crate::temporal::BPMDesc;
 use crate::timbral::{SpectralDesc, ZeroCrossingRateDesc};
-use crate::{BlissError, BlissResult, SAMPLE_RATE};
+use crate::{BlissError, BlissResult, FeaturesVersion, FEATURES_VERSION, SAMPLE_RATE};
 use core::ops::Index;
 use ndarray::{arr1, Array1};
 use std::convert::TryInto;
 use std::fmt;
+use std::num::NonZeroUsize;
 
 use std::path::PathBuf;
 use std::thread;
@@ -59,7 +60,7 @@ pub struct Song {
     /// Version of the features the song was analyzed with.
     /// A simple integer that is bumped every time a breaking change
     /// is introduced in the features.
-    pub features_version: u16,
+    pub features_version: FeaturesVersion,
     /// Populated only if the song was extracted from a larger audio file,
     /// through the use of a CUE sheet.
     /// By default, such a song's path would be
@@ -137,6 +138,29 @@ pub const NUMBER_FEATURES: usize = AnalysisIndex::COUNT;
 /// directly in this code.
 pub struct Analysis {
     pub(crate) internal_analysis: [f32; NUMBER_FEATURES],
+}
+
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+/// Various options bliss should be aware of while performing the analysis
+/// of a song.
+pub struct AnalysisOptions {
+    /// The version of the features that should be used for analysis.
+    /// Should be kept as the default [FEATURES_VERSION](bliss_audio::FEATURES_VERSION).
+    pub features_version: FeaturesVersion,
+    /// The number of computer cores that should be used when performing the
+    /// analysis of multiple songs.
+    pub number_cores: NonZeroUsize,
+}
+
+impl Default for AnalysisOptions {
+    fn default() -> Self {
+        let cores = thread::available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap());
+        AnalysisOptions {
+            features_version: FEATURES_VERSION,
+            number_cores: cores,
+        }
+    }
 }
 
 impl Index<AnalysisIndex> for Analysis {
@@ -304,6 +328,108 @@ impl Song {
             Ok(Analysis::new(array))
         })
     }
+
+    /**
+     * This function is the same as [Song::analyze], but allows to compute an
+     * analysis using old features_version. Do not use, unless for backwards
+     * compatibility.
+     **/
+    pub fn analyze_with_options(
+        sample_array: &[f32],
+        analysis_options: &AnalysisOptions,
+    ) -> BlissResult<Analysis> {
+        let largest_window = vec![
+            BPMDesc::WINDOW_SIZE,
+            ChromaDesc::WINDOW_SIZE,
+            SpectralDesc::WINDOW_SIZE,
+            LoudnessDesc::WINDOW_SIZE,
+        ]
+        .into_iter()
+        .max()
+        .unwrap();
+        if sample_array.len() < largest_window {
+            return Err(BlissError::AnalysisError(String::from(
+                "empty or too short song.",
+            )));
+        }
+
+        thread::scope(|s| -> BlissResult<Analysis> {
+            let child_tempo = s.spawn(|| -> BlissResult<f32> {
+                let mut tempo_desc = BPMDesc::new(SAMPLE_RATE)?;
+                let windows = sample_array
+                    .windows(BPMDesc::WINDOW_SIZE)
+                    .step_by(BPMDesc::HOP_SIZE);
+
+                for window in windows {
+                    tempo_desc.do_(window)?;
+                }
+                Ok(tempo_desc.get_value())
+            });
+
+            let child_chroma = s.spawn(|| -> BlissResult<Vec<f32>> {
+                let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
+                chroma_desc.do_(sample_array)?;
+                if analysis_options.features_version == FeaturesVersion::Version1 {
+                    Ok(chroma_desc.get_values_version_1())
+                } else {
+                    Ok(chroma_desc.get_values())
+                }
+            });
+
+            #[allow(clippy::type_complexity)]
+            let child_timbral = s.spawn(|| -> BlissResult<(Vec<f32>, Vec<f32>, Vec<f32>)> {
+                let mut spectral_desc = SpectralDesc::new(SAMPLE_RATE)?;
+                let windows = sample_array
+                    .windows(SpectralDesc::WINDOW_SIZE)
+                    .step_by(SpectralDesc::HOP_SIZE);
+                for window in windows {
+                    spectral_desc.do_(window)?;
+                }
+                let centroid = spectral_desc.get_centroid();
+                let rolloff = spectral_desc.get_rolloff();
+                let flatness = spectral_desc.get_flatness();
+                Ok((centroid, rolloff, flatness))
+            });
+
+            let child_zcr = s.spawn(|| -> BlissResult<f32> {
+                let mut zcr_desc = ZeroCrossingRateDesc::default();
+                zcr_desc.do_(sample_array);
+                Ok(zcr_desc.get_value())
+            });
+
+            let child_loudness = s.spawn(|| -> BlissResult<Vec<f32>> {
+                let mut loudness_desc = LoudnessDesc::default();
+                let windows = sample_array.chunks(LoudnessDesc::WINDOW_SIZE);
+
+                for window in windows {
+                    loudness_desc.do_(window);
+                }
+                Ok(loudness_desc.get_value())
+            });
+
+            // Non-streaming approach for that one
+            let tempo = child_tempo.join().unwrap()?;
+            let chroma = child_chroma.join().unwrap()?;
+            let (centroid, rolloff, flatness) = child_timbral.join().unwrap()?;
+            let loudness = child_loudness.join().unwrap()?;
+            let zcr = child_zcr.join().unwrap()?;
+
+            let mut result = vec![tempo, zcr];
+            result.extend_from_slice(&centroid);
+            result.extend_from_slice(&rolloff);
+            result.extend_from_slice(&flatness);
+            result.extend_from_slice(&loudness);
+            result.extend_from_slice(&chroma);
+            let array: [f32; NUMBER_FEATURES] = result.try_into().map_err(|_| {
+                BlissError::AnalysisError(
+                    "Too many or too little features were provided at the end of
+                        the analysis."
+                        .to_string(),
+                )
+            })?;
+            Ok(Analysis::new(array))
+        })
+    }
 }
 
 #[cfg(test)]
@@ -343,20 +469,20 @@ mod tests {
             -0.8790748,
             -0.63258266,
             -0.7258959,
-            -0.775738,
+            -0.7757379,
             -0.8146726,
             0.2716726,
             0.25779057,
-            -0.35661936,
-            -0.63578653,
-            -0.29593682,
-            0.06421304,
-            0.21852458,
-            -0.581239,
-            -0.9466835,
-            -0.9481153,
-            -0.9820945,
-            -0.95968974,
+            -0.34292513,
+            -0.62803423,
+            -0.28095096,
+            0.08686459,
+            0.24446082,
+            -0.5723257,
+            0.23292065,
+            0.19981146,
+            -0.58594406,
+            -0.06784296,
         ],
     );
 
@@ -369,6 +495,48 @@ mod tests {
             assert!(0.01 > (x - y).abs());
         }
         assert_eq!(FEATURES_VERSION, song.features_version);
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
+    fn test_analyze_with_options() {
+        let (song, expected_analysis) = (
+            "data/s16_mono_22_5kHz.flac",
+            [
+                0.3846389,
+                -0.849141,
+                -0.75481045,
+                -0.8790748,
+                -0.63258266,
+                -0.7258959,
+                -0.7757379,
+                -0.8146726,
+                0.2716726,
+                0.25779057,
+                -0.35661936,
+                -0.63578653,
+                -0.29593682,
+                0.06421304,
+                0.21852458,
+                -0.581239,
+                -0.9466835,
+                -0.9481153,
+                -0.9820945,
+                -0.95968974,
+            ],
+        );
+        let song = Decoder::song_from_path_with_options(
+            Path::new(song),
+            AnalysisOptions {
+                features_version: FeaturesVersion::Version1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        for (x, y) in song.analysis.as_vec().iter().zip(expected_analysis) {
+            assert!(0.01 > (x - y).abs());
+        }
+        assert_eq!(FeaturesVersion::Version1, song.features_version);
     }
 
     #[test]
@@ -390,7 +558,7 @@ mod tests {
     fn test_index_analysis() {
         let song = Decoder::song_from_path("data/s16_mono_22_5kHz.flac").unwrap();
         assert_eq!(song.analysis[AnalysisIndex::Tempo], 0.3846389);
-        assert_eq!(song.analysis[AnalysisIndex::Chroma10], -0.95968974);
+        assert_eq!(song.analysis[AnalysisIndex::Chroma10], -0.06784296);
     }
 
     #[test]
@@ -398,18 +566,7 @@ mod tests {
     fn test_debug_analysis() {
         let song = Decoder::song_from_path("data/s16_mono_22_5kHz.flac").unwrap();
         assert_eq!(
-            "Analysis { Tempo: 0.3846389, Zcr: -0.849141, MeanSpectralCentroid: \
-            -0.75481045, StdDeviationSpectralCentroid: -0.8790748, MeanSpectralR\
-            olloff: -0.63258266, StdDeviationSpectralRolloff: -0.7258959, MeanSp\
-            ectralFlatness: -0.7757379, StdDeviationSpectralFlatness: -0.8146726\
-            , MeanLoudness: 0.2716726, StdDeviationLoudness: 0.25779057, Chroma1\
-            : -0.35661936, Chroma2: -0.63578653, Chroma3: -0.29593682, Chroma4: \
-            0.06421304, Chroma5: 0.21852458, Chroma6: -0.581239, Chroma7: -0.946\
-            6835, Chroma8: -0.9481153, Chroma9: -0.9820945, Chroma10: -0.95968974 } \
-            /* [0.3846389, -0.849141, -0.75481045, -0.8790748, -0.63258266, -0.\
-            7258959, -0.7757379, -0.8146726, 0.2716726, 0.25779057, -0.35661936, \
-            -0.63578653, -0.29593682, 0.06421304, 0.21852458, -0.581239, -0.946\
-            6835, -0.9481153, -0.9820945, -0.95968974] */",
+            "Analysis { Tempo: 0.3846389, Zcr: -0.849141, MeanSpectralCentroid: -0.75481045, StdDeviationSpectralCentroid: -0.8790748, MeanSpectralRolloff: -0.63258266, StdDeviationSpectralRolloff: -0.7258959, MeanSpectralFlatness: -0.7757379, StdDeviationSpectralFlatness: -0.8146726, MeanLoudness: 0.2716726, StdDeviationLoudness: 0.25779057, Chroma1: -0.34292513, Chroma2: -0.62803423, Chroma3: -0.28095096, Chroma4: 0.08686459, Chroma5: 0.24446082, Chroma6: -0.5723257, Chroma7: 0.23292065, Chroma8: 0.19981146, Chroma9: -0.58594406, Chroma10: -0.06784296 } /* [0.3846389, -0.849141, -0.75481045, -0.8790748, -0.63258266, -0.7258959, -0.7757379, -0.8146726, 0.2716726, 0.25779057, -0.34292513, -0.62803423, -0.28095096, 0.08686459, 0.24446082, -0.5723257, 0.23292065, 0.19981146, -0.58594406, -0.06784296] */",
             format!("{:?}", song.analysis),
         );
     }

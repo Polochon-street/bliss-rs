@@ -1,5 +1,14 @@
 # Changelog
 
+## bliss 0.11.0
+NOTE: This is a BREAKING change for the analysis, as the computed chroma
+values will change!
+* Improve chroma accuracy using l2-norm.
+* Bump FEATURES_VERSION.
+* Add tests to make sure chroma features behave as they should.
+* Add a `Song::analyze_with_options` and `Decoder::song_from_path_with_options`
+  to enable backwards compatibility.
+
 ## bliss 0.10.2
 * Bump bliss-audio-aubio-rs.
 * Add resource on how to compile for WASM.
