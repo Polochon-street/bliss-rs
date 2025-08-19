@@ -152,7 +152,6 @@ use std::sync::Mutex;
 
 use crate::decoder::Decoder as DecoderTrait;
 use crate::Song;
-use crate::FEATURES_VERSION;
 use crate::{Analysis, BlissError, NUMBER_FEATURES};
 use rusqlite::types::ToSqlOutput;
 use rusqlite::Error as RusqliteError;
@@ -877,7 +876,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             delete_everything_else,
             show_progress_bar,
             |x, _, _| x,
-            AnalysisOptions::default(),
+            self.config.base_config().analysis_options,
         )
     }
 
@@ -901,7 +900,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             delete_everything_else,
             show_progress_bar,
             |extra_info, _, _| extra_info,
-            AnalysisOptions::default(),
+            self.config.base_config().analysis_options,
         )
     }
 
@@ -955,7 +954,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             )?;
             #[allow(clippy::let_and_return)]
             let return_value = path_statement
-                .query_map([FEATURES_VERSION], |row| {
+                .query_map([FeaturesVersion::LATEST], |row| {
                     Ok(row.get_unwrap::<usize, String>(0))
                 })?
                 .map(|x| PathBuf::from(x.unwrap()))
@@ -1115,10 +1114,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             .collect();
         let mut cue_extra_info: HashMap<PathBuf, String> = HashMap::new();
 
-        let results = D::analyze_paths_with_options(
-            paths_extra_info.keys(),
-            self.config.base_config().analysis_options,
-        );
+        let results = D::analyze_paths_with_options(paths_extra_info.keys(), analysis_options);
         let mut success_count = 0;
         let mut failure_count = 0;
         for (path, result) in results {
@@ -1241,6 +1237,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                         song.bliss_song.path.display(),
                     ))
                 })?,
+                features_version: song.bliss_song.features_version,
             };
             songs.push(song);
         }
@@ -1248,7 +1245,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     }
 
     /// Retrieve all songs which have been analyzed with
-    /// current bliss version.
+    /// the bliss version specified in the configuration.
     ///
     /// Returns an error if one or several songs have a different number of
     /// features than they should, indicating the offending song id.
@@ -1355,6 +1352,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                         "song has more or less than {NUMBER_FEATURES} features",
                     ))
                 })?,
+            features_version: FeaturesVersion::LATEST,
         };
         song.bliss_song.analysis = analysis_vector;
         Ok(song)
@@ -1421,6 +1419,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 .map(|v| String::from_utf8_lossy(v).to_string()),
             analysis: Analysis {
                 internal_analysis: [0.; NUMBER_FEATURES],
+                features_version: row.get(9).unwrap(),
             },
             duration: Duration::from_secs_f64(row.get(8).unwrap()),
             features_version: row.get(9).unwrap(),
@@ -1543,9 +1542,9 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 params![
                     song_path.into().to_string_lossy().to_string(),
                     e.to_string(),
-                    // At this point, FEATURES_VERSION is the best indicator we have
+                    // At this point, FeaturesVersion::LATEST is the best indicator we have
                     // of the version (since we don't have a proper Song).
-                    FEATURES_VERSION,
+                    FeaturesVersion::LATEST,
                 ],
             )
             .map_err(|e| BlissError::ProviderError(e.to_string()))?;
@@ -1753,9 +1752,10 @@ mod test {
             genre: Some("Electronica1001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
+                features_version: FeaturesVersion::LATEST,
             },
             duration: Duration::from_secs(310),
-            features_version: FEATURES_VERSION,
+            features_version: FeaturesVersion::LATEST,
             cue_info: None,
         };
         let first_song = LibrarySong {
@@ -1782,9 +1782,10 @@ mod test {
             genre: Some("Electronica2001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
+                features_version: FeaturesVersion::LATEST,
             },
             duration: Duration::from_secs(410),
-            features_version: FEATURES_VERSION,
+            features_version: FeaturesVersion::LATEST,
             cue_info: None,
         };
         let second_song = LibrarySong {
@@ -1811,9 +1812,10 @@ mod test {
             genre: Some("Electronica2001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
+                features_version: FeaturesVersion::LATEST,
             },
             duration: Duration::from_secs(410),
-            features_version: FEATURES_VERSION,
+            features_version: FeaturesVersion::LATEST,
             cue_info: None,
         };
         let second_song_dupe = LibrarySong {
@@ -1840,9 +1842,10 @@ mod test {
             genre: Some("Electronica5001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
+                features_version: FeaturesVersion::LATEST,
             },
             duration: Duration::from_secs(610),
-            features_version: FEATURES_VERSION,
+            features_version: FeaturesVersion::LATEST,
             cue_info: None,
         };
         let third_song = LibrarySong {
@@ -1869,9 +1872,10 @@ mod test {
             genre: Some("Electronica6001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
+                features_version: FeaturesVersion::LATEST,
             },
             duration: Duration::from_secs(710),
-            features_version: FEATURES_VERSION,
+            features_version: FeaturesVersion::LATEST,
             cue_info: None,
         };
         let fourth_song = LibrarySong {
@@ -1898,9 +1902,10 @@ mod test {
             genre: Some("Electronica7001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
+                features_version: FeaturesVersion::LATEST,
             },
             duration: Duration::from_secs(810),
-            features_version: FEATURES_VERSION,
+            features_version: FeaturesVersion::LATEST,
             cue_info: None,
         };
         let fifth_song = LibrarySong {
@@ -1928,9 +1933,10 @@ mod test {
             genre: None,
             analysis: Analysis {
                 internal_analysis: analysis_vector,
+                features_version: FeaturesVersion::LATEST,
             },
             duration: Duration::from_secs(810),
-            features_version: FEATURES_VERSION,
+            features_version: FeaturesVersion::LATEST,
             cue_info: Some(CueInfo {
                 cue_path: PathBuf::from("/path/to/cuetrack.cue"),
                 audio_file_path: PathBuf::from("/path/to/cuetrack.flac"),
@@ -1961,9 +1967,10 @@ mod test {
             genre: None,
             analysis: Analysis {
                 internal_analysis: analysis_vector,
+                features_version: FeaturesVersion::LATEST,
             },
             duration: Duration::from_secs(910),
-            features_version: FEATURES_VERSION,
+            features_version: FeaturesVersion::LATEST,
             cue_info: Some(CueInfo {
                 cue_path: PathBuf::from("/path/to/cuetrack.cue"),
                 audio_file_path: PathBuf::from("/path/to/cuetrack.flac"),
@@ -2072,7 +2079,7 @@ mod test {
                         null, false, {old_version}, null, null, null, 'error decoding the file'
                     );
                     ",
-                        new_version = FEATURES_VERSION as u16,
+                        new_version = FeaturesVersion::LATEST as u16,
                         old_version = FeaturesVersion::Version1 as u16,
                     ),
                     [],
@@ -2176,6 +2183,7 @@ mod test {
                         genre: row.get(7).unwrap(),
                         analysis: Analysis {
                             internal_analysis: [0.; NUMBER_FEATURES],
+                            features_version: FeaturesVersion::Version2,
                         },
                         duration: Duration::from_secs_f64(row.get(8).unwrap()),
                         features_version: row.get(9).unwrap(),
@@ -2209,6 +2217,7 @@ mod test {
                 .collect::<Vec<f32>>()
                 .try_into()
                 .unwrap(),
+            features_version: FeaturesVersion::Version2,
         };
         song.bliss_song.analysis = analysis_vector;
         song
@@ -2237,6 +2246,7 @@ mod test {
                         genre: row.get(7).unwrap(),
                         analysis: Analysis {
                             internal_analysis: [0.; NUMBER_FEATURES],
+                            features_version: FeaturesVersion::Version2,
                         },
                         duration: Duration::from_secs_f64(row.get(8).unwrap()),
                         features_version: row.get(9).unwrap(),
@@ -2266,6 +2276,7 @@ mod test {
                     BlissError::ProviderError(format!("Could not retrieve analysis for song {} that was supposed to be analyzed: {:?}.", song_path, v))
                 })
                 .unwrap(),
+                features_version: FeaturesVersion::Version2,
         };
         expected_song.analysis = expected_analysis_vector;
         expected_song
@@ -2290,9 +2301,10 @@ mod test {
             genre: Some("Electronica".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
+                features_version: FeaturesVersion::Version2,
             },
             duration: Duration::from_secs(80),
-            features_version: FEATURES_VERSION,
+            features_version: FeaturesVersion::LATEST,
             cue_info: None,
         }
     }
@@ -2841,7 +2853,7 @@ mod test {
             .config
             .base_config_mut()
             .analysis_options
-            .features_version = FeaturesVersion::Version1;
+            .features_version = FeaturesVersion::LATEST;
 
         let paths = vec![
             "./data/s16_mono_22_5kHz.flac",
@@ -2871,7 +2883,7 @@ mod test {
                 .base_config_mut()
                 .analysis_options
                 .features_version,
-            FeaturesVersion::Version1,
+            FeaturesVersion::LATEST
         );
     }
 
@@ -2945,7 +2957,7 @@ mod test {
                 .base_config_mut()
                 .analysis_options
                 .features_version,
-            FEATURES_VERSION
+            FeaturesVersion::LATEST
         );
     }
 
@@ -3061,7 +3073,7 @@ mod test {
                     .base_config_mut()
                     .analysis_options
                     .features_version,
-                FEATURES_VERSION
+                FeaturesVersion::LATEST
             );
         }
     }
@@ -3132,6 +3144,7 @@ mod test {
                 .collect::<Vec<f32>>()
                 .try_into()
                 .unwrap(),
+            features_version: FeaturesVersion::Version2,
         };
         let expected_analysis_vector = Decoder::song_from_path(path).unwrap().analysis;
         assert_eq!(analysis_vector, expected_analysis_vector);
@@ -3139,13 +3152,14 @@ mod test {
 
     #[test]
     #[cfg(feature = "ffmpeg")]
+    // TODO test when updating the features version also
     fn test_update_library() {
         let (mut library, _temp_dir, _) = setup_test_library();
         library
             .config
             .base_config_mut()
             .analysis_options
-            .features_version = FeaturesVersion::Version1;
+            .features_version = FeaturesVersion::LATEST;
 
         {
             let connection = library.sqlite_conn.lock().unwrap();
@@ -3194,7 +3208,7 @@ mod test {
                 .base_config_mut()
                 .analysis_options
                 .features_version,
-            FEATURES_VERSION
+            FeaturesVersion::LATEST
         );
     }
 
@@ -3206,7 +3220,7 @@ mod test {
             .config
             .base_config_mut()
             .analysis_options
-            .features_version = FeaturesVersion::Version1;
+            .features_version = FeaturesVersion::LATEST;
 
         {
             let connection = library.sqlite_conn.lock().unwrap();
@@ -3250,7 +3264,7 @@ mod test {
                 .base_config_mut()
                 .analysis_options
                 .features_version,
-            FEATURES_VERSION
+            FeaturesVersion::LATEST
         );
     }
 
@@ -3340,7 +3354,7 @@ mod test {
                 .base_config_mut()
                 .analysis_options
                 .features_version,
-            FEATURES_VERSION
+            FeaturesVersion::LATEST
         );
     }
 
@@ -3428,7 +3442,7 @@ mod test {
                 .base_config_mut()
                 .analysis_options
                 .features_version,
-            FEATURES_VERSION
+            FeaturesVersion::LATEST
         );
     }
 
@@ -3453,6 +3467,7 @@ mod test {
             genre: Some("Electronica2001".into()),
             analysis: Analysis {
                 internal_analysis: analysis_vector,
+                features_version: FeaturesVersion::Version2,
             },
             duration: Duration::from_secs(410),
             features_version: FeaturesVersion::Version2,
@@ -3642,7 +3657,7 @@ mod test {
                 \"m\":{{\"v\":1,\"dim\":[{},{}],\"data\":{}}}}}",
                 library.config.base_config().config_path.display(),
                 library.config.base_config().database_path.display(),
-                FEATURES_VERSION as u16,
+                FeaturesVersion::LATEST as u16,
                 thread::available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap()),
                 NUMBER_FEATURES,
                 NUMBER_FEATURES,

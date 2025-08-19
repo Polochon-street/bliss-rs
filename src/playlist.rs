@@ -89,7 +89,7 @@ pub fn cosine_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
 /// # Usage
 ///
 /// ```
-/// use bliss_audio::{Song, Analysis, NUMBER_FEATURES};
+/// use bliss_audio::{Song, Analysis, NUMBER_FEATURES, FeaturesVersion};
 /// use bliss_audio::playlist::{closest_to_songs, mahalanobis_distance_builder};
 /// use ndarray::Array2;
 ///
@@ -99,14 +99,14 @@ pub fn cosine_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
 ///     path: "path-to-first".into(),
 ///         analysis: Analysis::new([
 ///             1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-///         ]),
+///         ], FeaturesVersion::LATEST),
 ///         ..Default::default()
 ///     };
 /// let second_song = Song {
 ///     path: "path-to-second".into(),
 ///     analysis: Analysis::new([
 ///         1.5, 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-///     ]),
+///     ], FeaturesVersion::LATEST),
 ///     ..Default::default()
 /// };
 ///
@@ -114,7 +114,7 @@ pub fn cosine_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
 ///     path: "path-to-third".into(),
 ///     analysis: Analysis::new([
 ///         2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
-///     ]),
+///     ], FeaturesVersion::LATEST),
 ///     ..Default::default()
 /// };
 /// // The weights of the features, here, equal to the identity matrix, i.e.,
@@ -395,7 +395,7 @@ pub fn closest_album_to_group<T: AsRef<Song> + Clone>(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::Analysis;
+    use crate::{Analysis, FeaturesVersion};
     use ndarray::arr1;
     use std::path::Path;
 
@@ -415,24 +415,33 @@ mod test {
     fn test_dedup_playlist_custom_distance() {
         let first_song = Song {
             path: Path::new("path-to-first").to_path_buf(),
-            analysis: Analysis::new([
-                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
         let first_song_dupe = Song {
             path: Path::new("path-to-dupe").to_path_buf(),
-            analysis: Analysis::new([
-                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
 
         let second_song = Song {
             path: Path::new("path-to-second").to_path_buf(),
-            analysis: Analysis::new([
-                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             title: Some(String::from("dupe-title")),
             artist: Some(String::from("dupe-artist")),
             ..Default::default()
@@ -441,25 +450,35 @@ mod test {
             path: Path::new("path-to-third").to_path_buf(),
             title: Some(String::from("dupe-title")),
             artist: Some(String::from("dupe-artist")),
-            analysis: Analysis::new([
-                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
         let fourth_song = Song {
             path: Path::new("path-to-fourth").to_path_buf(),
             artist: Some(String::from("no-dupe-artist")),
             title: Some(String::from("dupe-title")),
-            analysis: Analysis::new([
-                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
         let fifth_song = Song {
             path: Path::new("path-to-fourth").to_path_buf(),
-            analysis: Analysis::new([
-                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0.001, 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0.001, 1., 1.,
+                    1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
 
@@ -612,38 +631,53 @@ mod test {
     fn test_song_to_song() {
         let first_song = Song {
             path: Path::new("path-to-first").to_path_buf(),
-            analysis: Analysis::new([
-                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
         let first_song_dupe = Song {
             path: Path::new("path-to-dupe").to_path_buf(),
-            analysis: Analysis::new([
-                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
 
         let second_song = Song {
             path: Path::new("path-to-second").to_path_buf(),
-            analysis: Analysis::new([
-                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
         let third_song = Song {
             path: Path::new("path-to-third").to_path_buf(),
-            analysis: Analysis::new([
-                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
         let fourth_song = Song {
             path: Path::new("path-to-fourth").to_path_buf(),
-            analysis: Analysis::new([
-                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
         let mut songs = vec![
@@ -714,45 +748,63 @@ mod test {
     fn test_sort_closest_to_songs() {
         let first_song = Song {
             path: Path::new("path-to-first").to_path_buf(),
-            analysis: Analysis::new([
-                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
         let first_song_dupe = Song {
             path: Path::new("path-to-dupe").to_path_buf(),
-            analysis: Analysis::new([
-                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
 
         let second_song = Song {
             path: Path::new("path-to-second").to_path_buf(),
-            analysis: Analysis::new([
-                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
         let third_song = Song {
             path: Path::new("path-to-third").to_path_buf(),
-            analysis: Analysis::new([
-                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
         let fourth_song = Song {
             path: Path::new("path-to-fourth").to_path_buf(),
-            analysis: Analysis::new([
-                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
         let fifth_song = Song {
             path: Path::new("path-to-fifth").to_path_buf(),
-            analysis: Analysis::new([
-                2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
 
@@ -850,23 +902,32 @@ mod test {
     fn test_mahalanobis_distance_with_songs() {
         let first_song = Song {
             path: Path::new("path-to-first").to_path_buf(),
-            analysis: Analysis::new([
-                1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
         let second_song = Song {
             path: Path::new("path-to-second").to_path_buf(),
-            analysis: Analysis::new([
-                1.5, 5., 6., 5., 6., 6., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    1.5, 5., 6., 5., 6., 6., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
         let third_song = Song {
             path: Path::new("path-to-third").to_path_buf(),
-            analysis: Analysis::new([
-                5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-            ]),
+            analysis: Analysis::new(
+                [
+                    5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                ],
+                FeaturesVersion::LATEST,
+            ),
             ..Default::default()
         };
         let m = Array2::eye(NUMBER_FEATURES)
@@ -920,7 +981,7 @@ mod test {
     fn test_closest_to_group() {
         let first_song = Song {
             path: Path::new("path-to-first").to_path_buf(),
-            analysis: Analysis::new([0.; 20]),
+            analysis: Analysis::new([0.; 20], FeaturesVersion::LATEST),
             album: Some(String::from("Album")),
             artist: Some(String::from("Artist")),
             track_number: Some(1),
@@ -929,7 +990,7 @@ mod test {
         };
         let second_song = Song {
             path: Path::new("path-to-third").to_path_buf(),
-            analysis: Analysis::new([10.; 20]),
+            analysis: Analysis::new([10.; 20], FeaturesVersion::LATEST),
             album: Some(String::from("Album")),
             artist: Some(String::from("Another Artist")),
             track_number: Some(2),
@@ -939,7 +1000,7 @@ mod test {
 
         let first_song_other_album_disc_1 = Song {
             path: Path::new("path-to-second-2").to_path_buf(),
-            analysis: Analysis::new([0.15; 20]),
+            analysis: Analysis::new([0.15; 20], FeaturesVersion::LATEST),
             album: Some(String::from("Another Album")),
             artist: Some(String::from("Artist")),
             track_number: Some(1),
@@ -948,7 +1009,7 @@ mod test {
         };
         let second_song_other_album_disc_1 = Song {
             path: Path::new("path-to-second").to_path_buf(),
-            analysis: Analysis::new([0.1; 20]),
+            analysis: Analysis::new([0.1; 20], FeaturesVersion::LATEST),
             album: Some(String::from("Another Album")),
             artist: Some(String::from("Artist")),
             track_number: Some(2),
@@ -957,7 +1018,7 @@ mod test {
         };
         let first_song_other_album_disc_2 = Song {
             path: Path::new("path-to-fourth").to_path_buf(),
-            analysis: Analysis::new([20.; 20]),
+            analysis: Analysis::new([20.; 20], FeaturesVersion::LATEST),
             album: Some(String::from("Another Album")),
             artist: Some(String::from("Another Artist")),
             track_number: Some(1),
@@ -966,7 +1027,7 @@ mod test {
         };
         let second_song_other_album_disc_2 = Song {
             path: Path::new("path-to-fourth").to_path_buf(),
-            analysis: Analysis::new([20.; 20]),
+            analysis: Analysis::new([20.; 20], FeaturesVersion::LATEST),
             album: Some(String::from("Another Album")),
             artist: Some(String::from("Another Artist")),
             track_number: Some(4),
@@ -976,7 +1037,7 @@ mod test {
 
         let song_no_album = Song {
             path: Path::new("path-to-fifth").to_path_buf(),
-            analysis: Analysis::new([40.; 20]),
+            analysis: Analysis::new([40.; 20], FeaturesVersion::LATEST),
             artist: Some(String::from("Third Artist")),
             album: None,
             ..Default::default()
@@ -1065,80 +1126,89 @@ mod test {
         let mozart_piano_19 = [
             Song {
                 path: Path::new("path-to-first").to_path_buf(),
-                analysis: Analysis::new([
-                    0.5522649,
-                    -0.8664422,
-                    -0.81236243,
-                    -0.9475107,
-                    -0.76129013,
-                    -0.90520144,
-                    -0.8474938,
-                    -0.8924977,
-                    0.4956385,
-                    0.5076021,
-                    -0.5037869,
-                    -0.61038315,
-                    -0.47157913,
-                    -0.48194122,
-                    -0.36397678,
-                    -0.6443357,
-                    -0.9713509,
-                    -0.9781786,
-                    -0.98285836,
-                    -0.983834,
-                ]),
+                analysis: Analysis::new(
+                    [
+                        0.5522649,
+                        -0.8664422,
+                        -0.81236243,
+                        -0.9475107,
+                        -0.76129013,
+                        -0.90520144,
+                        -0.8474938,
+                        -0.8924977,
+                        0.4956385,
+                        0.5076021,
+                        -0.5037869,
+                        -0.61038315,
+                        -0.47157913,
+                        -0.48194122,
+                        -0.36397678,
+                        -0.6443357,
+                        -0.9713509,
+                        -0.9781786,
+                        -0.98285836,
+                        -0.983834,
+                    ],
+                    FeaturesVersion::LATEST,
+                ),
                 ..Default::default()
             },
             Song {
                 path: Path::new("path-to-second").to_path_buf(),
-                analysis: Analysis::new([
-                    0.28091776,
-                    -0.86352056,
-                    -0.8175835,
-                    -0.9497457,
-                    -0.77833027,
-                    -0.91656536,
-                    -0.8477104,
-                    -0.889485,
-                    0.41879785,
-                    0.45311546,
-                    -0.6252063,
-                    -0.6838323,
-                    -0.5326821,
-                    -0.63320035,
-                    -0.5573063,
-                    -0.7433087,
-                    -0.9815542,
-                    -0.98570454,
-                    -0.98824924,
-                    -0.9903612,
-                ]),
+                analysis: Analysis::new(
+                    [
+                        0.28091776,
+                        -0.86352056,
+                        -0.8175835,
+                        -0.9497457,
+                        -0.77833027,
+                        -0.91656536,
+                        -0.8477104,
+                        -0.889485,
+                        0.41879785,
+                        0.45311546,
+                        -0.6252063,
+                        -0.6838323,
+                        -0.5326821,
+                        -0.63320035,
+                        -0.5573063,
+                        -0.7433087,
+                        -0.9815542,
+                        -0.98570454,
+                        -0.98824924,
+                        -0.9903612,
+                    ],
+                    FeaturesVersion::LATEST,
+                ),
                 ..Default::default()
             },
             Song {
                 path: Path::new("path-to-third").to_path_buf(),
-                analysis: Analysis::new([
-                    0.5978223,
-                    -0.84076107,
-                    -0.7841455,
-                    -0.886415,
-                    -0.72486377,
-                    -0.8015111,
-                    -0.79157853,
-                    -0.7739525,
-                    0.517207,
-                    0.535398,
-                    -0.30007458,
-                    -0.3972137,
-                    -0.41319674,
-                    -0.40709,
-                    -0.32283908,
-                    -0.5261506,
-                    -0.9656949,
-                    -0.9715169,
-                    -0.97524375,
-                    -0.9756616,
-                ]),
+                analysis: Analysis::new(
+                    [
+                        0.5978223,
+                        -0.84076107,
+                        -0.7841455,
+                        -0.886415,
+                        -0.72486377,
+                        -0.8015111,
+                        -0.79157853,
+                        -0.7739525,
+                        0.517207,
+                        0.535398,
+                        -0.30007458,
+                        -0.3972137,
+                        -0.41319674,
+                        -0.40709,
+                        -0.32283908,
+                        -0.5261506,
+                        -0.9656949,
+                        -0.9715169,
+                        -0.97524375,
+                        -0.9756616,
+                    ],
+                    FeaturesVersion::LATEST,
+                ),
                 ..Default::default()
             },
         ];
@@ -1146,132 +1216,147 @@ mod test {
         let kind_of_blue = [
             Song {
                 path: Path::new("path-to-fourth").to_path_buf(),
-                analysis: Analysis::new([
-                    0.35871255,
-                    -0.8679545,
-                    -0.6833263,
-                    -0.87800264,
-                    -0.7235142,
-                    -0.73546195,
-                    -0.48577756,
-                    -0.7732977,
-                    0.51237035,
-                    0.5379869,
-                    -0.00649637,
-                    -0.534671,
-                    -0.5743973,
-                    -0.5706258,
-                    -0.43162197,
-                    -0.6356183,
-                    -0.97918683,
-                    -0.98091763,
-                    -0.9845511,
-                    -0.98359185,
-                ]),
+                analysis: Analysis::new(
+                    [
+                        0.35871255,
+                        -0.8679545,
+                        -0.6833263,
+                        -0.87800264,
+                        -0.7235142,
+                        -0.73546195,
+                        -0.48577756,
+                        -0.7732977,
+                        0.51237035,
+                        0.5379869,
+                        -0.00649637,
+                        -0.534671,
+                        -0.5743973,
+                        -0.5706258,
+                        -0.43162197,
+                        -0.6356183,
+                        -0.97918683,
+                        -0.98091763,
+                        -0.9845511,
+                        -0.98359185,
+                    ],
+                    FeaturesVersion::LATEST,
+                ),
                 ..Default::default()
             },
             Song {
                 path: Path::new("path-to-fifth").to_path_buf(),
-                analysis: Analysis::new([
-                    0.2806753,
-                    -0.85013694,
-                    -0.66921043,
-                    -0.8938313,
-                    -0.6848732,
-                    -0.75377,
-                    -0.48747814,
-                    -0.793482,
-                    0.44880342,
-                    0.461563,
-                    -0.115760505,
-                    -0.535959,
-                    -0.5749081,
-                    -0.55055845,
-                    -0.37976396,
-                    -0.538705,
-                    -0.97972554,
-                    -0.97890633,
-                    -0.98290455,
-                    -0.98231846,
-                ]),
+                analysis: Analysis::new(
+                    [
+                        0.2806753,
+                        -0.85013694,
+                        -0.66921043,
+                        -0.8938313,
+                        -0.6848732,
+                        -0.75377,
+                        -0.48747814,
+                        -0.793482,
+                        0.44880342,
+                        0.461563,
+                        -0.115760505,
+                        -0.535959,
+                        -0.5749081,
+                        -0.55055845,
+                        -0.37976396,
+                        -0.538705,
+                        -0.97972554,
+                        -0.97890633,
+                        -0.98290455,
+                        -0.98231846,
+                    ],
+                    FeaturesVersion::LATEST,
+                ),
                 ..Default::default()
             },
             Song {
                 path: Path::new("path-to-sixth").to_path_buf(),
-                analysis: Analysis::new([
-                    0.1545173,
-                    -0.8991263,
-                    -0.79770947,
-                    -0.87425447,
-                    -0.77811325,
-                    -0.71051484,
-                    -0.7369138,
-                    -0.8515074,
-                    0.387398,
-                    0.42035806,
-                    -0.30229717,
-                    -0.624056,
-                    -0.6458885,
-                    -0.66208386,
-                    -0.5866134,
-                    -0.7613628,
-                    -0.98656195,
-                    -0.98821944,
-                    -0.99072844,
-                    -0.98729765,
-                ]),
+                analysis: Analysis::new(
+                    [
+                        0.1545173,
+                        -0.8991263,
+                        -0.79770947,
+                        -0.87425447,
+                        -0.77811325,
+                        -0.71051484,
+                        -0.7369138,
+                        -0.8515074,
+                        0.387398,
+                        0.42035806,
+                        -0.30229717,
+                        -0.624056,
+                        -0.6458885,
+                        -0.66208386,
+                        -0.5866134,
+                        -0.7613628,
+                        -0.98656195,
+                        -0.98821944,
+                        -0.99072844,
+                        -0.98729765,
+                    ],
+                    FeaturesVersion::LATEST,
+                ),
                 ..Default::default()
             },
             Song {
                 path: Path::new("path-to-seventh").to_path_buf(),
-                analysis: Analysis::new([
-                    0.3853314,
-                    -0.8475499,
-                    -0.64330614,
-                    -0.85917395,
-                    -0.6624141,
-                    -0.6356613,
-                    -0.40988427,
-                    -0.7480691,
-                    0.45981812,
-                    0.47096932,
-                    -0.19245929,
-                    -0.5228787,
-                    -0.42246288,
-                    -0.52656835,
-                    -0.45702273,
-                    -0.569838,
-                    -0.97620565,
-                    -0.97741324,
-                    -0.9776932,
-                    -0.98088175,
-                ]),
+                analysis: Analysis::new(
+                    [
+                        0.3853314,
+                        -0.8475499,
+                        -0.64330614,
+                        -0.85917395,
+                        -0.6624141,
+                        -0.6356613,
+                        -0.40988427,
+                        -0.7480691,
+                        0.45981812,
+                        0.47096932,
+                        -0.19245929,
+                        -0.5228787,
+                        -0.42246288,
+                        -0.52656835,
+                        -0.45702273,
+                        -0.569838,
+                        -0.97620565,
+                        -0.97741324,
+                        -0.9776932,
+                        -0.98088175,
+                    ],
+                    FeaturesVersion::LATEST,
+                ),
                 ..Default::default()
             },
             Song {
                 path: Path::new("path-to-eight").to_path_buf(),
-                analysis: Analysis::new([
-                    0.18926656,
-                    -0.86667925,
-                    -0.7294189,
-                    -0.856192,
-                    -0.7180501,
-                    -0.66697484,
-                    -0.6093149,
-                    -0.82118326,
-                    0.3888924,
-                    0.42430043,
-                    -0.4414854,
-                    -0.6957753,
-                    -0.7092425,
-                    -0.68237424,
-                    -0.55543846,
-                    -0.77678657,
-                    -0.98610276,
-                    -0.98707336,
-                    -0.99165493,
-                    -0.99011236,
-                ]),
+                analysis: Analysis::new(
+                    [
+                        0.18926656,
+                        -0.86667925,
+                        -0.7294189,
+                        -0.856192,
+                        -0.7180501,
+                        -0.66697484,
+                        -0.6093149,
+                        -0.82118326,
+                        0.3888924,
+                        0.42430043,
+                        -0.4414854,
+                        -0.6957753,
+                        -0.7092425,
+                        -0.68237424,
+                        -0.55543846,
+                        -0.77678657,
+                        -0.98610276,
+                        -0.98707336,
+                        -0.99165493,
+                        -0.99011236,
+                    ],
+                    FeaturesVersion::LATEST,
+                ),
                 ..Default::default()
             },
         ];
@@ -1279,80 +1364,89 @@ mod test {
         let mozart_piano_23 = [
             Song {
                 path: Path::new("path-to-ninth").to_path_buf(),
-                analysis: Analysis::new([
-                    0.38328362,
-                    -0.8752751,
-                    -0.8165319,
-                    -0.948534,
-                    -0.77668643,
-                    -0.9051969,
-                    -0.8473458,
-                    -0.88643366,
-                    0.49641085,
-                    0.5132351,
-                    -0.41367024,
-                    -0.5279201,
-                    -0.46787983,
-                    -0.49218357,
-                    -0.42164963,
-                    -0.6597451,
-                    -0.97317076,
-                    -0.9800342,
-                    -0.9832096,
-                    -0.98385316,
-                ]),
+                analysis: Analysis::new(
+                    [
+                        0.38328362,
+                        -0.8752751,
+                        -0.8165319,
+                        -0.948534,
+                        -0.77668643,
+                        -0.9051969,
+                        -0.8473458,
+                        -0.88643366,
+                        0.49641085,
+                        0.5132351,
+                        -0.41367024,
+                        -0.5279201,
+                        -0.46787983,
+                        -0.49218357,
+                        -0.42164963,
+                        -0.6597451,
+                        -0.97317076,
+                        -0.9800342,
+                        -0.9832096,
+                        -0.98385316,
+                    ],
+                    FeaturesVersion::LATEST,
+                ),
                 ..Default::default()
             },
             Song {
                 path: Path::new("path-to-tenth").to_path_buf(),
-                analysis: Analysis::new([
-                    0.4301988,
-                    -0.89864063,
-                    -0.84993315,
-                    -0.9518692,
-                    -0.8329567,
-                    -0.9293889,
-                    -0.8605237,
-                    -0.8901016,
-                    0.35011983,
-                    0.3822446,
-                    -0.6384951,
-                    -0.7537949,
-                    -0.5867439,
-                    -0.57371,
-                    -0.5662942,
-                    -0.76130676,
-                    -0.9845436,
-                    -0.9833387,
-                    -0.9902381,
-                    -0.9905396,
-                ]),
+                analysis: Analysis::new(
+                    [
+                        0.4301988,
+                        -0.89864063,
+                        -0.84993315,
+                        -0.9518692,
+                        -0.8329567,
+                        -0.9293889,
+                        -0.8605237,
+                        -0.8901016,
+                        0.35011983,
+                        0.3822446,
+                        -0.6384951,
+                        -0.7537949,
+                        -0.5867439,
+                        -0.57371,
+                        -0.5662942,
+                        -0.76130676,
+                        -0.9845436,
+                        -0.9833387,
+                        -0.9902381,
+                        -0.9905396,
+                    ],
+                    FeaturesVersion::LATEST,
+                ),
                 ..Default::default()
             },
             Song {
                 path: Path::new("path-to-eleventh").to_path_buf(),
-                analysis: Analysis::new([
-                    0.42334664,
-                    -0.8632808,
-                    -0.80268145,
-                    -0.91918564,
-                    -0.7522441,
-                    -0.8721291,
-                    -0.81877685,
-                    -0.8166921,
-                    0.53626525,
-                    0.540933,
-                    -0.34771818,
-                    -0.45362264,
-                    -0.35523874,
-                    -0.4072432,
-                    -0.25506926,
-                    -0.553644,
-                    -0.9624399,
-                    -0.9706371,
-                    -0.9753268,
-                    -0.9764576,
-                ]),
+                analysis: Analysis::new(
+                    [
+                        0.42334664,
+                        -0.8632808,
+                        -0.80268145,
+                        -0.91918564,
+                        -0.7522441,
+                        -0.8721291,
+                        -0.81877685,
+                        -0.8166921,
+                        0.53626525,
+                        0.540933,
+                        -0.34771818,
+                        -0.45362264,
+                        -0.35523874,
+                        -0.4072432,
+                        -0.25506926,
+                        -0.553644,
+                        -0.9624399,
+                        -0.9706371,
+                        -0.9753268,
+                        -0.9764576,
+                    ],
+                    FeaturesVersion::LATEST,
+                ),
                 ..Default::default()
             },
         ];

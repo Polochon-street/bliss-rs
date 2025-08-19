@@ -10,9 +10,7 @@
 //! to implement other decoders is probably a good starting point.
 use log::info;
 
-use crate::{
-    cue::BlissCue, song::AnalysisOptions, BlissError, BlissResult, Song, FEATURES_VERSION,
-};
+use crate::{cue::BlissCue, song::AnalysisOptions, BlissError, BlissResult, Song};
 use std::{
     num::NonZeroUsize,
     path::{Path, PathBuf},
@@ -68,20 +66,7 @@ impl TryFrom<PreAnalyzedSong> for Song {
     type Error = BlissError;
 
     fn try_from(raw_song: PreAnalyzedSong) -> BlissResult<Song> {
-        Ok(Song {
-            path: raw_song.path,
-            artist: raw_song.artist,
-            album_artist: raw_song.album_artist,
-            title: raw_song.title,
-            album: raw_song.album,
-            track_number: raw_song.track_number,
-            disc_number: raw_song.disc_number,
-            genre: raw_song.genre,
-            duration: raw_song.duration,
-            analysis: Song::analyze(&raw_song.sample_array)?,
-            features_version: FEATURES_VERSION,
-            cue_info: None,
-        })
+        raw_song.to_song_with_options(AnalysisOptions::default())
     }
 }
 
@@ -153,8 +138,8 @@ pub trait Decoder {
     }
 
     /// Returns a decoded [Song] given a file path, processed with the options
-    /// `analysis_options` or an error if the song
-    /// could not be analyzed for some reason.
+    /// `analysis_options` or an error if the song could not be analyzed for some
+    /// reason. Use this if you want to analyze a song with older features version.
     ///
     /// # Arguments
     ///
@@ -325,7 +310,7 @@ fn main() -> BlissResult<()> {
                             continue;
                         }
                     }
-                    let song = Self::song_from_path(&path);
+                    let song = Self::song_from_path_with_options(&path, analysis_options);
                     tx_thread.send((path.to_owned(), song)).unwrap();
                 }
             });
