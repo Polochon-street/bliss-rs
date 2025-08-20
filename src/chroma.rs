@@ -94,8 +94,8 @@ impl ChromaDesc {
      * for more information ("Timbre-invariant Audio Features for Style Analysis of Classical
      * Music").
      */
-    pub fn get_values(&mut self) -> Vec<f32> {
-        let mut raw_features = chroma_interval_features(&self.values_chroma);
+    pub fn get_values(&mut self) -> BlissResult<Vec<f32>> {
+        let mut raw_features = chroma_interval_features(&self.values_chroma)?;
         let (mut interval_class, mut interval_class_mode) =
             raw_features.view_mut().split_at(Axis(0), 6);
         // Compute those two norms separately because the values for the IC1-6 and IC7-10 don't
@@ -122,21 +122,19 @@ impl ChromaDesc {
         let normalized_ratio =
             2. * (angle as f32 - 0.) / (Self::MAX_TRIAD_INTERVAL_RATIO - 0.) - 1.;
         features.push(normalized_ratio);
-        features
+        Ok(features)
     }
 
-    pub(crate) fn get_values_version_1(&mut self) -> Vec<f32> {
-        chroma_interval_features(&self.values_chroma)
+    pub(crate) fn get_values_version_1(&mut self) -> BlissResult<Vec<f32>> {
+        Ok(chroma_interval_features(&self.values_chroma)?
             .mapv(|x| 2. * (x as f32 - 0.) / (0.12 - 0.) - 1.)
-            .to_vec()
+            .to_vec())
     }
 }
 
 // Functions below are Rust versions of python notebooks by AudioLabs Erlang
 // (https://www.audiolabs-erlangen.de/resources/MIR/FMP/C0/C0.html)
-fn chroma_interval_features(chroma: &Array2<f64>) -> Array1<f64> {
-    // normalize_feature_sequence results in values < 1 (1 max and nothing else) in
-    // the features vector.
+fn chroma_interval_features(chroma: &Array2<f64>) -> BlissResult<Array1<f64>> {
     let chroma = normalize_feature_sequence(&chroma.mapv(|x| (x * 15.).exp()));
     let templates = arr2(&[
         [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
@@ -153,7 +151,7 @@ fn chroma_interval_features(chroma: &Array2<f64>) -> Array1<f64> {
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     ]);
     let interval_feature_matrix = extract_interval_features(&chroma, &templates);
-    interval_feature_matrix.mean_axis(Axis(1)).unwrap()
+    interval_feature_matrix.mean_axis(Axis(1)).ok_or(BlissError::AnalysisError(String::from("Tried to run the chroma descriptor on an empty array. Run `.do_()` on at least a sample before trying to get values.")))
 }
 
 fn extract_interval_features(chroma: &Array2<f64>, templates: &Array2<i32>) -> Array2<f64> {
@@ -500,7 +498,7 @@ mod test {
     fn test_chroma_interval_features() {
         let file = File::open("data/chroma.npy").unwrap();
         let chroma = Array2::<f64>::read_npy(file).unwrap();
-        let features = chroma_interval_features(&chroma);
+        let features = chroma_interval_features(&chroma).unwrap();
         let expected_features = arr1(&[
             0.03860284, 0.02185281, 0.04224379, 0.06385278, 0.07311148, 0.02512566, 0.00319899,
             0.00311308, 0.00107433, 0.00241861,
@@ -560,6 +558,16 @@ mod test {
 
     #[test]
     #[cfg(feature = "ffmpeg")]
+    fn test_get_values_no_values() {
+        let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
+        assert_eq!(
+            Err(BlissError::AnalysisError(String::from("Tried to run the chroma descriptor on an empty array. Run `.do_()` on at least a sample before trying to get values."))),
+            chroma_desc.get_values()
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_chroma_desc() {
         let song = Decoder::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
         let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
@@ -576,7 +584,36 @@ mod test {
             -0.58594406,
             -0.06784296,
         ];
-        for (expected, actual) in expected_values.iter().zip(chroma_desc.get_values().iter()) {
+        for (expected, actual) in expected_values
+            .iter()
+            .zip(chroma_desc.get_values().unwrap().iter())
+        {
+            assert!(0.0000001 > (expected - actual).abs());
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
+    fn test_chroma_desc_version_1() {
+        let song = Decoder::decode(Path::new("data/s16_mono_22_5kHz.flac")).unwrap();
+        let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
+        chroma_desc.do_(&song.sample_array).unwrap();
+        let expected_values = vec![
+            -0.35661936,
+            -0.63578653,
+            -0.29593682,
+            0.06421304,
+            0.21852458,
+            -0.581239,
+            -0.9466835,
+            -0.9481153,
+            -0.9820945,
+            -0.95968974,
+        ];
+        for (expected, actual) in expected_values
+            .iter()
+            .zip(chroma_desc.get_values_version_1().unwrap().iter())
+        {
             assert!(0.0000001 > (expected - actual).abs());
         }
     }
@@ -691,7 +728,7 @@ mod test {
             let song = Decoder::decode(Path::new(path)).unwrap();
             let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
             chroma_desc.do_(&song.sample_array).unwrap();
-            let chroma_values = chroma_desc.get_values();
+            let chroma_values = chroma_desc.get_values().unwrap();
 
             let mut indices: Vec<usize> = (0..chroma_values.len()).collect();
             indices.sort_by(|&i, &j| chroma_values[j].partial_cmp(&chroma_values[i]).unwrap());
@@ -714,7 +751,7 @@ mod test {
         let song = Decoder::decode(Path::new("data/chroma/dyad_tritone_IC6.ogg")).unwrap();
         let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
         chroma_desc.do_(&song.sample_array).unwrap();
-        let chroma_values = chroma_desc.get_values();
+        let chroma_values = chroma_desc.get_values().unwrap();
         assert!(chroma_values[10] > 0.9);
     }
 
@@ -724,7 +761,7 @@ mod test {
         let song = Decoder::decode(Path::new("data/chroma/Cmaj_triads.ogg")).unwrap();
         let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
         chroma_desc.do_(&song.sample_array).unwrap();
-        let chroma_values = chroma_desc.get_values();
+        let chroma_values = chroma_desc.get_values().unwrap();
         assert!(chroma_values[11] > 0.9);
     }
 
@@ -734,7 +771,7 @@ mod test {
         let song = Decoder::decode(Path::new("data/chroma/triad_aug_maximize_ratio.ogg")).unwrap();
         let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
         chroma_desc.do_(&song.sample_array).unwrap();
-        let chroma_values = chroma_desc.get_values();
+        let chroma_values = chroma_desc.get_values().unwrap();
         assert!(chroma_values[12] > 0.7);
     }
 
@@ -758,7 +795,7 @@ mod test {
             let song = Decoder::decode(Path::new(path)).unwrap();
             let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
             chroma_desc.do_(&song.sample_array).unwrap();
-            let chroma_values = chroma_desc.get_values();
+            let chroma_values = chroma_desc.get_values().unwrap();
 
             let mut indices: Vec<usize> = (0..chroma_values.len()).collect();
             indices.sort_by(|&i, &j| chroma_values[j].partial_cmp(&chroma_values[i]).unwrap());
@@ -771,6 +808,59 @@ mod test {
                         assert!(v < 0.0);
                     }
                 }
+            }
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
+    fn test_end_result_edge_cases() {
+        let files = [
+            // Silence leads to values close to zero.
+            (
+                "data/silence.ogg",
+                vec![
+                    -0.18350339,
+                    -0.18350339,
+                    -0.18350339,
+                    -0.18350339,
+                    -0.18350339,
+                    -0.18350339,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                ],
+            ),
+            // Same for white noise, since all bins have ~the same energy.
+            // It's not perfect zeros though because the original data is more
+            // "noisy" (pun intended).
+            (
+                "data/white_noise.mp3",
+                vec![
+                    -0.17531848,
+                    -0.1804418,
+                    -0.18354797,
+                    -0.18585062,
+                    -0.1875512,
+                    -0.18838519,
+                    -0.00026643276,
+                    -0.0002770424,
+                    0.0016055107,
+                    -0.0010639429,
+                ],
+            ),
+        ];
+
+        for (path, expected_values) in files.into_iter() {
+            let song = Decoder::decode(Path::new(path)).unwrap();
+            let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
+            chroma_desc.do_(&song.sample_array).unwrap();
+            for (expected, actual) in expected_values
+                .iter()
+                .zip(chroma_desc.get_values().unwrap().iter())
+            {
+                assert!(0.0000001 > (expected - actual).abs());
             }
         }
     }

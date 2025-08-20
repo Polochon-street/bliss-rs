@@ -134,7 +134,6 @@ use ndarray::Array2;
 use rusqlite::params;
 use rusqlite::params_from_iter;
 use rusqlite::Connection;
-use rusqlite::OptionalExtension;
 use rusqlite::Params;
 use rusqlite::Row;
 use serde::de::DeserializeOwned;
@@ -268,40 +267,6 @@ pub struct BaseConfig {
     #[serde(default = "default_m")]
     pub m: Array2<f32>,
 }
-
-//#[derive(Deserialize)]
-//struct OldBaseConfig {
-//    config_path: PathBuf,
-//    database_path: PathBuf,
-//    features_version: u16,
-//    #[serde(default = "default_m")]
-//    m: Array2<f32>,
-//    number_cores: NonZeroUsize,
-//}
-//
-//impl<'de> Deserialize<'de> for BaseConfig {
-//    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-//    where
-//        D: serde::Deserializer<'de>,
-//    {
-//        let old_config = OldBaseConfig::deserialize(deserializer);
-//        match old_config {
-//            Ok(o) => Ok(BaseConfig {
-//                config_path: o.config_path,
-//                database_path: o.database_path,
-//                analysis_options: AnalysisOptions {
-//                    features_version: o.features_version,
-//                    number_cores: o.number_cores,
-//                },
-//                m: o.m,
-//            }),
-//            Err(e) => {
-//                BaseConfig::deserialize(deserializer).map_err(serde::de::Error::custom("coucou"))
-//            }
-//        }
-//        //Config::try_from(raw).map_err(serde::de::Error::custom)
-//    }
-//}
 
 fn default_m() -> Array2<f32> {
     Array2::eye(NUMBER_FEATURES)
@@ -478,6 +443,24 @@ impl<T: Serialize + DeserializeOwned + Clone> AsRef<Song> for LibrarySong<T> {
     fn as_ref(&self) -> &Song {
         &self.bliss_song
     }
+}
+
+/// An enum containing potential sanity errors wrt. database and
+/// songs' features version.
+#[derive(Debug, PartialEq)]
+pub enum SanityError {
+    /// If there are songs analyzed with different features version in the
+    /// database.
+    MultipleVersionsInDB {
+        /// The FeaturesVersion found in the database.
+        versions: Vec<FeaturesVersion>,
+    },
+    /// If songs in the database are analyzed with a lower features version
+    /// number than the latest version advertised by bliss.
+    OldFeaturesVersionInDB {
+        /// The oldest version of the features in the database.
+        version: FeaturesVersion,
+    },
 }
 
 // TODO add logging statement
@@ -686,12 +669,17 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             sqlite_conn: Arc::new(Mutex::new(sqlite_conn)),
             decoder: PhantomData,
         };
-        if !library.version_sanity_check()? {
-            warn!(
-                "Songs have been analyzed with different versions of bliss; \
-                older versions will be ignored from playlists. Update your \
-                bliss library to correct the issue."
-            );
+        let sanity_errors = library.version_sanity_check()?;
+        for sanity_error in sanity_errors {
+            match sanity_error {
+                SanityError::MultipleVersionsInDB { versions: v } => warn!(
+                    "Songs have been analyzed with different versions of bliss ({:?}). \
+                        Older versions will be ignored from playlists. Update or rescan your \
+                        bliss library to correct the issue.",
+                    v
+                ),
+                SanityError::OldFeaturesVersionInDB { version: v } => println!("Old features version was found in the database: version {:?}. Update or rescan your bliss library to correct the issue.", v),
+            };
         }
         Ok(library)
     }
@@ -701,18 +689,33 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     ///
     /// Returns true if the database is clean (only one version of the
     /// features), and false otherwise.
-    pub fn version_sanity_check(&mut self) -> Result<bool> {
+    pub fn version_sanity_check(&mut self) -> Result<Vec<SanityError>> {
+        let mut errors = vec![];
         let connection = self
             .sqlite_conn
             .lock()
             .map_err(|e| BlissError::ProviderError(e.to_string()))?;
-        let count: u32 = connection
-            .query_row("select count(distinct version) from song", [], |row| {
-                row.get(0)
+        let mut stmt = connection.prepare("select distinct version from song")?;
+
+        let mut features_version: Vec<FeaturesVersion> = stmt
+            .query_map([], |row| row.get::<_, FeaturesVersion>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+
+        features_version.sort();
+        if features_version.len() > 1 {
+            errors.push(SanityError::MultipleVersionsInDB {
+                versions: features_version.to_owned(),
             })
-            .optional()?
-            .unwrap_or(0);
-        Ok(count <= 1)
+        }
+        if features_version
+            .iter()
+            .any(|features_version_in_db| features_version_in_db != &FeaturesVersion::LATEST)
+        {
+            errors.push(SanityError::OldFeaturesVersionInDB {
+                version: features_version[0],
+            });
+        }
+        Ok(errors)
     }
 
     /// Create a new [Library] object from a minimal configuration setup,
@@ -1171,7 +1174,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                         e
                     );
 
-                    self.store_failed_song(path, e)?;
+                    self.store_failed_song(path, e, analysis_options.features_version)?;
                     failure_count += 1;
                 }
             };
@@ -1527,6 +1530,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         &mut self,
         song_path: P,
         e: BlissError,
+        features_version: FeaturesVersion,
     ) -> Result<()> {
         self.sqlite_conn
             .lock()
@@ -1540,7 +1544,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                     e.to_string(),
                     // At this point, FeaturesVersion::LATEST is the best indicator we have
                     // of the version (since we don't have a proper Song).
-                    FeaturesVersion::LATEST,
+                    features_version,
                 ],
             )
             .map_err(|e| BlissError::ProviderError(e.to_string()))?;
@@ -1654,6 +1658,7 @@ mod test {
     use ndarray::Array1;
     use pretty_assertions::assert_eq;
     use serde::{de::DeserializeOwned, Deserialize};
+    use serde_json::Value;
     use std::thread;
     use std::{convert::TryInto, fmt::Debug, str::FromStr, sync::MutexGuard, time::Duration};
     use tempdir::TempDir;
@@ -3479,18 +3484,19 @@ mod test {
             .store_failed_song(
                 "/some/failed/path",
                 BlissError::ProviderError("error with the analysis".into()),
+                FeaturesVersion::Version1,
             )
             .unwrap();
         let connection = library.sqlite_conn.lock().unwrap();
-        let (error, analyzed): (String, bool) = connection
+        let (error, analyzed, features_version): (String, bool, FeaturesVersion) = connection
             .query_row(
                 "
             select
-                error, analyzed
+                error, analyzed, version
                 from song where path=?
             ",
                 params!["/some/failed/path"],
-                |row| Ok((row.get_unwrap(0), row.get_unwrap(1))),
+                |row| Ok((row.get_unwrap(0), row.get_unwrap(1), row.get_unwrap(2))),
             )
             .unwrap();
         assert_eq!(
@@ -3500,6 +3506,7 @@ mod test {
             )
         );
         assert_eq!(analyzed, false);
+        assert_eq!(features_version, FeaturesVersion::Version1);
         let count_features: u32 = connection
             .query_row(
                 "
@@ -3806,9 +3813,86 @@ mod test {
     }
 
     #[test]
+    // Test that while creating a new BaseConfig with custom options,
+    // the JSON file stores the information correctly.
     fn test_base_config_new() {
+        let random_config_home = TempDir::new("config").unwrap();
+        let config_path = random_config_home.path().join("test.json");
+        let database_path = random_config_home.path().join("database.db");
+        let base_config = BaseConfig::new(
+            Some(config_path.to_owned()),
+            Some(database_path.to_owned()),
+            Some(AnalysisOptions {
+                number_cores: NonZeroUsize::new(4).unwrap(),
+                features_version: FeaturesVersion::Version1,
+            }),
+        )
+        .unwrap();
+        base_config.write().unwrap();
+        let data = fs::read_to_string(&config_path).unwrap();
+        let config = BaseConfig::deserialize_config(&data).unwrap();
+
+        assert_eq!(
+            config,
+            BaseConfig {
+                config_path: config_path,
+                database_path: database_path,
+                analysis_options: AnalysisOptions {
+                    number_cores: NonZeroUsize::new(4).unwrap(),
+                    features_version: FeaturesVersion::Version1
+                },
+                m: default_m(),
+            }
+        );
+
+        let v: Value = serde_json::from_str(&data).unwrap();
+        let obj = v.as_object().expect("top-level JSON must be an object");
+        assert!(obj.contains_key("config_path"));
+        assert!(obj.contains_key("database_path"));
+        assert!(obj.contains_key("m"));
+        assert!(obj.contains_key("features_version"));
+        assert!(obj.contains_key("number_cores"));
+    }
+
+    #[test]
+    // Test that the configuration serializes the default parameters correctly.
+    fn test_base_config_new_default() {
+        let random_config_home = TempDir::new("config").unwrap();
+        let config_path = random_config_home.path().join("test.json");
+        let base_config = BaseConfig::new(Some(config_path.to_owned()), None, None).unwrap();
+        base_config.write().unwrap();
+        let data = fs::read_to_string(&config_path).unwrap();
+        let config = BaseConfig::deserialize_config(&data).unwrap();
+
+        let cores = thread::available_parallelism().unwrap_or(NonZeroUsize::new(1).unwrap());
+
+        assert_eq!(
+            config,
+            BaseConfig {
+                config_path: config_path,
+                database_path: random_config_home.path().join("songs.db"),
+                analysis_options: AnalysisOptions {
+                    number_cores: cores,
+                    features_version: FeaturesVersion::LATEST,
+                },
+                m: default_m(),
+            }
+        );
+
+        let v: Value = serde_json::from_str(&data).unwrap();
+        let obj = v.as_object().expect("top-level JSON must be an object");
+        assert!(obj.contains_key("config_path"));
+        assert!(obj.contains_key("database_path"));
+        assert!(obj.contains_key("m"));
+        assert!(obj.contains_key("features_version"));
+        assert!(obj.contains_key("number_cores"));
+    }
+
+    #[test]
+    fn test_path_base_config_new() {
         {
             let xdg_config_home = TempDir::new("test-bliss").unwrap();
+            fs::create_dir_all(xdg_config_home.path().join("bliss-rs")).unwrap();
             env::set_var("XDG_CONFIG_HOME", xdg_config_home.path());
 
             // First test case: default options go to the XDG_CONFIG_HOME path.
@@ -3822,6 +3906,8 @@ mod test {
                 base_config.database_path,
                 xdg_config_home.path().join("bliss-rs/songs.db"),
             );
+            base_config.write().unwrap();
+            assert!(xdg_config_home.path().join("bliss-rs/config.json").exists());
         }
 
         // Second test case: config path, no db path.
@@ -3833,6 +3919,7 @@ mod test {
                 None,
             )
             .unwrap();
+            base_config.write().unwrap();
 
             assert_eq!(
                 base_config.config_path,
@@ -3842,6 +3929,7 @@ mod test {
                 base_config.database_path,
                 random_config_home.path().join("songs.db")
             );
+            assert!(random_config_home.path().join("test.json").exists());
         }
 
         // Third test case: no config path, but db path.
@@ -3850,6 +3938,7 @@ mod test {
             let base_config =
                 BaseConfig::new(None, Some(random_config_home.path().join("test.db")), None)
                     .unwrap();
+            base_config.write().unwrap();
 
             assert_eq!(
                 base_config.config_path,
@@ -3864,12 +3953,14 @@ mod test {
         {
             let random_config_home = TempDir::new("config").unwrap();
             let random_database_home = TempDir::new("database").unwrap();
+            fs::create_dir_all(random_config_home.path().join("bliss-rs")).unwrap();
             let base_config = BaseConfig::new(
                 Some(random_config_home.path().join("config_test.json")),
                 Some(random_database_home.path().join("test-database.db")),
                 None,
             )
             .unwrap();
+            base_config.write().unwrap();
 
             assert_eq!(
                 base_config.config_path,
@@ -3879,6 +3970,7 @@ mod test {
                 base_config.database_path,
                 random_database_home.path().join("test-database.db"),
             );
+            assert!(random_config_home.path().join("config_test.json").exists());
         }
     }
 
@@ -4017,7 +4109,17 @@ mod test {
     #[cfg(feature = "ffmpeg")]
     fn test_library_sanity_check_fail() {
         let (mut library, _temp_dir, _) = setup_test_library();
-        assert!(!library.version_sanity_check().unwrap());
+        assert_eq!(
+            library.version_sanity_check().unwrap(),
+            vec![
+                SanityError::MultipleVersionsInDB {
+                    versions: vec![FeaturesVersion::Version1, FeaturesVersion::Version2]
+                },
+                SanityError::OldFeaturesVersionInDB {
+                    version: FeaturesVersion::Version1
+                }
+            ],
+        );
     }
 
     #[test]
@@ -4028,10 +4130,13 @@ mod test {
             let sqlite_conn =
                 Connection::open(&library.config.base_config().database_path).unwrap();
             sqlite_conn
-                .execute("delete from song where version != 1", [])
+                .execute(
+                    "delete from song where version != ?1",
+                    [FeaturesVersion::LATEST],
+                )
                 .unwrap();
         }
-        assert!(library.version_sanity_check().unwrap());
+        assert!(library.version_sanity_check().unwrap().is_empty());
     }
 
     #[test]
@@ -4141,7 +4246,7 @@ mod test {
         assert!(failed_songs.contains(&ProcessingError {
             song_path: PathBuf::from("non-existing"),
             error: String::from("error happened while decoding file - while opening format for file 'non-existing': ffmpeg::Error(2: No such file or directory)."),
-            features_version: FeaturesVersion::Version2,
+            features_version: FeaturesVersion::Version1,
         }));
     }
 }

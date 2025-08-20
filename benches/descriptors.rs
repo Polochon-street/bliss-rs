@@ -111,7 +111,7 @@ fn bench_chroma_desc(c: &mut Criterion) {
                 || ChromaDesc::new(SAMPLE_RATE, 12),
                 |mut chroma_desc| {
                     chroma_desc.do_(&signal).unwrap();
-                    chroma_desc.get_values();
+                    chroma_desc.get_values().unwrap();
                 },
             );
         });

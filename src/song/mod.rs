@@ -416,9 +416,9 @@ impl Song {
                 let mut chroma_desc = ChromaDesc::new(SAMPLE_RATE, 12);
                 chroma_desc.do_(sample_array)?;
                 if analysis_options.features_version == FeaturesVersion::Version1 {
-                    Ok(chroma_desc.get_values_version_1())
+                    Ok(chroma_desc.get_values_version_1()?)
                 } else {
-                    Ok(chroma_desc.get_values())
+                    Ok(chroma_desc.get_values()?)
                 }
             });
 
