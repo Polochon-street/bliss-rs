@@ -269,40 +269,6 @@ pub struct BaseConfig {
     pub m: Array2<f32>,
 }
 
-//#[derive(Deserialize)]
-//struct OldBaseConfig {
-//    config_path: PathBuf,
-//    database_path: PathBuf,
-//    features_version: u16,
-//    #[serde(default = "default_m")]
-//    m: Array2<f32>,
-//    number_cores: NonZeroUsize,
-//}
-//
-//impl<'de> Deserialize<'de> for BaseConfig {
-//    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-//    where
-//        D: serde::Deserializer<'de>,
-//    {
-//        let old_config = OldBaseConfig::deserialize(deserializer);
-//        match old_config {
-//            Ok(o) => Ok(BaseConfig {
-//                config_path: o.config_path,
-//                database_path: o.database_path,
-//                analysis_options: AnalysisOptions {
-//                    features_version: o.features_version,
-//                    number_cores: o.number_cores,
-//                },
-//                m: o.m,
-//            }),
-//            Err(e) => {
-//                BaseConfig::deserialize(deserializer).map_err(serde::de::Error::custom("coucou"))
-//            }
-//        }
-//        //Config::try_from(raw).map_err(serde::de::Error::custom)
-//    }
-//}
-
 fn default_m() -> Array2<f32> {
     Array2::eye(NUMBER_FEATURES)
 }
@@ -3821,9 +3787,33 @@ mod test {
     }
 
     #[test]
+    // TODO test that the deserialized version has correct values
     fn test_base_config_new() {
+        let random_config_home = TempDir::new("config").unwrap();
+        let base_config = BaseConfig::new(
+            Some(random_config_home.path().join("test.json")),
+            None,
+            None,
+        )
+        .unwrap();
+        base_config.write().unwrap();
+
+        assert_eq!(
+            base_config.config_path,
+            random_config_home.path().join("test.json"),
+        );
+        assert_eq!(
+            base_config.database_path,
+            random_config_home.path().join("songs.db")
+        );
+        assert!(random_config_home.path().join("test.json").exists());
+    }
+
+    #[test]
+    fn test_path_base_config_new() {
         {
             let xdg_config_home = TempDir::new("test-bliss").unwrap();
+            fs::create_dir_all(xdg_config_home.path().join("bliss-rs")).unwrap();
             env::set_var("XDG_CONFIG_HOME", xdg_config_home.path());
 
             // First test case: default options go to the XDG_CONFIG_HOME path.
@@ -3837,6 +3827,8 @@ mod test {
                 base_config.database_path,
                 xdg_config_home.path().join("bliss-rs/songs.db"),
             );
+            base_config.write().unwrap();
+            assert!(xdg_config_home.path().join("bliss-rs/config.json").exists());
         }
 
         // Second test case: config path, no db path.
@@ -3848,6 +3840,7 @@ mod test {
                 None,
             )
             .unwrap();
+            base_config.write().unwrap();
 
             assert_eq!(
                 base_config.config_path,
@@ -3857,6 +3850,7 @@ mod test {
                 base_config.database_path,
                 random_config_home.path().join("songs.db")
             );
+            assert!(random_config_home.path().join("test.json").exists());
         }
 
         // Third test case: no config path, but db path.
@@ -3865,6 +3859,7 @@ mod test {
             let base_config =
                 BaseConfig::new(None, Some(random_config_home.path().join("test.db")), None)
                     .unwrap();
+            base_config.write().unwrap();
 
             assert_eq!(
                 base_config.config_path,
@@ -3879,12 +3874,14 @@ mod test {
         {
             let random_config_home = TempDir::new("config").unwrap();
             let random_database_home = TempDir::new("database").unwrap();
+            fs::create_dir_all(random_config_home.path().join("bliss-rs")).unwrap();
             let base_config = BaseConfig::new(
                 Some(random_config_home.path().join("config_test.json")),
                 Some(random_database_home.path().join("test-database.db")),
                 None,
             )
             .unwrap();
+            base_config.write().unwrap();
 
             assert_eq!(
                 base_config.config_path,
@@ -3894,6 +3891,7 @@ mod test {
                 base_config.database_path,
                 random_database_home.path().join("test-database.db"),
             );
+            assert!(random_config_home.path().join("config_test.json").exists());
         }
     }
 
