@@ -126,16 +126,16 @@ const CHANNELS: u16 = 1;
 /// The sample rate the raw samples must have to be analyzed by bliss-rs
 /// and give correct results.
 const SAMPLE_RATE: u32 = 22050;
-/// Stores the latest version of bliss-rs' features.
-/// It is bumped every time one or more feature is added, updated or removed,
-/// so plug-ins can rescan libraries when there is a major change.
-pub const FEATURES_VERSION: FeaturesVersion = FeaturesVersion::Version2;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(into = "u16", try_from = "u16"))]
 #[derive(Debug, Eq, PartialEq, Default, Clone, Copy)]
 /// The versions of the features used for analysis. Used for
-/// backwards-compatibility reasons.
+/// backwards-compatibility reasons in case people want to keep using
+/// older features version.
+///
+/// Songs analyzed with different FeaturesVersion are not compatible with
+/// one another, as they might have a different set of features, etc.
 pub enum FeaturesVersion {
     #[default]
     /// The latest iteration, increasing chroma features accuracy and
@@ -145,6 +145,12 @@ pub enum FeaturesVersion {
     /// (song mode detection) might underperform / be underused while computing
     /// distances.
     Version1 = 1,
+}
+
+impl FeaturesVersion {
+    /// Always points to the latest features' version. In case of doubt,
+    /// use this one.
+    pub const LATEST: FeaturesVersion = FeaturesVersion::Version2;
 }
 
 impl From<FeaturesVersion> for u16 {

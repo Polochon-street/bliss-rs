@@ -8,6 +8,8 @@ values will change!
 * Add tests to make sure chroma features behave as they should.
 * Add a `Song::analyze_with_options` and `Decoder::song_from_path_with_options`
   to enable backwards compatibility.
+* Add a `FeaturesVersion` struct, replacing `FEATURES_VERSION` by
+  `FeaturesVersion::LATEST`
 
 ## bliss 0.10.2
 * Bump bliss-audio-aubio-rs.
