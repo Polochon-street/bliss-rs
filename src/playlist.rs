@@ -9,7 +9,7 @@
 //! suit you.
 use crate::{BlissError, BlissResult, Song, NUMBER_FEATURES};
 use extended_isolation_forest::{Forest, ForestOptions};
-use ndarray::{Array, Array1, Array2, Axis};
+use ndarray::{array, Array, Array1, Array2, Axis};
 use ndarray_stats::QuantileExt;
 use noisy_float::prelude::*;
 use std::collections::HashMap;
@@ -67,6 +67,10 @@ pub fn euclidean_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
     // just no metric learning has been done yet.
     // See https://lelele.io/thesis.pdf chapter 4.
     let m = Array::eye(NUMBER_FEATURES);
+    //let m = m * array![
+    //    1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.6, 0.6, 0.6, 0.6
+    //];
+    //println!("coucou");
     (a - b).dot(&m).dot(&(a - b)).sqrt()
 }
 
