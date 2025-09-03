@@ -20,14 +20,13 @@ use crate::timbral::{SpectralDesc, ZeroCrossingRateDesc};
 use crate::{BlissError, BlissResult, FeaturesVersion, SAMPLE_RATE};
 use core::ops::Index;
 use ndarray::{arr1, Array1};
-use std::convert::TryInto;
 use std::fmt;
 use std::num::NonZeroUsize;
 
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
-use strum::{EnumCount, IntoEnumIterator};
+use strum::IntoEnumIterator;
 use strum_macros::{EnumCount, EnumIter};
 
 pub mod decoder;
@@ -75,7 +74,6 @@ impl AsRef<Song> for Song {
     }
 }
 
-#[derive(Debug, EnumIter, EnumCount)]
 /// Indexes different fields of an [Analysis](Song::analysis).
 ///
 /// * Example:
@@ -94,34 +92,128 @@ impl AsRef<Song> for Song {
 ///
 /// Note that this should mostly be used for debugging / distance metric
 /// customization purposes.
-#[allow(missing_docs)]
+#[derive(Debug, EnumIter, EnumCount)]
 pub enum AnalysisIndex {
+    /// The song's tempo.
     Tempo,
+    /// The song's zero-crossing rate.
     Zcr,
+    /// The mean of the song's spectral centroid.
     MeanSpectralCentroid,
+    /// The standard deviation of the song's spectral centroid.
     StdDeviationSpectralCentroid,
+    /// The mean of the song's spectral rolloff.
     MeanSpectralRolloff,
+    /// The standard deviation of the song's spectral rolloff.
     StdDeviationSpectralRolloff,
+    /// The mean of the song's spectral flatness.
     MeanSpectralFlatness,
+    /// The standard deviation of the song's spectral flatness.
     StdDeviationSpectralFlatness,
+    /// The mean of the song's loudness.
     MeanLoudness,
+    /// The standard deviation of the song's loudness.
     StdDeviationLoudness,
+    /// The proportion of pitch class set 1 (IC1) compared to the 6 other pitch class sets,
+    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
     Chroma1,
+    /// The proportion of pitch class set 2 (IC2) compared to the 6 other pitch class sets,
+    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
     Chroma2,
+    /// The proportion of pitch class set 3 (IC3) compared to the 6 other pitch class sets,
+    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
     Chroma3,
+    /// The proportion of pitch class set 4 (IC4) compared to the 6 other pitch class sets,
+    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
     Chroma4,
+    /// The proportion of pitch class set 5 (IC5) compared to the 6 other pitch class sets,
+    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
     Chroma5,
+    /// The proportion of pitch class set 6 (IC6) compared to the 6 other pitch class sets,
+    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
     Chroma6,
+    /// The proportion of major triads in the song, compared to the other triads.
     Chroma7,
+    /// The proportion of minor triads in the song, compared to the other triads.
     Chroma8,
+    /// The proportion of diminished triads in the song, compared to the other triads.
     Chroma9,
+    /// The proportion of augmented triads in the song, compared to the other triads.
+    Chroma10,
+    /// The L2-norm of the IC1-6 (see above).
+    Chroma11,
+    /// The L2-norm of the IC7-10 (see above).
+    Chroma12,
+    /// The ratio of the L2-norm of IC7-10 and IC1-6 (proportion of triads vs dyads).
+    Chroma13,
+}
+
+impl AnalysisIndex {
+    /// The features version associated with this analysis index.
+    pub const FEATURES_VERSION: FeaturesVersion = FeaturesVersion::LATEST;
+}
+
+#[derive(Debug, EnumIter, EnumCount)]
+pub enum AnalysisIndexv1 {
+    /// The song's tempo.
+    Tempo,
+    /// The song's zero-crossing rate.
+    Zcr,
+    /// The mean of the song's spectral centroid.
+    MeanSpectralCentroid,
+    /// The standard deviation of the song's spectral centroid.
+    StdDeviationSpectralCentroid,
+    /// The mean of the song's spectral rolloff.
+    MeanSpectralRolloff,
+    /// The standard deviation of the song's spectral rolloff.
+    StdDeviationSpectralRolloff,
+    /// The mean of the song's spectral flatness.
+    MeanSpectralFlatness,
+    /// The standard deviation of the song's spectral flatness.
+    StdDeviationSpectralFlatness,
+    /// The mean of the song's loudness.
+    MeanLoudness,
+    /// The standard deviation of the song's loudness.
+    StdDeviationLoudness,
+    /// The raw value of pitch class set 1 (IC1)
+    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    Chroma1,
+    /// The raw value of pitch class set 2 (IC2)
+    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    Chroma2,
+    /// The raw value of pitch class set 3 (IC3)
+    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    Chroma3,
+    /// The raw value of pitch class set 4 (IC4)
+    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    Chroma4,
+    /// The raw value of pitch class set 5 (IC5)
+    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    Chroma5,
+    /// The raw value of pitch class set 6 (IC6)
+    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    Chroma6,
+    /// The proportion of major triads in the song, compared to all the other chroma features
+    /// (stays between -0.98 and -0.99) - use the latest features version to avoid this)
+    Chroma7,
+    /// The proportion of minor triads in the song, compared to all the other chroma features
+    /// (stays between -0.98 and -0.99) - use the latest features version to avoid this)
+    Chroma8,
+    /// The proportion of diminished triads in the song, compared to all the other chroma features
+    /// (stays between -0.98 and -0.99) - use the latest features version to avoid this)
+    Chroma9,
+    /// The proportion of augmented triads in the song, compared to all the other chroma features
+    /// (stays between -0.98 and -0.99) - use the latest features version to avoid this)
     Chroma10,
 }
-/// The number of features used in `Analysis`
-pub const NUMBER_FEATURES: usize = AnalysisIndex::COUNT;
 
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Default, PartialEq, Clone, Copy)]
+impl AnalysisIndexv1 {
+    /// The features version associated with this analysis index.
+    pub const FEATURES_VERSION: FeaturesVersion = FeaturesVersion::Version1;
+}
+/// The number of features used in the latest `Analysis` version.
+pub const NUMBER_FEATURES: usize = FeaturesVersion::LATEST.feature_count();
+
 /// Object holding the results of the song's analysis.
 ///
 /// Only use it if you want to have an in-depth look of what is
@@ -136,8 +228,10 @@ pub const NUMBER_FEATURES: usize = AnalysisIndex::COUNT;
 /// [this document](https://lelele.io/thesis.pdf), that contains a description
 /// on most of the features, except the chroma ones, which are documented
 /// directly in this code.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[derive(Default, PartialEq, Clone)]
 pub struct Analysis {
-    pub(crate) internal_analysis: [f32; NUMBER_FEATURES],
+    pub(crate) internal_analysis: Vec<f32>,
     // Version of the features the song was analyzed with.
     /// It is bumped every time a change is introduced in the
     /// features that makes them incompatible with previous versions.
@@ -167,10 +261,25 @@ impl Default for AnalysisOptions {
     }
 }
 
+// TODO: group these if this makes sense?
 impl Index<AnalysisIndex> for Analysis {
     type Output = f32;
 
     fn index(&self, index: AnalysisIndex) -> &f32 {
+        if self.features_version != AnalysisIndex::FEATURES_VERSION {
+            panic!("Tried to index features with incompatible indexes");
+        }
+        &self.internal_analysis[index as usize]
+    }
+}
+
+impl Index<AnalysisIndexv1> for Analysis {
+    type Output = f32;
+
+    fn index(&self, index: AnalysisIndexv1) -> &f32 {
+        if self.features_version != AnalysisIndexv1::FEATURES_VERSION {
+            panic!("Tried to index features with incompatible indexes");
+        }
         &self.internal_analysis[index as usize]
     }
 }
@@ -181,9 +290,17 @@ impl fmt::Debug for Analysis {
             "Analysis (Version {})",
             self.features_version as u16
         ));
-        for feature in AnalysisIndex::iter() {
-            debug_struct.field(&format!("{feature:?}"), &self[feature]);
+        // TODO also make this prettier
+        if self.features_version == FeaturesVersion::Version1 {
+            for feature in AnalysisIndexv1::iter() {
+                debug_struct.field(&format!("{feature:?}"), &self[feature]);
+            }
+        } else {
+            for feature in AnalysisIndex::iter() {
+                debug_struct.field(&format!("{feature:?}"), &self[feature]);
+            }
         }
+
         debug_struct.finish()?;
         f.write_str(&format!(" /* {:?} */", &self.as_vec()))
     }
@@ -195,11 +312,18 @@ impl Analysis {
     /// Usually not needed, unless you have already computed and stored
     /// features somewhere, and need to recreate a Song with an already
     /// existing Analysis yourself.
-    pub fn new(analysis: [f32; NUMBER_FEATURES], features_version: FeaturesVersion) -> Analysis {
-        Analysis {
+    pub fn new(analysis: Vec<f32>, features_version: FeaturesVersion) -> BlissResult<Analysis> {
+        if analysis.len() != features_version.feature_count() {
+            return Err(BlissError::ProviderError(format!(
+                "Feature count {} does not match the expected version feature count {}",
+                analysis.len(),
+                features_version.feature_count()
+            )));
+        }
+        Ok(Analysis {
             internal_analysis: analysis,
             features_version,
-        }
+        })
     }
 
     /// Return an ndarray `Array1` representing the analysis' features.
@@ -342,14 +466,14 @@ impl Song {
             result.extend_from_slice(&flatness);
             result.extend_from_slice(&loudness);
             result.extend_from_slice(&chroma);
-            let array: [f32; NUMBER_FEATURES] = result.try_into().map_err(|_| {
-                BlissError::AnalysisError(
+            if result.len() != analysis_options.features_version.feature_count() {
+                return Err(BlissError::AnalysisError(
                     "Too many or too little features were provided at the end of
                         the analysis."
                         .to_string(),
-                )
-            })?;
-            Ok(Analysis::new(array, analysis_options.features_version))
+                ));
+            };
+            Analysis::new(result, analysis_options.features_version)
         })
     }
 }
@@ -405,6 +529,9 @@ mod tests {
             0.19981146,
             -0.58594406,
             -0.06784296,
+            -0.06000763,
+            -0.58485717,
+            -0.07880378,
         ],
     );
 
@@ -484,12 +611,56 @@ mod tests {
     }
 
     #[test]
+    fn test_index_analysis_old_version() {
+        let analysis = Analysis::new(
+            vec![1.; FeaturesVersion::Version1.feature_count()],
+            FeaturesVersion::Version1,
+        )
+        .unwrap();
+        assert_eq!(analysis[AnalysisIndexv1::Tempo], 1.);
+        assert_eq!(analysis[AnalysisIndexv1::Chroma10], 1.);
+    }
+
+    #[test]
     #[cfg(feature = "ffmpeg")]
     fn test_debug_analysis() {
         let song = Decoder::song_from_path("data/s16_mono_22_5kHz.flac").unwrap();
         assert_eq!(
-            "Analysis (Version 2) { Tempo: 0.3846389, Zcr: -0.849141, MeanSpectralCentroid: -0.75481045, StdDeviationSpectralCentroid: -0.8790748, MeanSpectralRolloff: -0.63258266, StdDeviationSpectralRolloff: -0.7258959, MeanSpectralFlatness: -0.7757379, StdDeviationSpectralFlatness: -0.8146726, MeanLoudness: 0.2716726, StdDeviationLoudness: 0.25779057, Chroma1: -0.34292513, Chroma2: -0.62803423, Chroma3: -0.28095096, Chroma4: 0.08686459, Chroma5: 0.24446082, Chroma6: -0.5723257, Chroma7: 0.23292065, Chroma8: 0.19981146, Chroma9: -0.58594406, Chroma10: -0.06784296 } /* [0.3846389, -0.849141, -0.75481045, -0.8790748, -0.63258266, -0.7258959, -0.7757379, -0.8146726, 0.2716726, 0.25779057, -0.34292513, -0.62803423, -0.28095096, 0.08686459, 0.24446082, -0.5723257, 0.23292065, 0.19981146, -0.58594406, -0.06784296] */",
+            "Analysis (Version 2) { Tempo: 0.3846389, Zcr: -0.849141, MeanSpectralCentroid: -0.75481045, StdDeviationSpectralCentroid: -0.8790748, MeanSpectralRolloff: -0.63258266, StdDeviationSpectralRolloff: -0.7258959, MeanSpectralFlatness: -0.7757379, StdDeviationSpectralFlatness: -0.8146726, MeanLoudness: 0.2716726, StdDeviationLoudness: 0.25779057, Chroma1: -0.34292513, Chroma2: -0.62803423, Chroma3: -0.28095096, Chroma4: 0.08686459, Chroma5: 0.24446082, Chroma6: -0.5723257, Chroma7: 0.23292065, Chroma8: 0.19981146, Chroma9: -0.58594406, Chroma10: -0.06784296, Chroma11: -0.06000763, Chroma12: -0.58485717, Chroma13: -0.07880378 } /* [0.3846389, -0.849141, -0.75481045, -0.8790748, -0.63258266, -0.7258959, -0.7757379, -0.8146726, 0.2716726, 0.25779057, -0.34292513, -0.62803423, -0.28095096, 0.08686459, 0.24446082, -0.5723257, 0.23292065, 0.19981146, -0.58594406, -0.06784296, -0.06000763, -0.58485717, -0.07880378] */",
             format!("{:?}", song.analysis),
         );
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
+    fn test_debug_analysis_v1() {
+        let song = Decoder::song_from_path_with_options(
+            "data/s16_mono_22_5kHz.flac",
+            AnalysisOptions {
+                features_version: FeaturesVersion::Version1,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            "Analysis (Version 1) { Tempo: 0.3846389, Zcr: -0.849141, MeanSpectralCentroid: -0.75481045, StdDeviationSpectralCentroid: -0.8790748, MeanSpectralRolloff: -0.63258266, StdDeviationSpectralRolloff: -0.7258959, MeanSpectralFlatness: -0.7757379, StdDeviationSpectralFlatness: -0.8146726, MeanLoudness: 0.2716726, StdDeviationLoudness: 0.25779057, Chroma1: -0.35661936, Chroma2: -0.63578653, Chroma3: -0.29593682, Chroma4: 0.06421304, Chroma5: 0.21852458, Chroma6: -0.581239, Chroma7: -0.9466835, Chroma8: -0.9481153, Chroma9: -0.9820945, Chroma10: -0.95968974 } /* [0.3846389, -0.849141, -0.75481045, -0.8790748, -0.63258266, -0.7258959, -0.7757379, -0.8146726, 0.2716726, 0.25779057, -0.35661936, -0.63578653, -0.29593682, 0.06421304, 0.21852458, -0.581239, -0.9466835, -0.9481153, -0.9820945, -0.95968974] */",
+            format!("{:?}", song.analysis),
+        );
+    }
+
+    #[test]
+    fn test_new_analysis_wrong_number_features() {
+        assert!(Analysis::new(vec![1.], FeaturesVersion::Version2).is_err());
+    }
+
+    #[test]
+    #[should_panic(expected = "incompatible indexes")]
+    fn test_analysis_index_with_wrong_version() {
+        let analysis = Analysis::new(
+            vec![0.; FeaturesVersion::Version1.feature_count()],
+            FeaturesVersion::Version1,
+        )
+        .unwrap();
+        analysis[AnalysisIndex::Chroma13];
     }
 }

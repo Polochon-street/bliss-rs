@@ -1227,8 +1227,8 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 };
             }
             let mut song = row.unwrap().1;
-            song.bliss_song.analysis = Analysis {
-                internal_analysis: chunk.try_into().map_err(|_| {
+            song.bliss_song.analysis = Analysis::new(chunk, song.bliss_song.features_version)
+                .map_err(|_| {
                     BlissError::ProviderError(format!(
                         "Song with ID {} and path {} has a different feature \
                         number than expected. Please rescan or update \
@@ -1236,9 +1236,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                         song_id,
                         song.bliss_song.path.display(),
                     ))
-                })?,
-                features_version: song.bliss_song.features_version,
-            };
+                })?;
             songs.push(song);
         }
         Ok(songs)
@@ -1340,21 +1338,19 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 where song.path = ? order by feature_index
             ",
         )?;
-        let analysis_vector = Analysis {
-            internal_analysis: stmt
-                .query_map(params![song_path], |row| row.get(0))
+        let analysis = Analysis::new(
+            stmt.query_map(params![song_path], |row| row.get(0))
                 .unwrap()
                 .map(|x| x.unwrap())
-                .collect::<Vec<f32>>()
-                .try_into()
-                .map_err(|_| {
-                    BlissError::ProviderError(format!(
-                        "song has more or less than {NUMBER_FEATURES} features",
-                    ))
-                })?,
-            features_version: FeaturesVersion::LATEST,
-        };
-        song.bliss_song.analysis = analysis_vector;
+                .collect::<Vec<f32>>(),
+            FeaturesVersion::LATEST,
+        )
+        .map_err(|_| {
+            BlissError::ProviderError(format!(
+                "song has more or less than {NUMBER_FEATURES} features",
+            ))
+        })?;
+        song.bliss_song.analysis = analysis;
         Ok(song)
     }
 
@@ -1418,7 +1414,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 .unwrap()
                 .map(|v| String::from_utf8_lossy(v).to_string()),
             analysis: Analysis {
-                internal_analysis: [0.; NUMBER_FEATURES],
+                internal_analysis: vec![0.; NUMBER_FEATURES],
                 features_version: row.get(9).unwrap(),
             },
             duration: Duration::from_secs_f64(row.get(8).unwrap()),
@@ -1736,11 +1732,10 @@ mod test {
         )
         .unwrap();
 
-        let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
+        let analysis_vector = (0..NUMBER_FEATURES)
             .map(|x| x as f32 / 10.)
-            .collect::<Vec<f32>>()
-            .try_into()
-            .unwrap();
+            .collect::<Vec<f32>>();
+
         let song = Song {
             path: "/path/to/song1001".into(),
             artist: Some("Artist1001".into()),
@@ -1766,11 +1761,10 @@ mod test {
             },
         };
 
-        let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
+        let analysis_vector = (0..NUMBER_FEATURES)
             .map(|x| x as f32 + 10.)
-            .collect::<Vec<f32>>()
-            .try_into()
-            .unwrap();
+            .collect::<Vec<f32>>();
+
         let song = Song {
             path: "/path/to/song2001".into(),
             artist: Some("Artist2001".into()),
@@ -1796,11 +1790,10 @@ mod test {
             },
         };
 
-        let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
+        let analysis_vector = (0..NUMBER_FEATURES)
             .map(|x| x as f32 + 10.)
-            .collect::<Vec<f32>>()
-            .try_into()
-            .unwrap();
+            .collect::<Vec<f32>>();
+
         let song = Song {
             path: "/path/to/song2201".into(),
             artist: Some("Artist2001".into()),
@@ -1826,11 +1819,10 @@ mod test {
             },
         };
 
-        let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
+        let analysis_vector = (0..NUMBER_FEATURES)
             .map(|x| x as f32 / 2.)
-            .collect::<Vec<f32>>()
-            .try_into()
-            .unwrap();
+            .collect::<Vec<f32>>();
+
         let song = Song {
             path: "/path/to/song5001".into(),
             artist: Some("Artist5001".into()),
@@ -1856,11 +1848,10 @@ mod test {
             },
         };
 
-        let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
+        let analysis_vector = (0..NUMBER_FEATURES)
             .map(|x| x as f32 * 0.9)
-            .collect::<Vec<f32>>()
-            .try_into()
-            .unwrap();
+            .collect::<Vec<f32>>();
+
         let song = Song {
             path: "/path/to/song6001".into(),
             artist: Some("Artist6001".into()),
@@ -1886,11 +1877,10 @@ mod test {
             },
         };
 
-        let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
+        let analysis_vector = (0..NUMBER_FEATURES)
             .map(|x| x as f32 * 50.)
-            .collect::<Vec<f32>>()
-            .try_into()
-            .unwrap();
+            .collect::<Vec<f32>>();
+
         let song = Song {
             path: "/path/to/song7001".into(),
             artist: Some("Artist7001".into()),
@@ -1916,11 +1906,9 @@ mod test {
             },
         };
 
-        let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
+        let analysis_vector = (0..NUMBER_FEATURES)
             .map(|x| x as f32 * 100.)
-            .collect::<Vec<f32>>()
-            .try_into()
-            .unwrap();
+            .collect::<Vec<f32>>();
 
         let song = Song {
             path: "/path/to/cuetrack.cue/CUE_TRACK001".into(),
@@ -1950,11 +1938,9 @@ mod test {
             },
         };
 
-        let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
+        let analysis_vector = (0..NUMBER_FEATURES)
             .map(|x| x as f32 * 101.)
-            .collect::<Vec<f32>>()
-            .try_into()
-            .unwrap();
+            .collect::<Vec<f32>>();
 
         let song = Song {
             path: "/path/to/cuetrack.cue/CUE_TRACK002".into(),
@@ -2182,7 +2168,7 @@ mod test {
                         disc_number: row.get(6).unwrap(),
                         genre: row.get(7).unwrap(),
                         analysis: Analysis {
-                            internal_analysis: [0.; NUMBER_FEATURES],
+                            internal_analysis: vec![0.; NUMBER_FEATURES],
                             features_version: FeaturesVersion::Version2,
                         },
                         duration: Duration::from_secs_f64(row.get(8).unwrap()),
@@ -2245,7 +2231,7 @@ mod test {
                         disc_number: row.get(6).unwrap(),
                         genre: row.get(7).unwrap(),
                         analysis: Analysis {
-                            internal_analysis: [0.; NUMBER_FEATURES],
+                            internal_analysis: vec![0.; NUMBER_FEATURES],
                             features_version: FeaturesVersion::Version2,
                         },
                         duration: Duration::from_secs_f64(row.get(8).unwrap()),
@@ -2285,11 +2271,9 @@ mod test {
     fn _generate_basic_song(path: Option<String>) -> Song {
         let path = path.unwrap_or_else(|| "/path/to/song".into());
         // Add some "randomness" to the features
-        let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
+        let analysis_vector = (0..NUMBER_FEATURES)
             .map(|x| x as f32 + 0.1)
-            .collect::<Vec<f32>>()
-            .try_into()
-            .unwrap();
+            .collect::<Vec<f32>>();
         Song {
             path: path.into(),
             artist: Some("An Artist".into()),
@@ -3117,7 +3101,9 @@ mod test {
                 .collect::<Vec<f32>>();
             assert_eq!(
                 analysis_vector,
-                vec![1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12., 13., 14., 15.]
+                vec![
+                    1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12., 13., 14., 15., 16., 17., 18.
+                ]
             )
         }
 
@@ -3450,11 +3436,9 @@ mod test {
     #[cfg(feature = "ffmpeg")]
     fn test_song_from_path() {
         let (library, _temp_dir, _) = setup_test_library();
-        let analysis_vector: [f32; NUMBER_FEATURES] = (0..NUMBER_FEATURES)
+        let analysis_vector = (0..NUMBER_FEATURES)
             .map(|x| x as f32 + 10.)
-            .collect::<Vec<f32>>()
-            .try_into()
-            .unwrap();
+            .collect::<Vec<f32>>();
 
         let song = Song {
             path: "/path/to/song2001".into(),
@@ -3561,7 +3545,7 @@ mod test {
             connection
                 .execute(
                     "insert into feature (song_id, feature, feature_index)
-                values (2001, 1.5, 21)
+                values (2001, 1.5, 29)
                 ",
                     [],
                 )
@@ -3584,7 +3568,8 @@ mod test {
     #[cfg(feature = "ffmpeg")]
     fn test_song_from_path_not_analyzed() {
         let (library, _temp_dir, _) = setup_test_library();
-        let error = library.song_from_path::<ExtraInfo>("/path/to/song4001");
+        let error = library.song_from_path::<ExtraInfo>("/path/to/song404");
+        println!("{:?}", error);
         assert!(error.is_err());
     }
 
@@ -3592,7 +3577,7 @@ mod test {
     #[cfg(feature = "ffmpeg")]
     fn test_song_from_path_not_found() {
         let (library, _temp_dir, _) = setup_test_library();
-        let error = library.song_from_path::<ExtraInfo>("/path/to/song4001");
+        let error = library.song_from_path::<ExtraInfo>("/path/to/randomsong");
         assert!(error.is_err());
     }
 
@@ -3964,7 +3949,7 @@ mod test {
     #[test]
     fn test_config_from_file() {
         let config = BaseConfig::from_path("./data/sample-config.json").unwrap();
-        let mut m: Array2<f32> = Array2::eye(NUMBER_FEATURES);
+        let mut m: Array2<f32> = Array2::eye(FeaturesVersion::Version1.feature_count());
         m[[0, 1]] = 1.;
         assert_eq!(
             config,

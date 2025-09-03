@@ -2,7 +2,7 @@
 
 ## bliss 0.11.0
 NOTE: This is a BREAKING change for the analysis, as the computed chroma
-values will change!
+values will change, and 3 more chroma features are added!
 * Improve chroma accuracy using l2-norm.
 * Bump FEATURES_VERSION.
 * Add tests to make sure chroma features behave as they should.

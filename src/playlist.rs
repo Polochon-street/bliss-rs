@@ -66,7 +66,11 @@ pub fn euclidean_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
     // Could be any square symmetric positive semi-definite matrix;
     // just no metric learning has been done yet.
     // See https://lelele.io/thesis.pdf chapter 4.
-    let m = Array::eye(NUMBER_FEATURES);
+    let m = Array::eye(a.len());
+    //let m = m * array![
+    //    1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.
+    //];
+    //println!("coucou");
     (a - b).dot(&m).dot(&(a - b)).sqrt()
 }
 
@@ -97,24 +101,27 @@ pub fn cosine_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
 /// // pulled from a database.
 /// let first_song = Song {
 ///     path: "path-to-first".into(),
-///         analysis: Analysis::new([
-///             1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-///         ], FeaturesVersion::LATEST),
+///         analysis: Analysis::new(vec![
+///             1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+///               1., 1.
+///         ], FeaturesVersion::LATEST).unwrap(),
 ///         ..Default::default()
 ///     };
 /// let second_song = Song {
 ///     path: "path-to-second".into(),
-///     analysis: Analysis::new([
-///         1.5, 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
-///     ], FeaturesVersion::LATEST),
+///     analysis: Analysis::new(vec![
+///         1.5, 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+///           1., 1.
+///     ], FeaturesVersion::LATEST).unwrap(),
 ///     ..Default::default()
 /// };
 ///
 /// let third_song = Song {
 ///     path: "path-to-third".into(),
-///     analysis: Analysis::new([
-///         2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
-///     ], FeaturesVersion::LATEST),
+///     analysis: Analysis::new(vec![
+///         2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1., 1.,
+///           1., 1.
+///     ], FeaturesVersion::LATEST).unwrap(),
 ///     ..Default::default()
 /// };
 /// // The weights of the features, here, equal to the identity matrix, i.e.,
@@ -416,32 +423,38 @@ mod test {
         let first_song = Song {
             path: Path::new("path-to-first").to_path_buf(),
             analysis: Analysis::new(
-                [
+                vec![
                     1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                    1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
         let first_song_dupe = Song {
             path: Path::new("path-to-dupe").to_path_buf(),
             analysis: Analysis::new(
-                [
+                vec![
                     1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                    1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
 
         let second_song = Song {
             path: Path::new("path-to-second").to_path_buf(),
             analysis: Analysis::new(
-                [
-                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
+                vec![
+                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1.,
+                    1., 1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             title: Some(String::from("dupe-title")),
             artist: Some(String::from("dupe-artist")),
             ..Default::default()
@@ -451,11 +464,13 @@ mod test {
             title: Some(String::from("dupe-title")),
             artist: Some(String::from("dupe-artist")),
             analysis: Analysis::new(
-                [
-                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1., 1.,
+                vec![
+                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1.,
+                    1., 1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
         let fourth_song = Song {
@@ -463,22 +478,25 @@ mod test {
             artist: Some(String::from("no-dupe-artist")),
             title: Some(String::from("dupe-title")),
             analysis: Analysis::new(
-                [
+                vec![
                     2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
+                    1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
         let fifth_song = Song {
             path: Path::new("path-to-fourth").to_path_buf(),
             analysis: Analysis::new(
-                [
+                vec![
                     2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0.001, 1., 1.,
-                    1.,
+                    1., 1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
 
@@ -632,52 +650,62 @@ mod test {
         let first_song = Song {
             path: Path::new("path-to-first").to_path_buf(),
             analysis: Analysis::new(
-                [
+                vec![
                     1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                    1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
         let first_song_dupe = Song {
             path: Path::new("path-to-dupe").to_path_buf(),
             analysis: Analysis::new(
-                [
+                vec![
                     1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                    1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
 
         let second_song = Song {
             path: Path::new("path-to-second").to_path_buf(),
             analysis: Analysis::new(
-                [
-                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
+                vec![
+                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1.,
+                    1., 1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
         let third_song = Song {
             path: Path::new("path-to-third").to_path_buf(),
             analysis: Analysis::new(
-                [
-                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1., 1.,
+                vec![
+                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1.,
+                    1., 1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
         let fourth_song = Song {
             path: Path::new("path-to-fourth").to_path_buf(),
             analysis: Analysis::new(
-                [
+                vec![
                     2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
+                    1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
         let mut songs = vec![
@@ -749,62 +777,74 @@ mod test {
         let first_song = Song {
             path: Path::new("path-to-first").to_path_buf(),
             analysis: Analysis::new(
-                [
+                vec![
                     1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                    1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
         let first_song_dupe = Song {
             path: Path::new("path-to-dupe").to_path_buf(),
             analysis: Analysis::new(
-                [
+                vec![
                     1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                    1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
 
         let second_song = Song {
             path: Path::new("path-to-second").to_path_buf(),
             analysis: Analysis::new(
-                [
-                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1., 1.,
+                vec![
+                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 1.9, 1., 1.,
+                    1., 1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
         let third_song = Song {
             path: Path::new("path-to-third").to_path_buf(),
             analysis: Analysis::new(
-                [
-                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1., 1.,
+                vec![
+                    2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2.5, 1., 1.,
+                    1., 1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
         let fourth_song = Song {
             path: Path::new("path-to-fourth").to_path_buf(),
             analysis: Analysis::new(
-                [
+                vec![
                     2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
+                    1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
         let fifth_song = Song {
             path: Path::new("path-to-fifth").to_path_buf(),
             analysis: Analysis::new(
-                [
+                vec![
                     2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 2., 0., 1., 1., 1.,
+                    1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
 
@@ -889,7 +929,7 @@ mod test {
         let b = arr1(&[
             1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 1., 0., 0., 0.,
         ]);
-        let m = Array2::eye(NUMBER_FEATURES)
+        let m = Array2::eye(FeaturesVersion::Version1.feature_count())
             * arr1(&[
                 1., 1., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
             ]);
@@ -903,36 +943,43 @@ mod test {
         let first_song = Song {
             path: Path::new("path-to-first").to_path_buf(),
             analysis: Analysis::new(
-                [
+                vec![
                     1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                    1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
         let second_song = Song {
             path: Path::new("path-to-second").to_path_buf(),
             analysis: Analysis::new(
-                [
-                    1.5, 5., 6., 5., 6., 6., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                vec![
+                    1.5, 5., 6., 5., 6., 6., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                    1., 1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
         let third_song = Song {
             path: Path::new("path-to-third").to_path_buf(),
             analysis: Analysis::new(
-                [
+                vec![
                     5., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1., 1.,
+                    1., 1., 1.,
                 ],
                 FeaturesVersion::LATEST,
-            ),
+            )
+            .unwrap(),
             ..Default::default()
         };
         let m = Array2::eye(NUMBER_FEATURES)
             * arr1(&[
                 1.0, 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
+                0., 0., 0.,
             ]);
         let distance = mahalanobis_distance_builder(m);
 
@@ -981,7 +1028,8 @@ mod test {
     fn test_closest_to_group() {
         let first_song = Song {
             path: Path::new("path-to-first").to_path_buf(),
-            analysis: Analysis::new([0.; 20], FeaturesVersion::LATEST),
+            analysis: Analysis::new([0.; NUMBER_FEATURES].to_vec(), FeaturesVersion::LATEST)
+                .unwrap(),
             album: Some(String::from("Album")),
             artist: Some(String::from("Artist")),
             track_number: Some(1),
@@ -990,7 +1038,8 @@ mod test {
         };
         let second_song = Song {
             path: Path::new("path-to-third").to_path_buf(),
-            analysis: Analysis::new([10.; 20], FeaturesVersion::LATEST),
+            analysis: Analysis::new([10.; NUMBER_FEATURES].to_vec(), FeaturesVersion::LATEST)
+                .unwrap(),
             album: Some(String::from("Album")),
             artist: Some(String::from("Another Artist")),
             track_number: Some(2),
@@ -1000,7 +1049,8 @@ mod test {
 
         let first_song_other_album_disc_1 = Song {
             path: Path::new("path-to-second-2").to_path_buf(),
-            analysis: Analysis::new([0.15; 20], FeaturesVersion::LATEST),
+            analysis: Analysis::new([0.15; NUMBER_FEATURES].to_vec(), FeaturesVersion::LATEST)
+                .unwrap(),
             album: Some(String::from("Another Album")),
             artist: Some(String::from("Artist")),
             track_number: Some(1),
@@ -1009,7 +1059,8 @@ mod test {
         };
         let second_song_other_album_disc_1 = Song {
             path: Path::new("path-to-second").to_path_buf(),
-            analysis: Analysis::new([0.1; 20], FeaturesVersion::LATEST),
+            analysis: Analysis::new([0.1; NUMBER_FEATURES].to_vec(), FeaturesVersion::LATEST)
+                .unwrap(),
             album: Some(String::from("Another Album")),
             artist: Some(String::from("Artist")),
             track_number: Some(2),
@@ -1018,7 +1069,8 @@ mod test {
         };
         let first_song_other_album_disc_2 = Song {
             path: Path::new("path-to-fourth").to_path_buf(),
-            analysis: Analysis::new([20.; 20], FeaturesVersion::LATEST),
+            analysis: Analysis::new([20.; NUMBER_FEATURES].to_vec(), FeaturesVersion::LATEST)
+                .unwrap(),
             album: Some(String::from("Another Album")),
             artist: Some(String::from("Another Artist")),
             track_number: Some(1),
@@ -1027,7 +1079,8 @@ mod test {
         };
         let second_song_other_album_disc_2 = Song {
             path: Path::new("path-to-fourth").to_path_buf(),
-            analysis: Analysis::new([20.; 20], FeaturesVersion::LATEST),
+            analysis: Analysis::new([20.; NUMBER_FEATURES].to_vec(), FeaturesVersion::LATEST)
+                .unwrap(),
             album: Some(String::from("Another Album")),
             artist: Some(String::from("Another Artist")),
             track_number: Some(4),
@@ -1037,7 +1090,8 @@ mod test {
 
         let song_no_album = Song {
             path: Path::new("path-to-fifth").to_path_buf(),
-            analysis: Analysis::new([40.; 20], FeaturesVersion::LATEST),
+            analysis: Analysis::new([40.; NUMBER_FEATURES].to_vec(), FeaturesVersion::LATEST)
+                .unwrap(),
             artist: Some(String::from("Third Artist")),
             album: None,
             ..Default::default()
@@ -1127,7 +1181,7 @@ mod test {
             Song {
                 path: Path::new("path-to-first").to_path_buf(),
                 analysis: Analysis::new(
-                    [
+                    vec![
                         0.5522649,
                         -0.8664422,
                         -0.81236243,
@@ -1148,15 +1202,19 @@ mod test {
                         -0.9781786,
                         -0.98285836,
                         -0.983834,
+                        -0.983834,
+                        -0.983834,
+                        -0.983834,
                     ],
                     FeaturesVersion::LATEST,
-                ),
+                )
+                .unwrap(),
                 ..Default::default()
             },
             Song {
                 path: Path::new("path-to-second").to_path_buf(),
                 analysis: Analysis::new(
-                    [
+                    vec![
                         0.28091776,
                         -0.86352056,
                         -0.8175835,
@@ -1177,15 +1235,19 @@ mod test {
                         -0.98570454,
                         -0.98824924,
                         -0.9903612,
+                        -0.9903612,
+                        -0.9903612,
+                        -0.9903612,
                     ],
                     FeaturesVersion::LATEST,
-                ),
+                )
+                .unwrap(),
                 ..Default::default()
             },
             Song {
                 path: Path::new("path-to-third").to_path_buf(),
                 analysis: Analysis::new(
-                    [
+                    vec![
                         0.5978223,
                         -0.84076107,
                         -0.7841455,
@@ -1206,9 +1268,13 @@ mod test {
                         -0.9715169,
                         -0.97524375,
                         -0.9756616,
+                        -0.9756616,
+                        -0.9756616,
+                        -0.9756616,
                     ],
                     FeaturesVersion::LATEST,
-                ),
+                )
+                .unwrap(),
                 ..Default::default()
             },
         ];
@@ -1217,7 +1283,7 @@ mod test {
             Song {
                 path: Path::new("path-to-fourth").to_path_buf(),
                 analysis: Analysis::new(
-                    [
+                    vec![
                         0.35871255,
                         -0.8679545,
                         -0.6833263,
@@ -1238,15 +1304,19 @@ mod test {
                         -0.98091763,
                         -0.9845511,
                         -0.98359185,
+                        -0.98359185,
+                        -0.98359185,
+                        -0.98359185,
                     ],
                     FeaturesVersion::LATEST,
-                ),
+                )
+                .unwrap(),
                 ..Default::default()
             },
             Song {
                 path: Path::new("path-to-fifth").to_path_buf(),
                 analysis: Analysis::new(
-                    [
+                    vec![
                         0.2806753,
                         -0.85013694,
                         -0.66921043,
@@ -1267,15 +1337,19 @@ mod test {
                         -0.97890633,
                         -0.98290455,
                         -0.98231846,
+                        -0.98231846,
+                        -0.98231846,
+                        -0.98231846,
                     ],
                     FeaturesVersion::LATEST,
-                ),
+                )
+                .unwrap(),
                 ..Default::default()
             },
             Song {
                 path: Path::new("path-to-sixth").to_path_buf(),
                 analysis: Analysis::new(
-                    [
+                    vec![
                         0.1545173,
                         -0.8991263,
                         -0.79770947,
@@ -1296,15 +1370,19 @@ mod test {
                         -0.98821944,
                         -0.99072844,
                         -0.98729765,
+                        -0.98729765,
+                        -0.98729765,
+                        -0.98729765,
                     ],
                     FeaturesVersion::LATEST,
-                ),
+                )
+                .unwrap(),
                 ..Default::default()
             },
             Song {
                 path: Path::new("path-to-seventh").to_path_buf(),
                 analysis: Analysis::new(
-                    [
+                    vec![
                         0.3853314,
                         -0.8475499,
                         -0.64330614,
@@ -1323,17 +1401,21 @@ mod test {
                         -0.569838,
                         -0.97620565,
                         -0.97741324,
+                        -0.97741324,
+                        -0.97741324,
+                        -0.97741324,
                         -0.9776932,
                         -0.98088175,
                     ],
                     FeaturesVersion::LATEST,
-                ),
+                )
+                .unwrap(),
                 ..Default::default()
             },
             Song {
                 path: Path::new("path-to-eight").to_path_buf(),
                 analysis: Analysis::new(
-                    [
+                    vec![
                         0.18926656,
                         -0.86667925,
                         -0.7294189,
@@ -1354,9 +1436,13 @@ mod test {
                         -0.98707336,
                         -0.99165493,
                         -0.99011236,
+                        -0.99011236,
+                        -0.99011236,
+                        -0.99011236,
                     ],
                     FeaturesVersion::LATEST,
-                ),
+                )
+                .unwrap(),
                 ..Default::default()
             },
         ];
@@ -1365,7 +1451,7 @@ mod test {
             Song {
                 path: Path::new("path-to-ninth").to_path_buf(),
                 analysis: Analysis::new(
-                    [
+                    vec![
                         0.38328362,
                         -0.8752751,
                         -0.8165319,
@@ -1386,15 +1472,19 @@ mod test {
                         -0.9800342,
                         -0.9832096,
                         -0.98385316,
+                        -0.98385316,
+                        -0.98385316,
+                        -0.98385316,
                     ],
                     FeaturesVersion::LATEST,
-                ),
+                )
+                .unwrap(),
                 ..Default::default()
             },
             Song {
                 path: Path::new("path-to-tenth").to_path_buf(),
                 analysis: Analysis::new(
-                    [
+                    vec![
                         0.4301988,
                         -0.89864063,
                         -0.84993315,
@@ -1415,15 +1505,19 @@ mod test {
                         -0.9833387,
                         -0.9902381,
                         -0.9905396,
+                        -0.9905396,
+                        -0.9905396,
+                        -0.9905396,
                     ],
                     FeaturesVersion::LATEST,
-                ),
+                )
+                .unwrap(),
                 ..Default::default()
             },
             Song {
                 path: Path::new("path-to-eleventh").to_path_buf(),
                 analysis: Analysis::new(
-                    [
+                    vec![
                         0.42334664,
                         -0.8632808,
                         -0.80268145,
@@ -1444,9 +1538,13 @@ mod test {
                         -0.9706371,
                         -0.9753268,
                         -0.9764576,
+                        -0.9764576,
+                        -0.9764576,
+                        -0.9764576,
                     ],
                     FeaturesVersion::LATEST,
-                ),
+                )
+                .unwrap(),
                 ..Default::default()
             },
         ];
