@@ -241,7 +241,7 @@ mod tests {
             Ok(Song {
                 path: Path::new("data/testcue.cue/CUE_TRACK001").to_path_buf(),
                 analysis: Analysis {
-                    internal_analysis: [
+                    internal_analysis: vec![
                         0.38463724,
                         -0.85219246,
                         -0.761946,
@@ -262,6 +262,9 @@ mod tests {
                         0.19979906,
                         -0.5859135,
                         -0.06785172,
+                        -0.05990714,
+                        -0.58482605,
+                        -0.078823924,
                     ],
                     features_version: FeaturesVersion::LATEST,
                 },
@@ -283,7 +286,7 @@ mod tests {
             Ok(Song {
                 path: Path::new("data/testcue.cue/CUE_TRACK002").to_path_buf(),
                 analysis: Analysis {
-                    internal_analysis: [
+                    internal_analysis: vec![
                         0.18622077,
                         -0.5989029,
                         -0.5554645,
@@ -304,6 +307,9 @@ mod tests {
                         -0.00034928322,
                         0.0003143549,
                         0.00030446053,
+                        -0.47109652,
+                        -0.66400576,
+                        0.15099311,
                     ],
                     features_version: FeaturesVersion::LATEST,
                 },
@@ -325,7 +331,7 @@ mod tests {
             Ok(Song {
                 path: Path::new("data/testcue.cue/CUE_TRACK003").to_path_buf(),
                 analysis: Analysis {
-                    internal_analysis: [
+                    internal_analysis: vec![
                         0.0024261475,
                         0.9874661,
                         0.97330654,
@@ -346,6 +352,9 @@ mod tests {
                         -2.7775764e-5,
                         3.1113625e-5,
                         2.4557114e-5,
+                        -0.9210111,
+                        -0.99999785,
+                        -0.99993163,
                     ],
                     features_version: FeaturesVersion::LATEST,
                 },
@@ -380,7 +389,7 @@ mod tests {
             Ok(Song {
                 path: Path::new("data/no-tags-cue.cue/CUE_TRACK001").to_path_buf(),
                 analysis: Analysis {
-                    internal_analysis: [
+                    internal_analysis: vec![
                         0.38463724,
                         -0.85219246,
                         -0.761946,
@@ -401,6 +410,9 @@ mod tests {
                         0.19979906,
                         -0.5859135,
                         -0.06785172,
+                        -0.05990714,
+                        -0.58482605,
+                        -0.078823924,
                     ],
                     features_version: FeaturesVersion::LATEST,
                 },
@@ -422,7 +434,7 @@ mod tests {
             Ok(Song {
                 path: Path::new("data/no-tags-cue.cue/CUE_TRACK002").to_path_buf(),
                 analysis: Analysis {
-                    internal_analysis: [
+                    internal_analysis: vec![
                         0.18622077,
                         -0.5989029,
                         -0.5554645,
@@ -443,6 +455,9 @@ mod tests {
                         -0.00034928322,
                         0.0003143549,
                         0.00030446053,
+                        -0.47109652,
+                        -0.66400576,
+                        0.15099311,
                     ],
                     features_version: FeaturesVersion::LATEST,
                 },
@@ -464,7 +479,7 @@ mod tests {
             Ok(Song {
                 path: Path::new("data/no-tags-cue.cue/CUE_TRACK003").to_path_buf(),
                 analysis: Analysis {
-                    internal_analysis: [
+                    internal_analysis: vec![
                         0.0024261475,
                         0.9874661,
                         0.97330654,
@@ -485,6 +500,9 @@ mod tests {
                         -2.7775764e-5,
                         3.1113625e-5,
                         2.4557114e-5,
+                        -0.9210111,
+                        -0.99999785,
+                        -0.99993163,
                     ],
                     features_version: FeaturesVersion::LATEST,
                 },

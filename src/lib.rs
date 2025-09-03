@@ -115,6 +115,7 @@ pub mod utils;
 #[macro_use]
 extern crate serde;
 
+use strum::EnumCount;
 use thiserror::Error;
 
 pub use song::{decoder, Analysis, AnalysisIndex, AnalysisOptions, Song, NUMBER_FEATURES};
@@ -151,6 +152,14 @@ impl FeaturesVersion {
     /// Always points to the latest features' version. In case of doubt,
     /// use this one.
     pub const LATEST: FeaturesVersion = FeaturesVersion::Version2;
+
+    /// Number of features for this version (usable in const contexts).
+    pub const fn feature_count(self) -> usize {
+        match self {
+            FeaturesVersion::Version2 => AnalysisIndex::COUNT,
+            FeaturesVersion::Version1 => 20,
+        }
+    }
 }
 
 impl From<FeaturesVersion> for u16 {
