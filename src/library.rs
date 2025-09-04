@@ -853,7 +853,9 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         Ok(playlist.to_vec())
     }
 
-    /// Analyze and store all songs in `paths` that haven't been already analyzed.
+    /// Analyze and store all songs in `paths` that haven't been already analyzed,
+    /// re-analyzing songs with newer feature versions if there was an update
+    /// of bliss features.
     ///
     /// Use this function if you don't have any extra data to bundle with each song.
     ///
@@ -867,6 +869,8 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     /// contains CUE files, pass the CUE file path only, and not individual
     /// CUE track names: passing `vec![file.cue]` will add
     /// individual tracks with the `cue_info` field set in the database.
+    // TODO: align these functions using maybe a struct. And make it more coherent,
+    // we shouldn't be feeding paths to this one...
     pub fn update_library<P: Into<PathBuf>>(
         &mut self,
         paths: Vec<P>,
@@ -880,6 +884,42 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             show_progress_bar,
             |x, _, _| x,
             self.config.base_config().analysis_options,
+        )
+    }
+
+    /// Analyze and store all songs in `paths` that haven't been already analyzed,
+    /// with analysis options (including features version). If the features
+    /// version in the analysis options are newer than the ones in the song
+    /// database, all those songs are updated.
+    ///
+    /// Use this function if you don't have any extra data to bundle with each song.
+    ///
+    /// Setting `delete_everything_else` to true will delete the paths that are
+    /// not mentionned in `paths_extra_info` from the database. If you do not
+    /// use it, because you only pass the new paths that need to be analyzed to
+    /// this function, make sure to delete yourself from the database the songs
+    /// that have been deleted from storage.
+    ///
+    /// If your library
+    /// contains CUE files, pass the CUE file path only, and not individual
+    /// CUE track names: passing `vec![file.cue]` will add
+    /// individual tracks with the `cue_info` field set in the database.
+    // TODO: align these functions using maybe a struct. And make it more coherent,
+    // we shouldn't be feeding paths to this one...
+    pub fn update_library_with_options<P: Into<PathBuf>>(
+        &mut self,
+        paths: Vec<P>,
+        delete_everything_else: bool,
+        show_progress_bar: bool,
+        analysis_options: AnalysisOptions,
+    ) -> Result<()> {
+        let paths_extra_info = paths.into_iter().map(|path| (path, ())).collect::<Vec<_>>();
+        self.update_library_convert_extra_info(
+            paths_extra_info,
+            delete_everything_else,
+            show_progress_bar,
+            |x, _, _| x,
+            analysis_options,
         )
     }
 
@@ -931,6 +971,11 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     ///
     /// `convert_extra_info` is a function that you should specify how
     /// to convert that extra info to something serializable.
+    ///
+    /// `analysis_options` contains the desired analysis options, i.e. number
+    /// of cores and the version of the features you want your library to be
+    /// analyzed with. It will reanalyze songs that have features version older
+    /// than latest's, and set the config file's features_version to the specified version.
     pub fn update_library_convert_extra_info<
         T: Serialize + DeserializeOwned + Clone,
         U,
@@ -957,7 +1002,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             )?;
             #[allow(clippy::let_and_return)]
             let return_value = path_statement
-                .query_map([FeaturesVersion::LATEST], |row| {
+                .query_map([analysis_options.features_version], |row| {
                     Ok(row.get_unwrap::<usize, String>(0))
                 })?
                 .map(|x| PathBuf::from(x.unwrap()))
@@ -972,7 +1017,27 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         let paths: HashSet<_> = paths_extra_info.iter().map(|(p, _)| p.to_owned()).collect();
 
         if delete_everything_else {
-            let paths_to_delete = existing_paths.difference(&paths);
+            let existing_paths_old_features_version = {
+                let connection = self
+                    .sqlite_conn
+                    .lock()
+                    .map_err(|e| BlissError::ProviderError(e.to_string()))?;
+                let mut path_statement = connection.prepare(
+                    "
+                select
+                    path
+                    from song where analyzed = true order by id
+                ",
+                )?;
+                #[allow(clippy::let_and_return)]
+                let return_value = path_statement
+                    .query_map([], |row| Ok(row.get_unwrap::<usize, String>(0)))?
+                    .map(|x| PathBuf::from(x.unwrap()))
+                    .collect::<HashSet<PathBuf>>();
+                return_value
+            };
+
+            let paths_to_delete = existing_paths_old_features_version.difference(&paths);
 
             self.delete_paths(paths_to_delete)?;
         }
@@ -983,6 +1048,20 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             .into_iter()
             .filter(|(path, _)| !existing_paths.contains(path))
             .collect::<Vec<(PathBuf, U)>>();
+
+        {
+            let connection = self
+                .sqlite_conn
+                .lock()
+                .map_err(|e| BlissError::ProviderError(e.to_string()))?;
+
+            if !paths_to_analyze.is_empty() {
+                connection.execute(
+                    "delete from song where version != ?",
+                    params![analysis_options.features_version],
+                )?;
+            }
+        }
 
         self.analyze_paths_convert_extra_info(
             paths_to_analyze,
@@ -2163,6 +2242,7 @@ mod test {
                             audio_file_path: PathBuf::from(audio_file_path.unwrap()),
                         })
                     };
+                    let features_version: FeaturesVersion = row.get(9).unwrap();
                     let song = Song {
                         path: PathBuf::from(path),
                         artist: row.get(1).unwrap(),
@@ -2173,11 +2253,11 @@ mod test {
                         disc_number: row.get(6).unwrap(),
                         genre: row.get(7).unwrap(),
                         analysis: Analysis {
-                            internal_analysis: vec![0.; NUMBER_FEATURES],
-                            features_version: FeaturesVersion::Version2,
+                            internal_analysis: vec![0.; features_version.feature_count()],
+                            features_version: features_version,
                         },
                         duration: Duration::from_secs_f64(row.get(8).unwrap()),
-                        features_version: row.get(9).unwrap(),
+                        features_version: features_version,
                         cue_info,
                     };
 
@@ -2208,7 +2288,7 @@ mod test {
                 .collect::<Vec<f32>>()
                 .try_into()
                 .unwrap(),
-            features_version: FeaturesVersion::Version2,
+            features_version: song.bliss_song.analysis.features_version,
         };
         song.bliss_song.analysis = analysis_vector;
         song
@@ -3022,7 +3102,6 @@ mod test {
             .base_config_mut()
             .analysis_options
             .features_version = FeaturesVersion::Version1;
-
         for input in vec![
             ("./data/s16_mono_22_5kHz.flac", true),
             ("./data/s16_mono_22_5kHz.flac", false),
@@ -3039,7 +3118,10 @@ mod test {
                         ignore: b,
                         metadata_bliss_does_not_have: String::from("coucou"),
                     },
-                    AnalysisOptions::default(),
+                    AnalysisOptions {
+                        features_version: FeaturesVersion::Version1,
+                        ..Default::default()
+                    },
                 )
                 .unwrap();
             let song = {
@@ -3048,7 +3130,14 @@ mod test {
             };
             let expected_song = {
                 LibrarySong {
-                    bliss_song: Decoder::song_from_path("./data/s16_mono_22_5kHz.flac").unwrap(),
+                    bliss_song: Decoder::song_from_path_with_options(
+                        "./data/s16_mono_22_5kHz.flac",
+                        AnalysisOptions {
+                            features_version: FeaturesVersion::Version1,
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap(),
                     extra_info: ExtraInfo {
                         ignore: true,
                         metadata_bliss_does_not_have: String::from("coucou"),
@@ -3062,7 +3151,7 @@ mod test {
                     .base_config_mut()
                     .analysis_options
                     .features_version,
-                FeaturesVersion::LATEST
+                FeaturesVersion::Version1
             );
         }
     }
@@ -3083,62 +3172,68 @@ mod test {
 
     #[test]
     #[cfg(feature = "ffmpeg")]
+    // TODO test that LibrarySong<ExtraInfo> and LibrarySong<()> can't cohabitate in the same
+    // library.
+    //
+    // Tests that a song with features version = 1 gets updated to the latest features version.
     fn test_update_library_override_old_features() {
         let (mut library, _temp_dir, _) = setup_test_library();
         let path: String = "./data/s16_stereo_22_5kHz.flac".into();
 
+        // Check that s16_stereo_22_5kHz.flac is analyzed with the old features version.
         {
             let connection = library.sqlite_conn.lock().unwrap();
-            let mut stmt = connection
-                .prepare(
-                    "
-                select
-                    feature from feature join song on song.id = feature.song_id
-                    where song.path = ? order by feature_index
-                ",
+            let song: LibrarySong<ExtraInfo> = _library_song_from_database(connection, &path);
+            assert_eq!(
+                song.bliss_song.analysis,
+                Analysis {
+                    internal_analysis: vec![
+                        1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12., 13., 14., 15., 16., 17.,
+                        18.
+                    ],
+                    features_version: FeaturesVersion::Version1,
+                }
+            )
+        }
+        // Check that there are indeed songs with older features version.
+        {
+            let connection = library.sqlite_conn.lock().unwrap();
+            let count_old_features_version: u32 = connection
+                .query_row(
+                    "select count(*) from song where version = ? and analyzed = true",
+                    params![FeaturesVersion::Version1],
+                    |row| row.get(0),
                 )
                 .unwrap();
-            let analysis_vector = stmt
-                .query_map(params![path], |row| row.get(0))
-                .unwrap()
-                .into_iter()
-                .map(|x| x.unwrap())
-                .collect::<Vec<f32>>();
-            assert_eq!(
-                analysis_vector,
-                vec![
-                    1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12., 13., 14., 15., 16., 17., 18.
-                ]
-            )
+            assert!(count_old_features_version > 0);
         }
 
         library
             .update_library(vec![path.to_owned()], true, false)
             .unwrap();
 
+        // Check that songs with older features version are gone.
+        {
+            let connection = library.sqlite_conn.lock().unwrap();
+            let count_old_features_version: u32 = connection
+                .query_row(
+                    "select count(*) from song where version = ? and analyzed = true",
+                    params![FeaturesVersion::Version1],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count_old_features_version, 0);
+        }
+
         let connection = library.sqlite_conn.lock().unwrap();
-        let mut stmt = connection
-            .prepare(
-                "
-            select
-                feature from feature join song on song.id = feature.song_id
-                where song.path = ? order by feature_index
-            ",
-            )
-            .unwrap();
-        let analysis_vector = Analysis {
-            internal_analysis: stmt
-                .query_map(params![path], |row| row.get(0))
-                .unwrap()
-                .into_iter()
-                .map(|x| x.unwrap())
-                .collect::<Vec<f32>>()
-                .try_into()
-                .unwrap(),
-            features_version: FeaturesVersion::Version2,
-        };
+        let song: LibrarySong<()> = _library_song_from_database(connection, &path);
+        // This should give us latest features version, but double-checking.
         let expected_analysis_vector = Decoder::song_from_path(path).unwrap().analysis;
-        assert_eq!(analysis_vector, expected_analysis_vector);
+        assert_eq!(song.bliss_song.analysis, expected_analysis_vector);
+        assert_eq!(
+            song.bliss_song.analysis.features_version,
+            FeaturesVersion::LATEST
+        );
     }
 
     #[test]
@@ -3200,6 +3295,92 @@ mod test {
                 .analysis_options
                 .features_version,
             FeaturesVersion::LATEST
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
+    // TODO test when updating the features version also
+    fn test_update_library_with_options() {
+        let (mut library, _temp_dir, _) = setup_test_library();
+        library
+            .config
+            .base_config_mut()
+            .analysis_options
+            .features_version = FeaturesVersion::LATEST;
+
+        {
+            let connection = library.sqlite_conn.lock().unwrap();
+            // Make sure that we tried to "update" song4001 with the new features.
+            assert!(_get_song_analyzed(connection, "/path/to/song4001".into()).unwrap());
+        }
+        {
+            let connection = library.sqlite_conn.lock().unwrap();
+            // Make sure that we tried to "update" song4001 with the new features.
+            connection
+                .execute("update song set extra_info = \"null\";", [])
+                .unwrap();
+        }
+
+        let paths = vec![
+            "./data/s16_mono_22_5kHz.flac",
+            "./data/s16_stereo_22_5kHz.flac",
+            "/path/to/song4001",
+            "non-existing",
+        ];
+        library
+            .update_library_with_options(
+                paths.to_owned(),
+                true,
+                false,
+                AnalysisOptions {
+                    features_version: FeaturesVersion::Version1,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        library
+            .update_library_with_options(
+                paths.to_owned(),
+                true,
+                false,
+                AnalysisOptions {
+                    features_version: FeaturesVersion::Version1,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let first_song = {
+            let connection = library.sqlite_conn.lock().unwrap();
+            _library_song_from_database(connection, paths[0])
+        };
+        let expected_song = LibrarySong {
+            bliss_song: Decoder::song_from_path_with_options(
+                paths[0],
+                AnalysisOptions {
+                    features_version: FeaturesVersion::Version1,
+                    ..Default::default()
+                },
+            )
+            .unwrap(),
+            extra_info: (),
+        };
+
+        assert_eq!(first_song, expected_song);
+        {
+            let connection = library.sqlite_conn.lock().unwrap();
+            // Make sure that we did not try to "update" song4001 with the new features, since
+            // it was analyzed with version 1.
+            assert!(_get_song_analyzed(connection, "/path/to/song4001".into()).unwrap());
+        }
+        assert_eq!(
+            library
+                .config
+                .base_config_mut()
+                .analysis_options
+                .features_version,
+            FeaturesVersion::Version1
         );
     }
 
@@ -3576,7 +3757,6 @@ mod test {
     fn test_song_from_path_not_analyzed() {
         let (library, _temp_dir, _) = setup_test_library();
         let error = library.song_from_path::<ExtraInfo>("/path/to/song404");
-        println!("{:?}", error);
         assert!(error.is_err());
     }
 

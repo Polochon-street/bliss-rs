@@ -286,18 +286,22 @@ impl Index<AnalysisIndexv1> for Analysis {
 
 impl fmt::Debug for Analysis {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut debug_struct = f.debug_struct(&format!(
-            "Analysis (Version {})",
-            self.features_version as u16
-        ));
-        // TODO also make this prettier
-        if self.features_version == FeaturesVersion::Version1 {
-            for feature in AnalysisIndexv1::iter() {
-                debug_struct.field(&format!("{feature:?}"), &self[feature]);
-            }
+        let version = if self.features_version.feature_count() != self.internal_analysis.len() {
+            String::from("?")
         } else {
-            for feature in AnalysisIndex::iter() {
-                debug_struct.field(&format!("{feature:?}"), &self[feature]);
+            (self.features_version as u16).to_string()
+        };
+        let mut debug_struct = f.debug_struct(&format!("Analysis (Version {version})"));
+        // If all is good, keep on printing.
+        if self.features_version.feature_count() == self.internal_analysis.len() {
+            if self.features_version == FeaturesVersion::Version1 {
+                for feature in AnalysisIndexv1::iter() {
+                    debug_struct.field(&format!("{feature:?}"), &self[feature]);
+                }
+            } else {
+                for feature in AnalysisIndex::iter() {
+                    debug_struct.field(&format!("{feature:?}"), &self[feature]);
+                }
             }
         }
 
@@ -651,6 +655,18 @@ mod tests {
     #[test]
     fn test_new_analysis_wrong_number_features() {
         assert!(Analysis::new(vec![1.], FeaturesVersion::Version2).is_err());
+    }
+
+    #[test]
+    fn test_debug_analysis_wrong_number_fields() {
+        let analysis = Analysis {
+            internal_analysis: vec![0.; 10],
+            features_version: FeaturesVersion::Version1,
+        };
+        assert_eq!(
+            "Analysis (Version ?) /* [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] */",
+            format!("{:?}", analysis)
+        );
     }
 
     #[test]
