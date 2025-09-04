@@ -130,7 +130,7 @@ const SAMPLE_RATE: u32 = 22050;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(into = "u16", try_from = "u16"))]
-#[derive(Debug, Eq, PartialEq, Default, Clone, Copy)]
+#[derive(Debug, Eq, PartialEq, PartialOrd, Ord, Default, Clone, Copy)]
 /// The versions of the features used for analysis. Used for
 /// backwards-compatibility reasons in case people want to keep using
 /// older features version.
