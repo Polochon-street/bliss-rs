@@ -360,7 +360,8 @@ pub fn closest_album_to_group<T: AsRef<Song> + Clone>(
             }
         }
     }
-    let mut group_analysis = Array::zeros((group.len(), NUMBER_FEATURES));
+    let number_features = group[0].as_ref().analysis.as_vec().len();
+    let mut group_analysis = Array::zeros((group.len(), number_features));
     for (song, mut column) in group.iter().zip(group_analysis.axis_iter_mut(Axis(0))) {
         column.assign(&song.as_ref().analysis.as_arr1());
     }
@@ -1022,150 +1023,151 @@ mod test {
 
     #[test]
     fn test_closest_to_group() {
-        let first_song = Song {
-            path: Path::new("path-to-first").to_path_buf(),
-            analysis: Analysis::new([0.; NUMBER_FEATURES].to_vec(), FeaturesVersion::LATEST)
-                .unwrap(),
-            album: Some(String::from("Album")),
-            artist: Some(String::from("Artist")),
-            track_number: Some(1),
-            disc_number: Some(1),
-            ..Default::default()
-        };
-        let second_song = Song {
-            path: Path::new("path-to-third").to_path_buf(),
-            analysis: Analysis::new([10.; NUMBER_FEATURES].to_vec(), FeaturesVersion::LATEST)
-                .unwrap(),
-            album: Some(String::from("Album")),
-            artist: Some(String::from("Another Artist")),
-            track_number: Some(2),
-            disc_number: Some(1),
-            ..Default::default()
-        };
+        for version in vec![FeaturesVersion::Version1, FeaturesVersion::Version2] {
+            let first_song = Song {
+                path: Path::new("path-to-first").to_path_buf(),
+                analysis: Analysis::new(vec![0.; version.feature_count()], version).unwrap(),
+                album: Some(String::from("Album")),
+                artist: Some(String::from("Artist")),
+                track_number: Some(1),
+                disc_number: Some(1),
+                ..Default::default()
+            };
+            let second_song = Song {
+                path: Path::new("path-to-third").to_path_buf(),
+                analysis: Analysis::new(vec![10.; version.feature_count()].to_vec(), version)
+                    .unwrap(),
+                album: Some(String::from("Album")),
+                artist: Some(String::from("Another Artist")),
+                track_number: Some(2),
+                disc_number: Some(1),
+                ..Default::default()
+            };
 
-        let first_song_other_album_disc_1 = Song {
-            path: Path::new("path-to-second-2").to_path_buf(),
-            analysis: Analysis::new([0.15; NUMBER_FEATURES].to_vec(), FeaturesVersion::LATEST)
-                .unwrap(),
-            album: Some(String::from("Another Album")),
-            artist: Some(String::from("Artist")),
-            track_number: Some(1),
-            disc_number: Some(1),
-            ..Default::default()
-        };
-        let second_song_other_album_disc_1 = Song {
-            path: Path::new("path-to-second").to_path_buf(),
-            analysis: Analysis::new([0.1; NUMBER_FEATURES].to_vec(), FeaturesVersion::LATEST)
-                .unwrap(),
-            album: Some(String::from("Another Album")),
-            artist: Some(String::from("Artist")),
-            track_number: Some(2),
-            disc_number: Some(1),
-            ..Default::default()
-        };
-        let first_song_other_album_disc_2 = Song {
-            path: Path::new("path-to-fourth").to_path_buf(),
-            analysis: Analysis::new([20.; NUMBER_FEATURES].to_vec(), FeaturesVersion::LATEST)
-                .unwrap(),
-            album: Some(String::from("Another Album")),
-            artist: Some(String::from("Another Artist")),
-            track_number: Some(1),
-            disc_number: Some(2),
-            ..Default::default()
-        };
-        let second_song_other_album_disc_2 = Song {
-            path: Path::new("path-to-fourth").to_path_buf(),
-            analysis: Analysis::new([20.; NUMBER_FEATURES].to_vec(), FeaturesVersion::LATEST)
-                .unwrap(),
-            album: Some(String::from("Another Album")),
-            artist: Some(String::from("Another Artist")),
-            track_number: Some(4),
-            disc_number: Some(2),
-            ..Default::default()
-        };
+            let first_song_other_album_disc_1 = Song {
+                path: Path::new("path-to-second-2").to_path_buf(),
+                analysis: Analysis::new(vec![0.15; version.feature_count()].to_vec(), version)
+                    .unwrap(),
+                album: Some(String::from("Another Album")),
+                artist: Some(String::from("Artist")),
+                track_number: Some(1),
+                disc_number: Some(1),
+                ..Default::default()
+            };
+            let second_song_other_album_disc_1 = Song {
+                path: Path::new("path-to-second").to_path_buf(),
+                analysis: Analysis::new(vec![0.1; version.feature_count()].to_vec(), version)
+                    .unwrap(),
+                album: Some(String::from("Another Album")),
+                artist: Some(String::from("Artist")),
+                track_number: Some(2),
+                disc_number: Some(1),
+                ..Default::default()
+            };
+            let first_song_other_album_disc_2 = Song {
+                path: Path::new("path-to-fourth").to_path_buf(),
+                analysis: Analysis::new(vec![20.; version.feature_count()].to_vec(), version)
+                    .unwrap(),
+                album: Some(String::from("Another Album")),
+                artist: Some(String::from("Another Artist")),
+                track_number: Some(1),
+                disc_number: Some(2),
+                ..Default::default()
+            };
+            let second_song_other_album_disc_2 = Song {
+                path: Path::new("path-to-fourth").to_path_buf(),
+                analysis: Analysis::new(vec![20.; version.feature_count()].to_vec(), version)
+                    .unwrap(),
+                album: Some(String::from("Another Album")),
+                artist: Some(String::from("Another Artist")),
+                track_number: Some(4),
+                disc_number: Some(2),
+                ..Default::default()
+            };
 
-        let song_no_album = Song {
-            path: Path::new("path-to-fifth").to_path_buf(),
-            analysis: Analysis::new([40.; NUMBER_FEATURES].to_vec(), FeaturesVersion::LATEST)
-                .unwrap(),
-            artist: Some(String::from("Third Artist")),
-            album: None,
-            ..Default::default()
-        };
+            let song_no_album = Song {
+                path: Path::new("path-to-fifth").to_path_buf(),
+                analysis: Analysis::new(vec![40.; version.feature_count()].to_vec(), version)
+                    .unwrap(),
+                artist: Some(String::from("Third Artist")),
+                album: None,
+                ..Default::default()
+            };
 
-        let pool = vec![
-            first_song.to_owned(),
-            second_song_other_album_disc_1.to_owned(),
-            second_song_other_album_disc_2.to_owned(),
-            second_song.to_owned(),
-            first_song_other_album_disc_2.to_owned(),
-            first_song_other_album_disc_1.to_owned(),
-            song_no_album.to_owned(),
-        ];
-        let group = vec![first_song.to_owned(), second_song.to_owned()];
-        assert_eq!(
-            vec![
+            let pool = vec![
                 first_song.to_owned(),
-                second_song.to_owned(),
-                first_song_other_album_disc_1.to_owned(),
                 second_song_other_album_disc_1.to_owned(),
-                first_song_other_album_disc_2.to_owned(),
                 second_song_other_album_disc_2.to_owned(),
-            ],
-            closest_album_to_group(group, pool.to_owned()).unwrap(),
-        );
+                second_song.to_owned(),
+                first_song_other_album_disc_2.to_owned(),
+                first_song_other_album_disc_1.to_owned(),
+                song_no_album.to_owned(),
+            ];
+            let group = vec![first_song.to_owned(), second_song.to_owned()];
+            assert_eq!(
+                vec![
+                    first_song.to_owned(),
+                    second_song.to_owned(),
+                    first_song_other_album_disc_1.to_owned(),
+                    second_song_other_album_disc_1.to_owned(),
+                    first_song_other_album_disc_2.to_owned(),
+                    second_song_other_album_disc_2.to_owned(),
+                ],
+                closest_album_to_group(group, pool.to_owned()).unwrap(),
+            );
 
-        let first_song = CustomSong {
-            bliss_song: first_song,
-            something: true,
-        };
-        let second_song = CustomSong {
-            bliss_song: second_song,
-            something: true,
-        };
+            let first_song = CustomSong {
+                bliss_song: first_song,
+                something: true,
+            };
+            let second_song = CustomSong {
+                bliss_song: second_song,
+                something: true,
+            };
 
-        let first_song_other_album_disc_1 = CustomSong {
-            bliss_song: first_song_other_album_disc_1,
-            something: true,
-        };
-        let second_song_other_album_disc_1 = CustomSong {
-            bliss_song: second_song_other_album_disc_1,
-            something: true,
-        };
-        let first_song_other_album_disc_2 = CustomSong {
-            bliss_song: first_song_other_album_disc_2,
-            something: true,
-        };
-        let second_song_other_album_disc_2 = CustomSong {
-            bliss_song: second_song_other_album_disc_2,
-            something: true,
-        };
-        let song_no_album = CustomSong {
-            bliss_song: song_no_album,
-            something: true,
-        };
+            let first_song_other_album_disc_1 = CustomSong {
+                bliss_song: first_song_other_album_disc_1,
+                something: true,
+            };
+            let second_song_other_album_disc_1 = CustomSong {
+                bliss_song: second_song_other_album_disc_1,
+                something: true,
+            };
+            let first_song_other_album_disc_2 = CustomSong {
+                bliss_song: first_song_other_album_disc_2,
+                something: true,
+            };
+            let second_song_other_album_disc_2 = CustomSong {
+                bliss_song: second_song_other_album_disc_2,
+                something: true,
+            };
+            let song_no_album = CustomSong {
+                bliss_song: song_no_album,
+                something: true,
+            };
 
-        let pool = vec![
-            first_song.to_owned(),
-            second_song_other_album_disc_2.to_owned(),
-            second_song_other_album_disc_1.to_owned(),
-            second_song.to_owned(),
-            first_song_other_album_disc_2.to_owned(),
-            first_song_other_album_disc_1.to_owned(),
-            song_no_album.to_owned(),
-        ];
-        let group = vec![first_song.to_owned(), second_song.to_owned()];
-        assert_eq!(
-            vec![
+            let pool = vec![
                 first_song.to_owned(),
-                second_song.to_owned(),
-                first_song_other_album_disc_1.to_owned(),
-                second_song_other_album_disc_1.to_owned(),
-                first_song_other_album_disc_2.to_owned(),
                 second_song_other_album_disc_2.to_owned(),
-            ],
-            closest_album_to_group(group, pool.to_owned()).unwrap(),
-        );
+                second_song_other_album_disc_1.to_owned(),
+                second_song.to_owned(),
+                first_song_other_album_disc_2.to_owned(),
+                first_song_other_album_disc_1.to_owned(),
+                song_no_album.to_owned(),
+            ];
+            let group = vec![first_song.to_owned(), second_song.to_owned()];
+            assert_eq!(
+                vec![
+                    first_song.to_owned(),
+                    second_song.to_owned(),
+                    first_song_other_album_disc_1.to_owned(),
+                    second_song_other_album_disc_1.to_owned(),
+                    first_song_other_album_disc_2.to_owned(),
+                    second_song_other_album_disc_2.to_owned(),
+                ],
+                closest_album_to_group(group, pool.to_owned()).unwrap(),
+            );
+        }
     }
 
     // This test case is non-deterministic and could fail in rare cases.
