@@ -175,8 +175,8 @@ impl TryFrom<u16> for FeaturesVersion {
         match value {
             2 => Ok(FeaturesVersion::Version2),
             1 => Ok(FeaturesVersion::Version1),
-            _ => Err(BlissError::ProviderError(String::from(
-                "This features' version ({value}) does not exist",
+            _ => Err(BlissError::ProviderError(format!(
+                "This features' version ({value}) does not exist"
             ))),
         }
     }

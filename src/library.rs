@@ -129,7 +129,6 @@ use dirs::config_local_dir;
 #[cfg(all(not(test), not(feature = "integration-tests")))]
 use dirs::data_local_dir;
 use indicatif::{ProgressBar, ProgressStyle};
-use log::warn;
 use ndarray::Array2;
 use rusqlite::params;
 use rusqlite::params_from_iter;
@@ -204,6 +203,19 @@ pub trait AppConfigTrait: Serialize + Sized + DeserializeOwned {
     fn set_number_cores(&mut self, number_cores: NonZeroUsize) -> Result<()> {
         self.base_config_mut().analysis_options.number_cores = number_cores;
         self.write()
+    }
+
+    /// Set the desired version for analysis, and write it to the
+    /// configuration file.
+    fn set_features_version(&mut self, features_version: FeaturesVersion) -> Result<()> {
+        self.base_config_mut().analysis_options.features_version = features_version;
+        self.write()
+    }
+
+    /// Get the number of desired cores for analysis, and write it to the
+    /// configuration file.
+    fn get_features_version(&self) -> FeaturesVersion {
+        self.base_config().analysis_options.features_version
     }
 
     /// Get the number of desired cores for analysis, and write it to the
@@ -664,31 +676,19 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         let config = Config::deserialize_config(&data)?;
         let sqlite_conn = Connection::open(&config.base_config().database_path)?;
         Library::<Config, D>::upgrade(&sqlite_conn)?;
-        let mut library = Self {
+        let library = Self {
             config,
             sqlite_conn: Arc::new(Mutex::new(sqlite_conn)),
             decoder: PhantomData,
         };
-        let sanity_errors = library.version_sanity_check()?;
-        for sanity_error in sanity_errors {
-            match sanity_error {
-                SanityError::MultipleVersionsInDB { versions: v } => warn!(
-                    "Songs have been analyzed with different versions of bliss ({:?}). \
-                        Older versions will be ignored from playlists. Update or rescan your \
-                        bliss library to correct the issue.",
-                    v
-                ),
-                SanityError::OldFeaturesVersionInDB { version: v } => println!("Old features version was found in the database: version {:?}. Update or rescan your bliss library to correct the issue.", v),
-            };
-        }
         Ok(library)
     }
 
     /// Check whether the library contains songs analyzed with different,
     /// incompatible versions of bliss.
     ///
-    /// Returns true if the database is clean (only one version of the
-    /// features), and false otherwise.
+    /// Returns a vector filled with potential errors. A sane database would return
+    /// Ok() with an empty vector.
     pub fn version_sanity_check(&mut self) -> Result<Vec<SanityError>> {
         let mut errors = vec![];
         let connection = self
@@ -4360,6 +4360,48 @@ mod test {
         assert_eq!(config.get_number_cores().get(), 1);
         config.set_number_cores(nzus(2)).unwrap();
         assert_eq!(config.get_number_cores().get(), 2);
+    }
+
+    #[test]
+    fn test_config_features_version() {
+        let config_dir = TempDir::new("coucou").unwrap();
+        let config_file = config_dir.path().join("config.json");
+        let database_file = config_dir.path().join("bliss.db");
+
+        let base_config = BaseConfig::new(
+            Some(config_file.to_owned()),
+            Some(database_file.to_owned()),
+            None,
+        )
+        .unwrap();
+        let config = CustomConfig {
+            base_config,
+            second_path_to_music_library: "/path/to/somewhere".into(),
+            ignore_wav_files: true,
+        };
+
+        assert_eq!(config.get_features_version(), FeaturesVersion::LATEST,);
+
+        let base_config = BaseConfig::new(
+            Some(config_file),
+            Some(database_file),
+            Some(AnalysisOptions {
+                features_version: FeaturesVersion::Version1,
+                ..Default::default()
+            }),
+        )
+        .unwrap();
+        let mut config = CustomConfig {
+            base_config,
+            second_path_to_music_library: "/path/to/somewhere".into(),
+            ignore_wav_files: true,
+        };
+
+        assert_eq!(config.get_features_version(), FeaturesVersion::Version1);
+        config
+            .set_features_version(FeaturesVersion::Version2)
+            .unwrap();
+        assert_eq!(config.get_features_version(), FeaturesVersion::Version2);
     }
 
     #[test]
