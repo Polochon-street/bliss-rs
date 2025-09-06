@@ -4,12 +4,12 @@
 NOTE: This is a BREAKING change for the analysis, as the computed chroma
 values will change, and 3 more chroma features are added!
 * Improve chroma accuracy using l2-norm.
-* Bump FEATURES_VERSION.
 * Add tests to make sure chroma features behave as they should.
 * Add a `Song::analyze_with_options` and `Decoder::song_from_path_with_options`
   to enable backwards compatibility.
 * Add a `FeaturesVersion` struct, replacing `FEATURES_VERSION` by
-  `FeaturesVersion::LATEST`
+  `FeaturesVersion::LATEST.
+* A few library changes to accommodate the change in `FeaturesVersion`.
 
 ## bliss 0.10.2
 * Bump bliss-audio-aubio-rs.
