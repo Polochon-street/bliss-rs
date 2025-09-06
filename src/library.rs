@@ -1425,7 +1425,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 .unwrap()
                 .map(|x| x.unwrap())
                 .collect::<Vec<f32>>(),
-            FeaturesVersion::LATEST,
+            song.bliss_song.features_version,
         )
         .map_err(|_| {
             BlissError::ProviderError(format!(
