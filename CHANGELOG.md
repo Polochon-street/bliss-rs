@@ -1,5 +1,9 @@
 # Changelog
 
+## bliss 0.11.1
+* Make symphonia decoding more accurate wrt. ffmpeg (now the difference between analysis
+values computed for songs decoded with ffmpeg vs symphonia is < 1e-4 for most tracks).
+
 ## bliss 0.11.0
 NOTE: This is a BREAKING change for the analysis, as the computed chroma
 values will change, and 3 more chroma features are added!

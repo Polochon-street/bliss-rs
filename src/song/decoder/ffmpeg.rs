@@ -476,7 +476,8 @@ mod tests {
     #[cfg(feature = "ffmpeg")]
     fn test_dont_panic_no_channel_layout() {
         let path = Path::new("data/no_channel.wav");
-        Decoder::decode(&path).unwrap();
+        let expected_hash = 0xd594429c;
+        _test_decode(&path, expected_hash);
     }
 
     #[test]

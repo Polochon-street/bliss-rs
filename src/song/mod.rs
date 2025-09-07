@@ -545,7 +545,7 @@ mod tests {
         let (song, expected_analysis) = SONG_AND_EXPECTED_ANALYSIS;
         let song = Decoder::song_from_path(Path::new(song)).unwrap();
         for (x, y) in song.analysis.as_vec().iter().zip(expected_analysis) {
-            assert!(0.01 > (x - y).abs());
+            assert!(1e-5 > (x - y).abs());
         }
         assert_eq!(FeaturesVersion::LATEST, song.features_version);
     }
@@ -587,7 +587,7 @@ mod tests {
         )
         .unwrap();
         for (x, y) in song.analysis.as_vec().iter().zip(expected_analysis) {
-            assert!(0.01 > (x - y).abs());
+            assert!(1e-5 > (x - y).abs());
         }
         assert_eq!(FeaturesVersion::Version1, song.features_version);
     }
@@ -601,7 +601,49 @@ mod tests {
         let song = SymphoniaDecoder::song_from_path(Path::new(song)).unwrap();
 
         for (x, y) in song.analysis.as_vec().iter().zip(expected_analysis) {
-            assert!(0.01 > (x - y).abs());
+            assert!(1e-5 > (x - y).abs(), "{}", (x - y).abs());
+        }
+        assert_eq!(FeaturesVersion::LATEST, song.features_version);
+    }
+
+    #[test]
+    #[cfg(feature = "symphonia-flac")]
+    fn test_analyze_resampled_with_symphonia() {
+        use crate::decoder::symphonia::SymphoniaDecoder;
+
+        let (song, expected_analysis) = (
+            "data/s32_stereo_44_1_kHz.flac",
+            [
+                0.38463664,
+                -0.85172224,
+                -0.7607465,
+                -0.8857495,
+                -0.63906085,
+                -0.73908424,
+                -0.7890965,
+                -0.8191868,
+                0.33856833,
+                0.3246863,
+                -0.34292227,
+                -0.62803173,
+                -0.2809453,
+                0.08687115,
+                0.2444489,
+                -0.5723239,
+                0.23292565,
+                0.19979525,
+                -0.58593845,
+                -0.06783122,
+                -0.060014784,
+                -0.5848569,
+                -0.07879859,
+            ],
+        );
+
+        let song = SymphoniaDecoder::song_from_path(Path::new(song)).unwrap();
+
+        for (x, y) in song.analysis.as_vec().iter().zip(expected_analysis) {
+            assert!(0.1 > (x - y).abs(), "{}", (x - y).abs());
         }
         assert_eq!(FeaturesVersion::LATEST, song.features_version);
     }
