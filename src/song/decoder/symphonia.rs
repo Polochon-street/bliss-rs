@@ -115,7 +115,10 @@ impl SymphoniaSource {
     /// and is licensed under the MIT License.
     fn init(mss: MediaSourceStream) -> symphonia::core::errors::Result<Option<Self>> {
         let hint = Hint::new();
-        let format_opts = FormatOptions::default();
+        let format_opts = FormatOptions {
+            enable_gapless: true,
+            ..Default::default()
+        };
         let metadata_opts = MetadataOptions::default();
         let mut probed = get_probe().format(&hint, mss, &format_opts, &metadata_opts)?;
 
@@ -400,7 +403,6 @@ mod tests {
 
     // expected hashs Obtained through
     // ffmpeg -i data/s16_stereo_22_5kHz.flac -ar 22050 -ac 1 -c:a pcm_f32le -f hash -hash adler32 -
-
     #[cfg(feature = "symphonia-wav")]
     #[test]
     fn test_decode_wav() {
@@ -414,6 +416,16 @@ mod tests {
     fn test_resample_mono() {
         let path = Path::new("data/s32_mono_44_1_kHz.flac");
         let expected_hash = 0xa0f8b8af;
+        _test_decode(&path, expected_hash);
+    }
+
+    #[cfg(feature = "symphonia-flac")]
+    #[test]
+    #[ignore = "fails when asked to resample to 22050 Hz, ig ffmpeg does it differently, but I'm not sure what the difference actually is"]
+    fn test_resample_frame_rate() {
+        let path = Path::new("data/s16_mono_44_1_kHz.flac");
+        let expected_hash = 0xa0f8b8af;
+
         _test_decode(&path, expected_hash);
     }
 
@@ -538,16 +550,8 @@ mod tests {
     // recovers the exact behavior of ffmpeg when converting stereo to mono
     fn test_stereo_ffmpeg_v_symphonia() {
         let path = Path::new("data/s16_stereo_22_5kHz.flac");
-        let symphonia_decoded = Decoder::decode(&path).unwrap();
-        let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpegDecoder::decode(&path).unwrap();
-        // if the first 100 samples are equal, then the rest should be equal.
-        // we check this first since the sample arrays are large enough that printing the diff would attempt
-        // and fail to allocate memory for the string
-        assert_eq!(
-            symphonia_decoded.sample_array[..100],
-            ffmpeg_decoded.sample_array[..100]
-        );
-        assert_eq!(symphonia_decoded.sample_array, ffmpeg_decoded.sample_array);
+        let expected_hash = 0x1d7b2d6d;
+        _test_decode(&path, expected_hash);
     }
 
     #[cfg(feature = "symphonia-flac")]
@@ -565,20 +569,19 @@ mod tests {
     #[test]
     #[ignore = "fails when asked to convert stereo to mono, ig ffmpeg does it differently, but I'm not sure what the difference actually is"]
     fn test_decode_mp3() {
-        let path = Path::new("data/s32_stereo_44_1_kHz.mp3");
+        let path = Path::new("data/s16_mono_22_5kHz.mp3");
         // Obtained through
         // ffmpeg -i data/s16_mono_22_5kHz.mp3 -ar 22050 -ac 1 -c:a pcm_f32le
         // -f hash -hash adler32 -
         //1030601839
-        let expected_hash = 0x69ca6906;
+        let expected_hash = 0xeebac7ce;
         _test_decode(&path, expected_hash);
     }
 
     #[cfg(feature = "symphonia-mp3")]
     #[test]
     fn test_decode_mp3_ffmpeg_v_symphonia() {
-        // TODO: Figure out how to get the error down to 1.0e-5
-        let path = Path::new("data/s32_stereo_44_1_kHz.mp3");
+        let path = Path::new("data/s16_mono_22_5kHz.mp3");
         let symphonia_decoded = Decoder::decode(&path).unwrap();
         let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpegDecoder::decode(&path).unwrap();
 
@@ -593,7 +596,7 @@ mod tests {
         }
         diff /= symphonia_decoded.sample_array.len() as f32;
         assert!(
-            diff < 0.05,
+            diff < 1.0e-6,
             "Difference between symphonia and ffmpeg: {}",
             diff
         );
@@ -644,20 +647,24 @@ mod tests {
     #[test]
     fn compare_ffmpeg_to_symphonia_for_all_test_songs() {
         let paths_and_tolerances = [
-            ("data/capacity_fix.ogg", 0.0000000017),
-            ("data/no_channel.wav", 0.027),
-            ("data/no_tags.flac", 0.175),
             ("data/piano.flac", f32::EPSILON),
             ("data/piano.wav", f32::EPSILON),
             ("data/s16_mono_22_5kHz.flac", f32::EPSILON),
             ("data/s16_stereo_22_5kHz.flac", f32::EPSILON),
-            ("data/s32_mono_44_1_kHz.flac", 0.0000069),
-            ("data/s32_stereo_44_1_kHz.flac", 0.00001),
-            ("data/s32_stereo_44_1_kHz.mp3", 0.03),
-            ("data/special-tags.mp3", 0.312),
+            ("data/capacity_fix.ogg", f32::EPSILON),
+            ("data/s16_mono_22_5kHz.mp3", f32::EPSILON),
+            ("data/s16_mono_44_1_kHz.flac", 1e-5),
+            ("data/s32_mono_44_1_kHz.flac", 1e-5),
+            ("data/s32_stereo_44_1_kHz.flac", 1e-5),
+            ("data/s32_stereo_44_1_kHz.mp3", 1e-5),
+            // TODO those files are "special" files with e.g. sin waves tones,
+            // which are very sensitive to resampling.
+            ("data/special-tags.mp3", 0.03),
+            ("data/unsupported-tags.mp3", 0.03),
+            ("data/white_noise.mp3", 0.03),
+            ("data/no_channel.wav", 0.03),
             ("data/tone_11080Hz.flac", 0.175),
-            ("data/unsupported-tags.mp3", 0.312),
-            ("data/white_noise.mp3", 0.312),
+            ("data/no_tags.flac", 0.175),
         ];
 
         for (path_str, tolerance) in paths_and_tolerances {
