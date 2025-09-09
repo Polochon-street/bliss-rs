@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.11.2
+* Bump ffmpeg.
+
 ## bliss 0.11.1
 * Make symphonia decoding more accurate wrt. ffmpeg (now the difference between analysis
 values computed for songs decoded with ffmpeg vs symphonia is < 1e-4 for most tracks).
