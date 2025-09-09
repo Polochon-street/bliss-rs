@@ -10,6 +10,10 @@ ask questions if you want to tackle an item.
 
 ## Actual TODO
 
+- Optimize / lower RAM consumption: chroma features can be streamed with very
+  little precision loss. Need to investigate the most lossless way to stream
+  the tuning.
+
 ### New features
 
 - Find a proper "objective" way to evaluate how good bliss playlists are. Probably
@@ -29,10 +33,7 @@ ask questions if you want to tackle an item.
 
 ### "Under-the hood" features
 
-- Check the chroma feature for anomalies (the last 4 numbers look anomalous in a lot of cases -
-  compare with https://www.audiolabs-erlangen.de/resources/MIR/FMP/C5/C5S2_ChordRec_Templates.html etc).
 - Better duplicate finding in the playlist module (sometimes songs have different across albums but should have the same fingerprint).
-- Optimize / lower RAM consumption.
 - Take a look at https://nnethercote.github.io/perf-book/ to see if optimizing is possible.
 - Find a way to differenciate classic vs contemporary music (new feature? Or better use of existing features?)
   For instance, Cigarettes after sex / Sweet doesn't seem to give similar enough tracks?
@@ -69,3 +70,5 @@ ask questions if you want to tackle an item.
   (can probably recycle the "album" feature) - done https://github.com/Polochon-street/bliss-rs/pull/72
 - Make it possible to return failed songs from the library module, so plugins can
   store the errors.
+- Check the chroma feature for anomalies (the last 4 numbers look anomalous in a lot of cases -
+  compare with https://www.audiolabs-erlangen.de/resources/MIR/FMP/C5/C5S2_ChordRec_Templates.html etc).
