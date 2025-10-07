@@ -261,7 +261,6 @@ impl Default for AnalysisOptions {
     }
 }
 
-// TODO: group these if this makes sense?
 impl Index<AnalysisIndex> for Analysis {
     type Output = f32;
 
