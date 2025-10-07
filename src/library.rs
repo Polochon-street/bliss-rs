@@ -405,7 +405,20 @@ impl AppConfigTrait for BaseConfig {
 ///
 /// Provide it either the `BaseConfig`, or a `Config` extending
 /// `BaseConfig`.
-/// TODO code example
+///
+/// # Examples
+///
+/// For a complete working implementation, see the `library` example
+/// (`examples/library.rs`), which demonstrates:
+/// - Initializing a library with custom configuration
+/// - Analyzing songs from a music folder
+/// - Updating an existing library
+/// - Generating playlists
+///
+/// Run it with:
+/// ```sh
+/// cargo run --example library -- init /path/to/music
+/// ```
 pub struct Library<Config, D: ?Sized> {
     /// The configuration struct, containing both information
     /// from `BaseConfig` as well as user-defined values.
@@ -1515,7 +1528,6 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
 
     /// Store a [Song] in the database, overidding any existing
     /// song with the same path by that one.
-    // TODO to_str() returns an option; return early and avoid panicking
     pub fn store_song<T: Serialize + DeserializeOwned + Clone>(
         &mut self,
         library_song: &LibrarySong<T>,
@@ -1525,6 +1537,12 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             .transaction()
             .map_err(|e| BlissError::ProviderError(e.to_string()))?;
         let song = &library_song.bliss_song;
+        let song_path_str = song.path.to_str().ok_or_else(|| {
+            BlissError::ProviderError(format!(
+                "path contains invalid UTF-8: {}",
+                song.path.display()
+            ))
+        })?;
         let (cue_path, audio_file_path) = match &song.cue_info {
             Some(c) => (
                 Some(c.cue_path.to_string_lossy()),
@@ -1559,7 +1577,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 audio_file_path=excluded.audio_file_path
             ",
             params![
-                song.path.to_str(),
+                song_path_str,
                 song.artist,
                 song.title,
                 song.album,
@@ -1581,7 +1599,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         // Override existing features.
         tx.execute(
             "delete from feature where song_id in (select id from song where path = ?1);",
-            params![song.path.to_str()],
+            params![song_path_str],
         )
         .map_err(|e| BlissError::ProviderError(e.to_string()))?;
 
@@ -1592,7 +1610,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 values ((select id from song where path = ?1), ?2, ?3)
                 on conflict(song_id, feature_index) do update set feature=excluded.feature;
                 ",
-                params![song.path.to_str(), feature, index],
+                params![song_path_str, feature, index],
             )
             .map_err(|e| BlissError::ProviderError(e.to_string()))?;
         }
@@ -1657,6 +1675,12 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     /// Errors out if the song is not in the database.
     pub fn delete_path<P: Into<PathBuf>>(&mut self, song_path: P) -> Result<()> {
         let song_path = song_path.into();
+        let song_path_str = song_path.to_str().ok_or_else(|| {
+            BlissError::ProviderError(format!(
+                "path contains invalid UTF-8: {}",
+                song_path.display()
+            ))
+        })?;
         let count = self
             .sqlite_conn
             .lock()
@@ -1665,7 +1689,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 "
                 delete from song where path = ?1;
             ",
-                [song_path.to_str()],
+                [song_path_str],
             )
             .map_err(|e| BlissError::ProviderError(e.to_string()))?;
         if count == 0 {
