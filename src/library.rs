@@ -3471,9 +3471,8 @@ mod test {
         );
     }
 
-    #[test]
     #[cfg(feature = "ffmpeg")]
-    fn test_update_convert_extra_info() {
+    fn run_update_convert_extra_info_test(delete_everything_else: bool) {
         let (mut library, _temp_dir, _) = setup_test_library();
         library
             .config
@@ -3501,7 +3500,7 @@ mod test {
         library
             .update_library_convert_extra_info(
                 paths.to_owned(),
-                true,
+                delete_everything_else,
                 false,
                 |b, _, _| ExtraInfo {
                     ignore: b,
@@ -3545,11 +3544,16 @@ mod test {
         }
         {
             let connection = library.sqlite_conn.lock().unwrap();
-            // Make sure that we deleted older songs
-            assert_eq!(
-                rusqlite::Error::QueryReturnedNoRows,
-                _get_song_analyzed(connection, "/path/to/song2001".into()).unwrap_err(),
-            );
+            if delete_everything_else {
+                // Make sure that we deleted older songs
+                assert_eq!(
+                    rusqlite::Error::QueryReturnedNoRows,
+                    _get_song_analyzed(connection, "/path/to/song2001".into()).unwrap_err(),
+                );
+            } else {
+                // Make sure that we did not delete older songs
+                assert!(_get_song_analyzed(connection, "/path/to/song2001".into()).unwrap());
+            }
         }
         assert_eq!(
             library
@@ -3563,90 +3567,14 @@ mod test {
 
     #[test]
     #[cfg(feature = "ffmpeg")]
-    // TODO maybe we can merge / DRY this and the function ⬆
+    fn test_update_convert_extra_info() {
+        run_update_convert_extra_info_test(true);
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_update_convert_extra_info_do_not_delete() {
-        let (mut library, _temp_dir, _) = setup_test_library();
-        library
-            .config
-            .base_config_mut()
-            .analysis_options
-            .features_version = FeaturesVersion::Version1;
-
-        {
-            let connection = library.sqlite_conn.lock().unwrap();
-            // Make sure that we tried to "update" song4001 with the new features.
-            assert!(_get_song_analyzed(connection, "/path/to/song4001".into()).unwrap());
-        }
-        {
-            let connection = library.sqlite_conn.lock().unwrap();
-            // Make sure that all the starting songs are there
-            assert!(_get_song_analyzed(connection, "/path/to/song2001".into()).unwrap());
-        }
-
-        let paths = vec![
-            ("./data/s16_mono_22_5kHz.flac", true),
-            ("./data/s16_stereo_22_5kHz.flac", false),
-            ("/path/to/song4001", false),
-            ("non-existing", false),
-        ];
-        library
-            .update_library_convert_extra_info(
-                paths.to_owned(),
-                false,
-                false,
-                |b, _, _| ExtraInfo {
-                    ignore: b,
-                    metadata_bliss_does_not_have: String::from("coucou"),
-                },
-                AnalysisOptions::default(),
-            )
-            .unwrap();
-        let songs = paths[..2]
-            .iter()
-            .map(|(path, _)| {
-                let connection = library.sqlite_conn.lock().unwrap();
-                _library_song_from_database(connection, path)
-            })
-            .collect::<Vec<LibrarySong<ExtraInfo>>>();
-        let expected_songs = paths[..2]
-            .iter()
-            .zip(
-                vec![
-                    ExtraInfo {
-                        ignore: true,
-                        metadata_bliss_does_not_have: String::from("coucou"),
-                    },
-                    ExtraInfo {
-                        ignore: false,
-                        metadata_bliss_does_not_have: String::from("coucou"),
-                    },
-                ]
-                .into_iter(),
-            )
-            .map(|((path, _extra_info), expected_extra_info)| LibrarySong {
-                bliss_song: Decoder::song_from_path(path).unwrap(),
-                extra_info: expected_extra_info,
-            })
-            .collect::<Vec<LibrarySong<ExtraInfo>>>();
-        assert_eq!(songs, expected_songs);
-        {
-            let connection = library.sqlite_conn.lock().unwrap();
-            // Make sure that we tried to "update" song4001 with the new features.
-            assert!(!_get_song_analyzed(connection, "/path/to/song4001".into()).unwrap());
-        }
-        {
-            let connection = library.sqlite_conn.lock().unwrap();
-            // Make sure that we did not delete older songs
-            assert!(_get_song_analyzed(connection, "/path/to/song2001".into()).unwrap());
-        }
-        assert_eq!(
-            library
-                .config
-                .base_config_mut()
-                .analysis_options
-                .features_version,
-            FeaturesVersion::LATEST
-        );
+        run_update_convert_extra_info_test(false);
     }
 
     #[test]
