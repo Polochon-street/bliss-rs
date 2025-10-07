@@ -1763,7 +1763,6 @@ fn config_local_dir() -> Option<PathBuf> {
 #[cfg(test)]
 // TODO refactor (especially the helper functions)
 // TODO the tests should really open a songs.db
-// TODO test with invalid UTF-8
 mod test {
     use super::*;
     use crate::{decoder::PreAnalyzedSong, Analysis, NUMBER_FEATURES};
@@ -3799,6 +3798,60 @@ mod test {
         let (library, _temp_dir, _) = setup_test_library();
         let error = library.song_from_path::<ExtraInfo, _>("/path/to/randomsong");
         assert!(error.is_err());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_invalid_utf8_paths() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt;
+
+        let (mut library, _temp_dir, _) = setup_test_library();
+
+        // Create a PathBuf with invalid UTF-8
+        let invalid_bytes = b"/path/to/invalid\xFF\xFEutf8";
+        let invalid_path = PathBuf::from(OsStr::from_bytes(invalid_bytes));
+
+        // Create a test song with invalid UTF-8 path
+        let song = LibrarySong {
+            bliss_song: Song {
+                path: invalid_path.clone(),
+                artist: Some(String::from("Test Artist")),
+                title: Some(String::from("Test Title")),
+                album: Some(String::from("Test Album")),
+                album_artist: Some(String::from("Test Album Artist")),
+                track_number: Some(1),
+                disc_number: None,
+                genre: Some(String::from("Test Genre")),
+                analysis: Analysis::new(
+                    vec![0.0; NUMBER_FEATURES],
+                    FeaturesVersion::LATEST,
+                )
+                .unwrap(),
+                duration: Duration::from_secs(60),
+                features_version: FeaturesVersion::LATEST,
+                cue_info: None,
+            },
+            extra_info: ExtraInfo::default(),
+        };
+
+        // Test store_song with invalid UTF-8 path
+        let store_result = library.store_song(&song);
+        assert!(store_result.is_err());
+        let store_error = format!("{}", store_result.unwrap_err());
+        assert!(store_error.contains("invalid UTF-8"));
+
+        // Test delete_path with invalid UTF-8 path
+        let delete_result = library.delete_path(invalid_path.clone());
+        assert!(delete_result.is_err());
+        let delete_error = format!("{}", delete_result.unwrap_err());
+        assert!(delete_error.contains("invalid UTF-8"));
+
+        // Test song_from_path with invalid UTF-8 path
+        let song_result = library.song_from_path::<ExtraInfo, _>(invalid_path);
+        assert!(song_result.is_err());
+        let song_error = format!("{}", song_result.unwrap_err());
+        assert!(song_error.contains("invalid UTF-8"));
     }
 
     #[test]
