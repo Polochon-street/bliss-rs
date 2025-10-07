@@ -405,7 +405,24 @@ impl AppConfigTrait for BaseConfig {
 ///
 /// Provide it either the `BaseConfig`, or a `Config` extending
 /// `BaseConfig`.
-/// TODO code example
+///
+/// # Examples
+///
+/// For a complete working implementation, see the `library` example
+/// (`examples/library.rs`), which demonstrates:
+/// - Initializing a library with custom configuration
+/// - Analyzing songs from a music folder
+/// - Updating an existing library
+/// - Generating playlists
+///
+/// Start analyzing songs, putting the configuration and database files in the same folders:
+/// ```sh
+/// cargo run --features=library --release --example library init -- /path/to/music/folder -c ./config.json -d songs.db
+/// ```
+/// Then make a playlist of 30 songs, starting from the song at `/path/to/music/folder/song.mp3`:
+/// ```sh
+/// cargo run --features=library --release --example library -- playlist -c ./config.json /path/to/music/folder/song.mp3 30
+/// ```
 pub struct Library<Config, D: ?Sized> {
     /// The configuration struct, containing both information
     /// from `BaseConfig` as well as user-defined values.
@@ -479,7 +496,6 @@ pub enum SanityError {
 // TODO maybe return number of elements updated / deleted / whatev in analysis
 //      functions?
 // TODO should it really use anyhow errors?
-// TODO make sure that the path to string is consistent
 impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     const SQLITE_SCHEMA: &'static str = "
         create table song (
@@ -1390,11 +1406,16 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     }
 
     /// Get a LibrarySong from a given file path.
-    /// TODO pathbuf here too
-    pub fn song_from_path<T: Serialize + DeserializeOwned + Clone>(
-        &self,
-        song_path: &str,
-    ) -> Result<LibrarySong<T>> {
+    pub fn song_from_path<T>(&self, song_path: impl AsRef<Path>) -> Result<LibrarySong<T>>
+    where
+        T: Serialize + DeserializeOwned + Clone,
+    {
+        let song_path_str = song_path.as_ref().to_str().ok_or_else(|| {
+            BlissError::ProviderError(format!(
+                "path contains invalid UTF-8: {}",
+                song_path.as_ref().display()
+            ))
+        })?;
         let connection = self
             .sqlite_conn
             .lock()
@@ -1408,7 +1429,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 cue_path, audio_file_path
                 from song where path=? and analyzed = true
             ",
-            params![song_path],
+            params![song_path_str],
             Self::_song_from_row_closure,
         )?;
 
@@ -1421,7 +1442,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             ",
         )?;
         let analysis = Analysis::new(
-            stmt.query_map(params![song_path], |row| row.get(0))
+            stmt.query_map(params![song_path_str], |row| row.get(0))
                 .unwrap()
                 .map(|x| x.unwrap())
                 .collect::<Vec<f32>>(),
@@ -1515,16 +1536,21 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
 
     /// Store a [Song] in the database, overidding any existing
     /// song with the same path by that one.
-    // TODO to_str() returns an option; return early and avoid panicking
     pub fn store_song<T: Serialize + DeserializeOwned + Clone>(
         &mut self,
         library_song: &LibrarySong<T>,
-    ) -> Result<(), BlissError> {
+    ) -> Result<()> {
         let mut sqlite_conn = self.sqlite_conn.lock().unwrap();
         let tx = sqlite_conn
             .transaction()
             .map_err(|e| BlissError::ProviderError(e.to_string()))?;
         let song = &library_song.bliss_song;
+        let song_path_str = song.path.to_str().ok_or_else(|| {
+            BlissError::ProviderError(format!(
+                "path contains invalid UTF-8: {}",
+                song.path.display()
+            ))
+        })?;
         let (cue_path, audio_file_path) = match &song.cue_info {
             Some(c) => (
                 Some(c.cue_path.to_string_lossy()),
@@ -1559,7 +1585,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 audio_file_path=excluded.audio_file_path
             ",
             params![
-                song.path.to_str(),
+                song_path_str,
                 song.artist,
                 song.title,
                 song.album,
@@ -1581,7 +1607,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         // Override existing features.
         tx.execute(
             "delete from feature where song_id in (select id from song where path = ?1);",
-            params![song.path.to_str()],
+            params![song_path_str],
         )
         .map_err(|e| BlissError::ProviderError(e.to_string()))?;
 
@@ -1592,7 +1618,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 values ((select id from song where path = ?1), ?2, ?3)
                 on conflict(song_id, feature_index) do update set feature=excluded.feature;
                 ",
-                params![song.path.to_str(), feature, index as u8],
+                params![song_path_str, feature, index as u8],
             )
             .map_err(|e| BlissError::ProviderError(e.to_string()))?;
         }
@@ -1605,12 +1631,18 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     ///
     /// If there already is an existing song with that path, replace it by
     /// the latest failed result.
-    pub fn store_failed_song<P: Into<PathBuf>>(
+    pub fn store_failed_song(
         &mut self,
-        song_path: P,
+        song_path: impl AsRef<Path>,
         e: BlissError,
         features_version: FeaturesVersion,
     ) -> Result<()> {
+        let song_path_str = song_path.as_ref().to_str().ok_or_else(|| {
+            BlissError::ProviderError(format!(
+                "path contains invalid UTF-8: {}",
+                song_path.as_ref().display()
+            ))
+        })?;
         self.sqlite_conn
             .lock()
             .unwrap()
@@ -1619,7 +1651,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             insert or replace into song (path, error, version) values (?1, ?2, ?3)
             ",
                 params![
-                    song_path.into().to_string_lossy().to_string(),
+                    song_path_str,
                     e.to_string(),
                     // At this point, FeaturesVersion::LATEST is the best indicator we have
                     // of the version (since we don't have a proper Song).
@@ -1655,8 +1687,13 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     /// Delete a song with path `song_path` from the database.
     ///
     /// Errors out if the song is not in the database.
-    pub fn delete_path<P: Into<PathBuf>>(&mut self, song_path: P) -> Result<()> {
-        let song_path = song_path.into();
+    pub fn delete_path(&mut self, song_path: impl AsRef<Path>) -> Result<()> {
+        let song_path_str = song_path.as_ref().to_str().ok_or_else(|| {
+            BlissError::ProviderError(format!(
+                "path contains invalid UTF-8: {}",
+                song_path.as_ref().display()
+            ))
+        })?;
         let count = self
             .sqlite_conn
             .lock()
@@ -1665,13 +1702,13 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 "
                 delete from song where path = ?1;
             ",
-                [song_path.to_str()],
+                [song_path_str],
             )
             .map_err(|e| BlissError::ProviderError(e.to_string()))?;
         if count == 0 {
             bail!(BlissError::ProviderError(format!(
                 "tried to delete song {}, not existing in the database.",
-                song_path.display(),
+                song_path_str,
             )));
         }
         Ok(())
@@ -1680,13 +1717,13 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     /// Delete a set of songs with paths `song_paths` from the database.
     ///
     /// Will return Ok(count) even if less songs than expected were deleted from the database.
-    pub fn delete_paths<P: Into<PathBuf>, I: IntoIterator<Item = P>>(
+    pub fn delete_paths<P: AsRef<Path>, I: IntoIterator<Item = P>>(
         &mut self,
         paths: I,
     ) -> Result<usize> {
         let song_paths: Vec<String> = paths
             .into_iter()
-            .map(|x| x.into().to_string_lossy().to_string())
+            .map(|x| x.as_ref().to_string_lossy().to_string())
             .collect();
         if song_paths.is_empty() {
             return Ok(0);
@@ -1730,7 +1767,6 @@ fn config_local_dir() -> Option<PathBuf> {
 #[cfg(test)]
 // TODO refactor (especially the helper functions)
 // TODO the tests should really open a songs.db
-// TODO test with invalid UTF-8
 mod test {
     use super::*;
     use crate::{decoder::PreAnalyzedSong, Analysis, NUMBER_FEATURES};
@@ -1738,6 +1774,9 @@ mod test {
     use pretty_assertions::assert_eq;
     use serde::{de::DeserializeOwned, Deserialize};
     use serde_json::Value;
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::PathBuf;
     use std::thread;
     use std::{convert::TryInto, fmt::Debug, str::FromStr, sync::MutexGuard, time::Duration};
     use tempdir::TempDir;
@@ -3440,9 +3479,8 @@ mod test {
         );
     }
 
-    #[test]
     #[cfg(feature = "ffmpeg")]
-    fn test_update_convert_extra_info() {
+    fn run_update_convert_extra_info_test(delete_everything_else: bool) {
         let (mut library, _temp_dir, _) = setup_test_library();
         library
             .config
@@ -3470,7 +3508,7 @@ mod test {
         library
             .update_library_convert_extra_info(
                 paths.to_owned(),
-                true,
+                delete_everything_else,
                 false,
                 |b, _, _| ExtraInfo {
                     ignore: b,
@@ -3514,11 +3552,16 @@ mod test {
         }
         {
             let connection = library.sqlite_conn.lock().unwrap();
-            // Make sure that we deleted older songs
-            assert_eq!(
-                rusqlite::Error::QueryReturnedNoRows,
-                _get_song_analyzed(connection, "/path/to/song2001".into()).unwrap_err(),
-            );
+            if delete_everything_else {
+                // Make sure that we deleted older songs
+                assert_eq!(
+                    rusqlite::Error::QueryReturnedNoRows,
+                    _get_song_analyzed(connection, "/path/to/song2001".into()).unwrap_err(),
+                );
+            } else {
+                // Make sure that we did not delete older songs
+                assert!(_get_song_analyzed(connection, "/path/to/song2001".into()).unwrap());
+            }
         }
         assert_eq!(
             library
@@ -3532,90 +3575,14 @@ mod test {
 
     #[test]
     #[cfg(feature = "ffmpeg")]
-    // TODO maybe we can merge / DRY this and the function ⬆
+    fn test_update_convert_extra_info() {
+        run_update_convert_extra_info_test(true);
+    }
+
+    #[test]
+    #[cfg(feature = "ffmpeg")]
     fn test_update_convert_extra_info_do_not_delete() {
-        let (mut library, _temp_dir, _) = setup_test_library();
-        library
-            .config
-            .base_config_mut()
-            .analysis_options
-            .features_version = FeaturesVersion::Version1;
-
-        {
-            let connection = library.sqlite_conn.lock().unwrap();
-            // Make sure that we tried to "update" song4001 with the new features.
-            assert!(_get_song_analyzed(connection, "/path/to/song4001".into()).unwrap());
-        }
-        {
-            let connection = library.sqlite_conn.lock().unwrap();
-            // Make sure that all the starting songs are there
-            assert!(_get_song_analyzed(connection, "/path/to/song2001".into()).unwrap());
-        }
-
-        let paths = vec![
-            ("./data/s16_mono_22_5kHz.flac", true),
-            ("./data/s16_stereo_22_5kHz.flac", false),
-            ("/path/to/song4001", false),
-            ("non-existing", false),
-        ];
-        library
-            .update_library_convert_extra_info(
-                paths.to_owned(),
-                false,
-                false,
-                |b, _, _| ExtraInfo {
-                    ignore: b,
-                    metadata_bliss_does_not_have: String::from("coucou"),
-                },
-                AnalysisOptions::default(),
-            )
-            .unwrap();
-        let songs = paths[..2]
-            .iter()
-            .map(|(path, _)| {
-                let connection = library.sqlite_conn.lock().unwrap();
-                _library_song_from_database(connection, path)
-            })
-            .collect::<Vec<LibrarySong<ExtraInfo>>>();
-        let expected_songs = paths[..2]
-            .iter()
-            .zip(
-                vec![
-                    ExtraInfo {
-                        ignore: true,
-                        metadata_bliss_does_not_have: String::from("coucou"),
-                    },
-                    ExtraInfo {
-                        ignore: false,
-                        metadata_bliss_does_not_have: String::from("coucou"),
-                    },
-                ]
-                .into_iter(),
-            )
-            .map(|((path, _extra_info), expected_extra_info)| LibrarySong {
-                bliss_song: Decoder::song_from_path(path).unwrap(),
-                extra_info: expected_extra_info,
-            })
-            .collect::<Vec<LibrarySong<ExtraInfo>>>();
-        assert_eq!(songs, expected_songs);
-        {
-            let connection = library.sqlite_conn.lock().unwrap();
-            // Make sure that we tried to "update" song4001 with the new features.
-            assert!(!_get_song_analyzed(connection, "/path/to/song4001".into()).unwrap());
-        }
-        {
-            let connection = library.sqlite_conn.lock().unwrap();
-            // Make sure that we did not delete older songs
-            assert!(_get_song_analyzed(connection, "/path/to/song2001".into()).unwrap());
-        }
-        assert_eq!(
-            library
-                .config
-                .base_config_mut()
-                .analysis_options
-                .features_version,
-            FeaturesVersion::LATEST
-        );
+        run_update_convert_extra_info_test(false);
     }
 
     #[test]
@@ -3655,6 +3622,66 @@ mod test {
             .song_from_path::<ExtraInfo>("/path/to/song2001")
             .unwrap();
         assert_eq!(song, expected_song)
+    }
+
+    #[test]
+    #[cfg(target_family = "unix")]
+    fn test_store_song_utf8_failure() {
+        let invalid_bytes = b"/tmp/invalid\xFF\xFE.mp3";
+        let os_str = OsStr::from_bytes(invalid_bytes);
+        let invalid_path = PathBuf::from(os_str);
+
+        let mut library =
+            Library::<BaseConfig, DummyDecoder>::new_from_base(None, None, None).unwrap();
+
+        let song = LibrarySong::<()> {
+            bliss_song: Song {
+                path: invalid_path,
+                ..Default::default()
+            },
+            extra_info: (),
+        };
+        let err = library
+            .store_song(&song)
+            .unwrap_err()
+            .downcast::<BlissError>()
+            .unwrap();
+        assert!(matches!(err, BlissError::ProviderError(_)));
+    }
+
+    #[test]
+    #[cfg(target_family = "unix")]
+    fn test_delete_song_utf8_failure() {
+        let invalid_bytes = b"/tmp/invalid\xFF\xFE.mp3";
+        let os_str = OsStr::from_bytes(invalid_bytes);
+        let invalid_path = PathBuf::from(os_str);
+
+        let mut library =
+            Library::<BaseConfig, DummyDecoder>::new_from_base(None, None, None).unwrap();
+
+        let err = library
+            .delete_path(&invalid_path)
+            .unwrap_err()
+            .downcast::<BlissError>()
+            .unwrap();
+        assert!(matches!(err, BlissError::ProviderError(_)));
+    }
+
+    #[test]
+    #[cfg(target_family = "unix")]
+    fn test_song_from_path_utf8_failure() {
+        let invalid_bytes = b"/tmp/invalid\xFF\xFE.mp3";
+        let os_str = OsStr::from_bytes(invalid_bytes);
+        let invalid_path = PathBuf::from(os_str);
+
+        let library = Library::<BaseConfig, DummyDecoder>::new_from_base(None, None, None).unwrap();
+
+        let err = library
+            .song_from_path::<()>(&invalid_path)
+            .unwrap_err()
+            .downcast::<BlissError>()
+            .unwrap();
+        assert!(matches!(err, BlissError::ProviderError(_)));
     }
 
     #[test]

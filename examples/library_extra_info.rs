@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 /// JSON file upon Library creation.
 pub struct Config {
     #[serde(flatten)]
-    /// The base configuration, containing both the config file
+    /// The base configuration, containing both the configuration file
     /// path, as well as the database path.
     pub base_config: BaseConfig,
     /// An extra field, to store the music library path. Any number
@@ -129,9 +129,10 @@ fn main() -> Result<()> {
                         .short('d')
                         .long("database-path")
                         .help(
-                            "Optional path where to store the database file containing
-                 the songs' analysis. Defaults to XDG_DATA_HOME/bliss-rs/bliss.db.",
+                            "Path where to store the database file containing
+                 the songs' analysis.",
                         )
+                        .required(true)
                         .num_args(1),
                 )
                 .arg(
@@ -139,9 +140,10 @@ fn main() -> Result<()> {
                         .short('c')
                         .long("config-path")
                         .help(
-                            "Optional path where to store the config file containing
-                 the library setup. Defaults to XDG_DATA_HOME/bliss-rs/config.json.",
+                            "Path where to store the config file containing
+                 the library setup.",
                         )
+                        .required(true)
                         .num_args(1),
                 ),
         )
