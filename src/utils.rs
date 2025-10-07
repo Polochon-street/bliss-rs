@@ -131,7 +131,7 @@ pub(crate) fn hz_to_octs_inplace(
 #[allow(dead_code)]
 pub(crate) fn convolve(input: &Array1<f64>, kernel: &Array1<f64>) -> Array1<f64> {
     let mut common_length = input.len() + kernel.len();
-    if (common_length % 2) != 0 {
+    if !common_length.is_multiple_of(2) {
         common_length -= 1;
     }
     let mut padded_input = Array::from_elem(common_length, Complex::zero());
