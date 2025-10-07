@@ -492,7 +492,6 @@ pub enum SanityError {
 // TODO maybe return number of elements updated / deleted / whatev in analysis
 //      functions?
 // TODO should it really use anyhow errors?
-// TODO make sure that the path to string is consistent
 impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     const SQLITE_SCHEMA: &'static str = "
         create table song (
