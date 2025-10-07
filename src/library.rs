@@ -1403,11 +1403,20 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     }
 
     /// Get a LibrarySong from a given file path.
-    /// TODO pathbuf here too
-    pub fn song_from_path<T: Serialize + DeserializeOwned + Clone>(
-        &self,
-        song_path: &str,
-    ) -> Result<LibrarySong<T>> {
+    pub fn song_from_path<T, P>(&self, song_path: P) -> Result<LibrarySong<T>>
+    where
+        T: Serialize + DeserializeOwned + Clone,
+        P: AsRef<Path>,
+    {
+        let song_path_str = song_path
+            .as_ref()
+            .to_str()
+            .ok_or_else(|| {
+                BlissError::ProviderError(format!(
+                    "path contains invalid UTF-8: {}",
+                    song_path.as_ref().display()
+                ))
+            })?;
         let connection = self
             .sqlite_conn
             .lock()
@@ -1421,7 +1430,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 cue_path, audio_file_path
                 from song where path=? and analyzed = true
             ",
-            params![song_path],
+            params![song_path_str],
             Self::_song_from_row_closure,
         )?;
 
@@ -1434,7 +1443,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             ",
         )?;
         let analysis = Analysis::new(
-            stmt.query_map(params![song_path], |row| row.get(0))
+            stmt.query_map(params![song_path_str], |row| row.get(0))
                 .unwrap()
                 .map(|x| x.unwrap())
                 .collect::<Vec<f32>>(),
@@ -3676,7 +3685,7 @@ mod test {
         };
 
         let song = library
-            .song_from_path::<ExtraInfo>("/path/to/song2001")
+            .song_from_path::<ExtraInfo, _>("/path/to/song2001")
             .unwrap();
         assert_eq!(song, expected_song)
     }
@@ -3780,7 +3789,7 @@ mod test {
     #[cfg(feature = "ffmpeg")]
     fn test_song_from_path_not_analyzed() {
         let (library, _temp_dir, _) = setup_test_library();
-        let error = library.song_from_path::<ExtraInfo>("/path/to/song404");
+        let error = library.song_from_path::<ExtraInfo, _>("/path/to/song404");
         assert!(error.is_err());
     }
 
@@ -3788,7 +3797,7 @@ mod test {
     #[cfg(feature = "ffmpeg")]
     fn test_song_from_path_not_found() {
         let (library, _temp_dir, _) = setup_test_library();
-        let error = library.song_from_path::<ExtraInfo>("/path/to/randomsong");
+        let error = library.song_from_path::<ExtraInfo, _>("/path/to/randomsong");
         assert!(error.is_err());
     }
 
