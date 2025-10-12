@@ -169,7 +169,12 @@ impl ToSql for FeaturesVersion {
 impl FromSql for FeaturesVersion {
     fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
         let value = value.as_i64()?;
-        FeaturesVersion::try_from(u16::try_from(value).unwrap())
+        let value_u16 = u16::try_from(value).map_err(|e| {
+            rusqlite::types::FromSqlError::Other(Box::new(BlissError::ProviderError(format!(
+                "Invalid features version in database: {e}"
+            ))))
+        })?;
+        FeaturesVersion::try_from(value_u16)
             .map_err(|e| rusqlite::types::FromSqlError::Other(Box::new(e)))
     }
 }
@@ -600,19 +605,14 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     /// Otherwise, load an existing library file using
     /// [Library::from_config_path].
     pub fn new(config: Config) -> Result<Self> {
-        if !config
-            .base_config()
-            .config_path
-            .parent()
-            .ok_or_else(|| {
-                BlissError::ProviderError(format!(
-                    "specified path {} is not a valid file path.",
-                    config.base_config().config_path.display()
-                ))
-            })?
-            .is_dir()
-        {
-            create_dir_all(config.base_config().config_path.parent().unwrap())?;
+        let config_parent = config.base_config().config_path.parent().ok_or_else(|| {
+            BlissError::ProviderError(format!(
+                "specified path {} is not a valid file path.",
+                config.base_config().config_path.display()
+            ))
+        })?;
+        if !config_parent.is_dir() {
+            create_dir_all(config_parent)?;
         }
         let sqlite_conn = Connection::open(&config.base_config().database_path)?;
 
@@ -1019,10 +1019,10 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             #[allow(clippy::let_and_return)]
             let return_value = path_statement
                 .query_map([analysis_options.features_version], |row| {
-                    Ok(row.get_unwrap::<usize, String>(0))
+                    row.get::<usize, String>(0)
                 })?
-                .map(|x| PathBuf::from(x.unwrap()))
-                .collect::<HashSet<PathBuf>>();
+                .map(|x| x.map(PathBuf::from))
+                .collect::<Result<HashSet<PathBuf>, _>>()?;
             return_value
         };
 
@@ -1047,9 +1047,9 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 )?;
                 #[allow(clippy::let_and_return)]
                 let return_value = path_statement
-                    .query_map([], |row| Ok(row.get_unwrap::<usize, String>(0)))?
-                    .map(|x| PathBuf::from(x.unwrap()))
-                    .collect::<HashSet<PathBuf>>();
+                    .query_map([], |row| row.get::<usize, String>(0))?
+                    .map(|x| x.map(PathBuf::from))
+                    .collect::<Result<HashSet<PathBuf>, _>>()?;
                 return_value
             };
 
@@ -1197,7 +1197,8 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         }
         log::info!("Analyzing {number_songs} song(s), this might take some time…",);
         let pb = if show_progress_bar {
-            ProgressBar::new(number_songs.try_into().unwrap())
+            let count: u64 = number_songs.try_into().unwrap_or(u64::MAX);
+            ProgressBar::new(count)
         } else {
             ProgressBar::hidden()
         };
@@ -1238,7 +1239,11 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                     // in a hashmap, and then deserializes that when needed.
                     let extra = {
                         if is_cue && paths_extra_info.contains_key(&path) {
-                            let extra = paths_extra_info.remove(&path).unwrap();
+                            let extra = paths_extra_info.remove(&path).ok_or_else(|| {
+                                BlissError::ProviderError(
+                                    "Path was in contains_key but not in remove".to_string(),
+                                )
+                            })?;
                             let e = convert_extra_info(extra, &song, self);
                             cue_extra_info.insert(
                                 path,
@@ -1247,11 +1252,24 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                             );
                             e
                         } else if is_cue {
-                            let serialized_extra_info =
-                                cue_extra_info.get(&path).unwrap().to_owned();
-                            serde_json::from_str(&serialized_extra_info).unwrap()
+                            let serialized_extra_info = cue_extra_info
+                                .get(&path)
+                                .ok_or_else(|| {
+                                    BlissError::ProviderError(format!(
+                                        "CUE path {} not found in extra info cache",
+                                        path.display()
+                                    ))
+                                })?
+                                .to_owned();
+                            serde_json::from_str(&serialized_extra_info)
+                                .map_err(|e| BlissError::ProviderError(e.to_string()))?
                         } else {
-                            let extra = paths_extra_info.remove(&path).unwrap();
+                            let extra = paths_extra_info.remove(&path).ok_or_else(|| {
+                                BlissError::ProviderError(format!(
+                                    "Path {} not found in extra info",
+                                    path.display()
+                                ))
+                            })?;
                             convert_extra_info(extra, &song, self)
                         }
                     };
@@ -1312,11 +1330,17 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         // Poor man's way to double check that each feature correspond to the
         // right song, and group them.
         for row in song_rows {
-            let song_id: u32 = row.as_ref().unwrap().0;
+            let row = row?;
+            let song_id: u32 = row.0;
             let mut chunk: Vec<f32> = Vec::with_capacity(NUMBER_FEATURES);
 
             while let Some(first_value) = feature_iterator.peek() {
-                let (song_feature_id, feature): (u32, f32) = *first_value.as_ref().unwrap();
+                let (song_feature_id, feature): (u32, f32) =
+                    *first_value.as_ref().map_err(|e| {
+                        BlissError::ProviderError(format!(
+                            "Error reading feature from database: {e}"
+                        ))
+                    })?;
                 if song_feature_id == song_id {
                     chunk.push(feature);
                     feature_iterator.next();
@@ -1324,7 +1348,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                     break;
                 };
             }
-            let mut song = row.unwrap().1;
+            let mut song = row.1;
             song.bliss_song.analysis = Analysis::new(chunk, song.bliss_song.features_version)
                 .map_err(|_| {
                     BlissError::ProviderError(format!(
@@ -1442,10 +1466,11 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             ",
         )?;
         let analysis = Analysis::new(
-            stmt.query_map(params![song_path_str], |row| row.get(0))
-                .unwrap()
-                .map(|x| x.unwrap())
-                .collect::<Vec<f32>>(),
+            stmt.query_map(params![song_path_str], |row| row.get(0))?
+                .collect::<Result<Vec<f32>, _>>()
+                .map_err(|e| {
+                    BlissError::ProviderError(format!("Failed to read features from database: {e}"))
+                })?,
             song.bliss_song.features_version,
         )
         .map_err(|_| {
@@ -1466,68 +1491,120 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         let audio_file_path: Option<String> = row.get(12)?;
         let mut cue_info = None;
         if let Some(cue_path) = cue_path {
+            let audio_file_path = audio_file_path.ok_or_else(|| {
+                RusqliteError::FromSqlConversionFailure(
+                    12,
+                    rusqlite::types::Type::Null,
+                    Box::new(BlissError::ProviderError(
+                        "CUE path exists but audio_file_path is NULL in database".to_string(),
+                    )),
+                )
+            })?;
             cue_info = Some(CueInfo {
                 cue_path: PathBuf::from(cue_path),
-                audio_file_path: PathBuf::from(audio_file_path.unwrap()),
+                audio_file_path: PathBuf::from(audio_file_path),
             })
         };
 
         let song = Song {
             path: PathBuf::from(path),
             artist: row
-                .get_ref(1)
-                .unwrap()
+                .get_ref(1)?
                 .as_bytes_or_null()
-                .unwrap()
+                .map_err(|e| {
+                    RusqliteError::FromSqlConversionFailure(
+                        1,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?
                 .map(|v| String::from_utf8_lossy(v).to_string()),
             title: row
-                .get_ref(2)
-                .unwrap()
+                .get_ref(2)?
                 .as_bytes_or_null()
-                .unwrap()
+                .map_err(|e| {
+                    RusqliteError::FromSqlConversionFailure(
+                        2,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?
                 .map(|v| String::from_utf8_lossy(v).to_string()),
             album: row
-                .get_ref(3)
-                .unwrap()
+                .get_ref(3)?
                 .as_bytes_or_null()
-                .unwrap()
+                .map_err(|e| {
+                    RusqliteError::FromSqlConversionFailure(
+                        3,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?
                 .map(|v| String::from_utf8_lossy(v).to_string()),
             album_artist: row
-                .get_ref(4)
-                .unwrap()
+                .get_ref(4)?
                 .as_bytes_or_null()
-                .unwrap()
+                .map_err(|e| {
+                    RusqliteError::FromSqlConversionFailure(
+                        4,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?
                 .map(|v| String::from_utf8_lossy(v).to_string()),
             track_number: row
-                .get_ref(5)
-                .unwrap()
+                .get_ref(5)?
                 .as_i64_or_null()
-                .unwrap()
+                .map_err(|e| {
+                    RusqliteError::FromSqlConversionFailure(
+                        5,
+                        rusqlite::types::Type::Integer,
+                        Box::new(e),
+                    )
+                })?
                 .map(|v| v as i32),
             disc_number: row
-                .get_ref(6)
-                .unwrap()
+                .get_ref(6)?
                 .as_i64_or_null()
-                .unwrap()
+                .map_err(|e| {
+                    RusqliteError::FromSqlConversionFailure(
+                        6,
+                        rusqlite::types::Type::Integer,
+                        Box::new(e),
+                    )
+                })?
                 .map(|v| v as i32),
             genre: row
-                .get_ref(7)
-                .unwrap()
+                .get_ref(7)?
                 .as_bytes_or_null()
-                .unwrap()
+                .map_err(|e| {
+                    RusqliteError::FromSqlConversionFailure(
+                        7,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?
                 .map(|v| String::from_utf8_lossy(v).to_string()),
             analysis: Analysis {
                 internal_analysis: vec![0.; NUMBER_FEATURES],
-                features_version: row.get(9).unwrap(),
+                features_version: row.get(9)?,
             },
-            duration: Duration::from_secs_f64(row.get(8).unwrap()),
-            features_version: row.get(9).unwrap(),
+            duration: Duration::from_secs_f64(row.get(8)?),
+            features_version: row.get(9)?,
             cue_info,
         };
 
-        let serialized: Option<String> = row.get(10).unwrap();
+        let serialized: Option<String> = row.get(10)?;
         let serialized = serialized.unwrap_or_else(|| "null".into());
-        let extra_info = serde_json::from_str(&serialized).unwrap();
+        let extra_info = serde_json::from_str(&serialized).map_err(|e| {
+            RusqliteError::FromSqlConversionFailure(
+                10,
+                rusqlite::types::Type::Text,
+                Box::new(BlissError::ProviderError(format!(
+                    "Failed to deserialize extra_info: {e}"
+                ))),
+            )
+        })?;
         Ok(LibrarySong {
             bliss_song: song,
             extra_info,
@@ -1540,7 +1617,10 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         &mut self,
         library_song: &LibrarySong<T>,
     ) -> Result<()> {
-        let mut sqlite_conn = self.sqlite_conn.lock().unwrap();
+        let mut sqlite_conn = self
+            .sqlite_conn
+            .lock()
+            .map_err(|e| BlissError::ProviderError(format!("Mutex poisoned: {e}")))?;
         let tx = sqlite_conn
             .transaction()
             .map_err(|e| BlissError::ProviderError(e.to_string()))?;
@@ -1664,7 +1744,10 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
 
     /// Return all the songs that failed the analysis.
     pub fn get_failed_songs(&self) -> Result<Vec<ProcessingError>> {
-        let conn = self.sqlite_conn.lock().unwrap();
+        let conn = self
+            .sqlite_conn
+            .lock()
+            .map_err(|e| BlissError::ProviderError(format!("Mutex poisoned: {e}")))?;
         let mut stmt = conn.prepare(
             "
             select path, error, version
@@ -1680,8 +1763,8 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         })?;
         Ok(rows
             .into_iter()
-            .map(|r| r.unwrap())
-            .collect::<Vec<ProcessingError>>())
+            .collect::<std::result::Result<Vec<ProcessingError>, _>>()
+            .context("Failed to read failed songs from database")?)
     }
 
     /// Delete a song with path `song_path` from the database.

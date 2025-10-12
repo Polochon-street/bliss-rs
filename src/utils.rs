@@ -64,6 +64,9 @@ pub(crate) fn stft(signal: &[f32], window_length: usize, hop_length: usize) -> A
 }
 
 pub(crate) fn mean<T: Clone + Into<f32>>(input: &[T]) -> f32 {
+    if input.is_empty() {
+        return 0.0;
+    }
     input.iter().map(|x| x.clone().into()).sum::<f32>() / input.len() as f32
 }
 
@@ -145,14 +148,29 @@ pub(crate) fn convolve(input: &Array1<f64>, kernel: &Array1<f64>) -> Array1<f64>
 
     let mut planner = FftPlanner::new();
     let forward = planner.plan_fft_forward(common_length);
-    forward.process(padded_input.as_slice_mut().unwrap());
-    forward.process(padded_kernel.as_slice_mut().unwrap());
+    // Safe: padded_input is freshly created with from_elem, guaranteed contiguous
+    forward.process(
+        padded_input
+            .as_slice_mut()
+            .expect("BUG: padded_input not contiguous"),
+    );
+    // Safe: padded_kernel is freshly created with from_elem, guaranteed contiguous
+    forward.process(
+        padded_kernel
+            .as_slice_mut()
+            .expect("BUG: padded_kernel not contiguous"),
+    );
 
     let mut multiplication = padded_input * padded_kernel;
 
     let mut planner = FftPlanner::new();
     let back = planner.plan_fft_inverse(common_length);
-    back.process(multiplication.as_slice_mut().unwrap());
+    // Safe: multiplication is the result of element-wise ops on contiguous arrays
+    back.process(
+        multiplication
+            .as_slice_mut()
+            .expect("BUG: multiplication not contiguous"),
+    );
 
     let multiplication_length = multiplication.len() as f64;
     let multiplication = multiplication
