@@ -7,13 +7,21 @@
 //! and [CueInfo], which is a struct stored in [Song] to keep track of the CUE information
 //! the song was extracted from.
 
+#[cfg(feature = "analysis")]
 use crate::song::decoder::Decoder as DecoderTrait;
+#[cfg(feature = "analysis")]
 use crate::{Analysis, AnalysisOptions, BlissError, BlissResult, Song, SAMPLE_RATE};
+#[cfg(feature = "analysis")]
 use rcue::cue::{Cue, Track};
+#[cfg(feature = "analysis")]
 use rcue::parser::parse_from_file;
+#[cfg(feature = "analysis")]
+use std::marker::PhantomData;
+#[cfg(feature = "analysis")]
 use std::path::Path;
+use std::path::PathBuf;
+#[cfg(feature = "analysis")]
 use std::time::Duration;
-use std::{marker::PhantomData, path::PathBuf};
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Default, Debug, PartialEq, Eq, Clone)]
@@ -30,6 +38,7 @@ pub struct CueInfo {
     pub audio_file_path: PathBuf,
 }
 
+#[cfg(feature = "analysis")]
 /// A struct to handle CUEs with bliss.
 /// Use either [analyze_paths](crate::decoder::Decoder::analyze_paths), which takes care of CUE files
 /// automatically, or [songs_from_path](BlissCue::songs_from_path) to return a list
@@ -40,6 +49,7 @@ pub struct BlissCue<D: ?Sized> {
     decoder: PhantomData<D>,
 }
 
+#[cfg(feature = "analysis")]
 #[allow(missing_docs)]
 #[derive(Default, Debug, PartialEq, Clone)]
 struct BlissCueFile {
@@ -53,6 +63,7 @@ struct BlissCueFile {
     audio_file_path: PathBuf,
 }
 
+#[cfg(feature = "analysis")]
 impl<D: ?Sized + DecoderTrait> BlissCue<D> {
     /// Analyze songs from a CUE file, extracting individual [Song] objects
     /// for each individual song.
@@ -155,6 +166,7 @@ impl<D: ?Sized + DecoderTrait> BlissCue<D> {
     }
 }
 
+#[cfg(feature = "analysis")]
 impl BlissCueFile {
     fn create_song(
         &self,
