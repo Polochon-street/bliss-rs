@@ -12,12 +12,18 @@
 extern crate ffmpeg_next as ffmpeg;
 extern crate ndarray;
 
+#[cfg(feature = "analysis")]
 use crate::chroma::ChromaDesc;
 use crate::cue::CueInfo;
+#[cfg(feature = "analysis")]
 use crate::misc::LoudnessDesc;
+#[cfg(feature = "analysis")]
 use crate::temporal::BPMDesc;
+#[cfg(feature = "analysis")]
 use crate::timbral::{SpectralDesc, ZeroCrossingRateDesc};
-use crate::{BlissError, BlissResult, FeaturesVersion, SAMPLE_RATE};
+#[cfg(feature = "analysis")]
+use crate::SAMPLE_RATE;
+use crate::{BlissError, BlissResult, FeaturesVersion};
 use core::ops::Index;
 use ndarray::{arr1, Array1};
 use std::fmt;
@@ -29,6 +35,7 @@ use std::time::Duration;
 use strum::IntoEnumIterator;
 use strum_macros::{EnumCount, EnumIter};
 
+#[cfg(feature = "analysis")]
 pub mod decoder;
 
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -346,6 +353,7 @@ impl Analysis {
     }
 }
 
+#[cfg(feature = "analysis")]
 impl Song {
     /**
      * Analyze a song decoded in `sample_array`. This function should NOT
@@ -495,6 +503,7 @@ mod tests {
     #[cfg(feature = "ffmpeg")]
     use std::path::Path;
 
+    #[cfg(feature = "analysis")]
     #[test]
     fn test_analysis_too_small() {
         let error = Song::analyze(&[0.]).unwrap_err();

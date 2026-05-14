@@ -13,30 +13,34 @@ readme = "README.md"
 exclude = ["data/"]
 
 [package.metadata.docs.rs]
-features = ["bliss-audio-aubio-rs/rustdoc", "library", "ffmpeg"]
+features = ["bliss-audio-aubio-rs/rustdoc", "library", "ffmpeg", "analysis"]
 no-default-features = true
 
 [features]
-default = ["ffmpeg", "aubio-static"]
+default = ["analysis", "ffmpeg", "aubio-static"]
+# Enable audio analysis (requires aubio + rustfft). Disable this if you only need
+# the playlist/distance math (Song, Analysis, NUMBER_FEATURES, playlist module).
+analysis = ["dep:bliss-audio-aubio-rs", "dep:rustfft"]
 # Enable song decoding with ffmpeg. Activated by default, and needed for
 # almost all use-cases, disable it at your own risk!
 # It is only useful if you want to implement the decoding of the tracks yourself
 # and just feed them to bliss, so you don't depend on ffmpeg.
 # TODO make ffmpeg a test-dep
 ffmpeg = ["dep:ffmpeg-next", "dep:ffmpeg-sys-next"]
-aubio-static = ["bliss-audio-aubio-rs/static"]
+aubio-static = ["analysis", "bliss-audio-aubio-rs/static"]
 # Build ffmpeg instead of using the host's.
 build-ffmpeg = ["ffmpeg-next/build"]
 ffmpeg-static = ["ffmpeg-next/static"]
 # Build for raspberry pis
 rpi = ["ffmpeg-next/rpi"]
 # Use if you get "No prebuilt bindings. Try use `bindgen` feature"
-update-aubio-bindings = ["bliss-audio-aubio-rs/bindgen"]
+update-aubio-bindings = ["analysis", "bliss-audio-aubio-rs/bindgen"]
 # Use if you want to build python bindings with maturin.
-python-bindings = ["bliss-audio-aubio-rs/fftw3"]
+python-bindings = ["analysis", "bliss-audio-aubio-rs/fftw3"]
 # Enable the benchmarks with `cargo +nightly bench --features=bench`
-bench = ["dep:criterion"]
+bench = ["analysis", "dep:criterion"]
 library = [
+    "analysis",
     "serde",
     "dep:rusqlite",
     "dep:dirs",
@@ -80,7 +84,7 @@ symphonia-aiff = ["symphonia", "symphonia/aiff", "symphonia/pcm"]
 [dependencies]
 # Until https://github.com/aubio/aubio/issues/336 is somehow solved
 # Hopefully we'll be able to use the official aubio-rs at some point.
-bliss-audio-aubio-rs = "0.2.4"
+bliss-audio-aubio-rs = { version = "0.2.4", optional = true }
 ffmpeg-next = { version = "8.0.0", optional = true }
 ffmpeg-sys-next = { version = "8.0.1", optional = true, default-features = false }
 log = "0.4.17"
@@ -90,7 +94,7 @@ ndarray = { version = "0.16.1", features = ["rayon"] }
 ndarray-stats = "0.6.0"
 noisy_float = "0.2.0"
 adler32 = "1.0.2"
-rustfft = "6.1.0"
+rustfft = { version = "6.1.0", optional = true }
 thiserror = "2.0.12"
 strum = "0.27.1"
 strum_macros = "0.27.1"

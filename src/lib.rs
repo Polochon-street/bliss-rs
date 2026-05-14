@@ -84,15 +84,15 @@ pub mod library;
 pub mod playlist;
 mod song;
 
-#[cfg(not(feature = "bench"))]
+#[cfg(all(feature = "analysis", not(feature = "bench")))]
 mod chroma;
-#[cfg(not(feature = "bench"))]
+#[cfg(all(feature = "analysis", not(feature = "bench")))]
 mod misc;
-#[cfg(not(feature = "bench"))]
+#[cfg(all(feature = "analysis", not(feature = "bench")))]
 mod temporal;
-#[cfg(not(feature = "bench"))]
+#[cfg(all(feature = "analysis", not(feature = "bench")))]
 mod timbral;
-#[cfg(not(feature = "bench"))]
+#[cfg(all(feature = "analysis", not(feature = "bench")))]
 mod utils;
 
 #[cfg(feature = "bench")]
@@ -118,7 +118,9 @@ extern crate serde;
 use strum::EnumCount;
 use thiserror::Error;
 
-pub use song::{decoder, Analysis, AnalysisIndex, AnalysisOptions, Song, NUMBER_FEATURES};
+#[cfg(feature = "analysis")]
+pub use song::decoder;
+pub use song::{Analysis, AnalysisIndex, AnalysisOptions, Song, NUMBER_FEATURES};
 
 #[allow(dead_code)]
 /// The number of channels the raw samples must have to be analyzed by bliss-rs
