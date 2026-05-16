@@ -15,10 +15,12 @@ For now (and if you're looking for an easy-to use smooth play experience),
 [blissify](https://crates.io/crates/blissify) implements bliss for
 [MPD](https://www.musicpd.org/).
 
-There are also [python](https://pypi.org/project/bliss-audio/) bindings.
-The wheels are compiled used [maturin](https://github.com/PyO3/maturin/); the
-sources [are available here](https://github.com/Polochon-street/bliss-python)
-for inspiration.
+The following bindings are available:
+1. [python](https://pypi.org/project/bliss-audio/) bindings. The wheels are compiled
+   using [maturin](https://github.com/PyO3/maturin/); the sources
+   [are available here](https://github.com/Polochon-street/bliss-python)
+   for inspiration.
+2. Typescript bindings for Bun (more runtimes planned). [NPM package bliss-audio-ts](https://npmx.dev/package/bliss-audio-ts), the source is [here](https://github.com/nikelborm/effect-garden/tree/main/packages/bliss-audio-ts#readme)
 
 Note: the features bliss-rs outputs are not compatible with the ones
 used by C-bliss, since it uses
@@ -83,7 +85,7 @@ Ready to use code examples:
 
 ### Compute the distance between two songs
 
-```
+```rust
 use bliss_audio::decoder::bliss_ffmpeg::FFmpegDecoder as Decoder;
 use bliss_audio::decoder::Decoder as DecoderTrait;
 use bliss_audio::BlissError;
@@ -99,7 +101,7 @@ fn main() -> Result<(), BlissError> {
 
 ### Make a playlist from a song
 
-```
+```rust
 use bliss_audio::decoder::bliss_ffmpeg::FFmpegDecoder as Decoder;
 use bliss_audio::decoder::Decoder as DecoderTrait;
 use bliss_audio::{BlissError, Song};
