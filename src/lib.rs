@@ -85,6 +85,8 @@ pub mod playlist;
 mod song;
 
 #[cfg(all(feature = "analysis", not(feature = "bench")))]
+mod aubio;
+#[cfg(all(feature = "analysis", not(feature = "bench")))]
 mod chroma;
 #[cfg(all(feature = "analysis", not(feature = "bench")))]
 mod misc;
@@ -95,6 +97,9 @@ mod timbral;
 #[cfg(all(feature = "analysis", not(feature = "bench")))]
 mod utils;
 
+#[cfg(feature = "bench")]
+#[doc(hidden)]
+pub mod aubio;
 #[cfg(feature = "bench")]
 #[doc(hidden)]
 pub mod chroma;

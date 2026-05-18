@@ -58,7 +58,7 @@ jobs:
     - name: Install emscripten
       run: rustup target add wasm32-unknown-emscripten && rustup install nightly && rustup component add rust-src --toolchain nightly && cd /tmp && git clone https://github.com/emscripten-core/emsdk.git && cd ./emsdk && ./emsdk install latest && ./emsdk activate latest
     - name: Build emscripten
-      run: source /tmp/emsdk/emsdk_env.sh && cargo build --target wasm32-unknown-emscripten --features=update-aubio-bindings --no-default-features
+      run: source /tmp/emsdk/emsdk_env.sh && cargo build --target wasm32-unknown-emscripten --no-default-features
 
   build-test-lint-windows:
     name: Windows - build, test and lint
