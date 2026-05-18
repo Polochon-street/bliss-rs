@@ -148,8 +148,10 @@ pub fn mahalanobis_distance(a: &Array1<f32>, b: &Array1<f32>, m: &Array2<f32>) -
 /// This is useful for dynamically adapting the distance metric to emphasize
 /// the characteristics that a set of seed songs have in common.
 ///
-/// Returns `None` if fewer than 2 seeds are provided (variance is undefined
-/// for a single point).
+/// Returns `None` if:
+/// - fewer than 2 seeds are provided (variance is undefined for a single point),
+/// - the feature vectors are empty (zero-length), or
+/// - any seed has a different length than the first seed.
 ///
 /// # Arguments
 ///
@@ -173,6 +175,12 @@ pub fn variance_based_weight_matrix(seeds: &[Array1<f32>]) -> Option<Array2<f32>
         return None;
     }
     let n = seeds[0].len();
+    if n == 0 {
+        return None;
+    }
+    if seeds.iter().any(|s| s.len() != n) {
+        return None;
+    }
     let n_seeds = seeds.len() as f32;
 
     // Compute mean per dimension
@@ -1635,5 +1643,94 @@ mod test {
         for e in &kind_of_blue {
             assert!(playlist[playlist.len() - 5..].contains(&e));
         }
+    }
+
+    #[test]
+    fn test_variance_based_weight_matrix_none_for_single_seed() {
+        let seed = arr1(&[1.0_f32, 2.0, 3.0]);
+        assert!(variance_based_weight_matrix(&[seed]).is_none());
+    }
+
+    #[test]
+    fn test_variance_based_weight_matrix_stable_vs_variable() {
+        // Dimensions 0 and 2 are identical across all seeds (zero variance) →
+        // should receive the highest weights. Dimension 1 swings wildly →
+        // should receive an almost-zero weight.
+        let seed1 = arr1(&[1.0_f32, 0.0, 1.0]);
+        let seed2 = arr1(&[1.0_f32, 100.0, 1.0]);
+        let seed3 = arr1(&[1.0_f32, 200.0, 1.0]);
+        let m = variance_based_weight_matrix(&[seed1, seed2, seed3]).unwrap();
+
+        assert_eq!(m.shape(), &[3, 3]);
+
+        // stable dimensions outweigh the variable one
+        assert!(m[[0, 0]] > m[[1, 1]]);
+        assert!(m[[2, 2]] > m[[1, 1]]);
+
+        // off-diagonal entries are zero (diagonal matrix)
+        assert_eq!(m[[0, 1]], 0.0);
+        assert_eq!(m[[0, 2]], 0.0);
+        assert_eq!(m[[1, 0]], 0.0);
+        assert_eq!(m[[1, 2]], 0.0);
+        assert_eq!(m[[2, 0]], 0.0);
+        assert_eq!(m[[2, 1]], 0.0);
+    }
+
+    #[test]
+    fn test_variance_based_weight_matrix_weights_sum() {
+        // The diagonal entries must sum to n (the number of dimensions) so that
+        // the overall distance scale is preserved relative to the identity matrix.
+        let seed1 = arr1(&[1.0_f32, 0.0, 1.0]);
+        let seed2 = arr1(&[1.0_f32, 100.0, 1.0]);
+        let seed3 = arr1(&[1.0_f32, 200.0, 1.0]);
+        let m = variance_based_weight_matrix(&[seed1, seed2, seed3]).unwrap();
+        let n = 3_f32;
+        let diagonal_sum = m[[0, 0]] + m[[1, 1]] + m[[2, 2]];
+        assert!((diagonal_sum - n).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_variance_based_weight_matrix_identical_seeds() {
+        // When all seeds are identical every dimension has zero variance.
+        // The epsilon guard kicks in equally for all of them, so all weights
+        // must normalize to 1.0 each.
+        let seed1 = arr1(&[1.0_f32, 2.0, 3.0]);
+        let seed2 = arr1(&[1.0_f32, 2.0, 3.0]);
+        let seed3 = arr1(&[1.0_f32, 2.0, 3.0]);
+        let m = variance_based_weight_matrix(&[seed1, seed2, seed3]).unwrap();
+        assert!((m[[0, 0]] - 1.0_f32).abs() < 1e-4);
+        assert!((m[[1, 1]] - 1.0_f32).abs() < 1e-4);
+        assert!((m[[2, 2]] - 1.0_f32).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_variance_based_weight_matrix_two_seeds_minimum() {
+        // Two seeds is the minimum allowed. The result must be Some and obey
+        // the same ordering invariants as larger seed sets.
+        let seed1 = arr1(&[0.0_f32, 50.0]);
+        let seed2 = arr1(&[0.0_f32, 150.0]);
+        let m = variance_based_weight_matrix(&[seed1, seed2]).unwrap();
+        assert_eq!(m.shape(), &[2, 2]);
+        // dim 0 is stable, dim 1 varies a lot
+        assert!(m[[0, 0]] > m[[1, 1]]);
+    }
+
+    #[test]
+    fn test_variance_based_weight_matrix_mismatched_dimensions() {
+        // Seeds of different lengths cannot form a meaningful weight matrix;
+        // the function must return None rather than panicking.
+        let seed1 = arr1(&[1.0_f32, 2.0, 3.0]);
+        let seed2 = arr1(&[1.0_f32, 2.0]); // one dimension short
+        assert!(variance_based_weight_matrix(&[seed1, seed2]).is_none());
+    }
+
+    #[test]
+    fn test_variance_based_weight_matrix_empty_feature_vectors() {
+        // Zero-length feature vectors have no meaningful variance;
+        // the function must return None rather than producing a 0×0 matrix
+        // with a NaN normalization step.
+        let seed1: Array1<f32> = arr1(&[]);
+        let seed2: Array1<f32> = arr1(&[]);
+        assert!(variance_based_weight_matrix(&[seed1, seed2]).is_none());
     }
 }
