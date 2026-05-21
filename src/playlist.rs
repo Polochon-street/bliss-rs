@@ -148,7 +148,7 @@ pub fn mahalanobis_distance(a: &Array1<f32>, b: &Array1<f32>, m: &Array2<f32>) -
 /// This is useful for dynamically adapting the distance metric to emphasize
 /// the characteristics that a set of seed songs have in common.
 ///
-/// Returns `None` if:
+/// Returns an error if:
 /// - fewer than 2 seeds are provided (variance is undefined for a single point),
 /// - the feature vectors are empty (zero-length), or
 /// - any seed has a different length than the first seed.
@@ -170,16 +170,22 @@ pub fn mahalanobis_distance(a: &Array1<f32>, b: &Array1<f32>, m: &Array2<f32>) -
 /// let m = variance_based_weight_matrix(&[seed1, seed2]).unwrap();
 /// assert!(m[[0, 0]] > m[[1, 1]]); // stable dimension weighted higher
 /// ```
-pub fn variance_based_weight_matrix(seeds: &[Array1<f32>]) -> Option<Array2<f32>> {
+pub fn variance_based_weight_matrix(seeds: &[Array1<f32>]) -> BlissResult<Array2<f32>> {
     if seeds.len() < 2 {
-        return None;
+        return Err(BlissError::ProviderError(String::from(
+            "seeds must contain more than one element",
+        )));
     }
     let n = seeds[0].len();
     if n == 0 {
-        return None;
+        return Err(BlissError::ProviderError(String::from(
+            "seed feature vectors must not be empty",
+        )));
     }
     if seeds.iter().any(|s| s.len() != n) {
-        return None;
+        return Err(BlissError::ProviderError(String::from(
+            "all seed feature vectors must have the same length",
+        )));
     }
     let n_seeds = seeds.len() as f32;
 
@@ -211,7 +217,7 @@ pub fn variance_based_weight_matrix(seeds: &[Array1<f32>]) -> Option<Array2<f32>
     for i in 0..n {
         m[[i, i]] = weights[i];
     }
-    Some(m)
+    Ok(m)
 }
 
 fn feature_array1_to_array(f: &Array1<f32>) -> [f32; NUMBER_FEATURES] {
@@ -1646,9 +1652,14 @@ mod test {
     }
 
     #[test]
-    fn test_variance_based_weight_matrix_none_for_single_seed() {
+    fn test_variance_based_weight_matrix_error_for_single_seed() {
         let seed = arr1(&[1.0_f32, 2.0, 3.0]);
-        assert!(variance_based_weight_matrix(&[seed]).is_none());
+        assert_eq!(
+            variance_based_weight_matrix(&[seed]),
+            Err(BlissError::ProviderError(String::from(
+                "seeds must contain more than one element",
+            ))),
+        );
     }
 
     #[test]
@@ -1718,19 +1729,29 @@ mod test {
     #[test]
     fn test_variance_based_weight_matrix_mismatched_dimensions() {
         // Seeds of different lengths cannot form a meaningful weight matrix;
-        // the function must return None rather than panicking.
+        // the function must return an error rather than panicking.
         let seed1 = arr1(&[1.0_f32, 2.0, 3.0]);
         let seed2 = arr1(&[1.0_f32, 2.0]); // one dimension short
-        assert!(variance_based_weight_matrix(&[seed1, seed2]).is_none());
+        assert_eq!(
+            variance_based_weight_matrix(&[seed1, seed2]),
+            Err(BlissError::ProviderError(String::from(
+                "all seed feature vectors must have the same length",
+            ))),
+        );
     }
 
     #[test]
     fn test_variance_based_weight_matrix_empty_feature_vectors() {
         // Zero-length feature vectors have no meaningful variance;
-        // the function must return None rather than producing a 0×0 matrix
+        // the function must return an error rather than producing a 0×0 matrix
         // with a NaN normalization step.
         let seed1: Array1<f32> = arr1(&[]);
         let seed2: Array1<f32> = arr1(&[]);
-        assert!(variance_based_weight_matrix(&[seed1, seed2]).is_none());
+        assert_eq!(
+            variance_based_weight_matrix(&[seed1, seed2]),
+            Err(BlissError::ProviderError(String::from(
+                "seed feature vectors must not be empty",
+            ))),
+        );
     }
 }
