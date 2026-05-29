@@ -3,10 +3,19 @@
 //! Contains various descriptors that don't fit in one of the
 //! existing categories.
 
-use bliss_audio_aubio_rs::level_lin;
 use ndarray::{arr1, Axis};
 
 use super::utils::{mean, Normalize};
+
+/// Compute mean energy (level_lin)
+/// Transcribed from aubio/src/mathutils.c:328-340
+fn level_lin(data: &[f32]) -> f32 {
+    let mut energy = 0.0;
+    for &x in data {
+        energy += x * x;
+    }
+    energy / data.len() as f32
+}
 
 /**
  * Loudness (in dB) detection object.

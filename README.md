@@ -72,7 +72,7 @@ Don't forget the `--release` flag!
 
 To use Symphonia instead of FFmpeg to decode songs, use the symphonia-all feature flag instead:
 
-        cargo run --release --example=playlist --no-default-features --features=serde,aubio-static,symphonia-all /path/to/folder /path/to/first/song
+        cargo run --release --example=playlist --no-default-features --features=serde,symphonia-all /path/to/folder /path/to/first/song
 
 By default, it outputs the playlist to stdout, but you can use `-o <path>`
 to output it to a specific path.
@@ -153,7 +153,7 @@ For convenience's sake, two different decoder suites have been implemented:
 
 To turn off the FFmpeg dependency, and use Symphonia instead:
 
-        cargo build --release --no-default-features --features=aubio-static,symphonia-all
+        cargo build --release --no-default-features --features=symphonia-all
 
 Otherwise, FFmpeg will be used automatically.
 
@@ -229,7 +229,7 @@ method [Song::analyze](https://docs.rs/bliss-audio/latest/bliss_audio/struct.Son
 
 First set up emscripten using the [documentation](https://emscripten.org/docs/getting_started/downloads.html),
 `source /path/to/emsdk_env.sh`, then build bliss using
-`cargo build --target wasm32-unknown-emscripten --features=update-aubio-bindings --no-default-features`
+`cargo build --target wasm32-unknown-emscripten --no-default-features`
 while having the target `wasm32-unknown-emscripten`, that can be installed by
 running `rustup target add wasm32-unknown-emscripten`.
 

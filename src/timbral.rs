@@ -4,8 +4,7 @@
 //! spectral centroid, spectral flatness and spectral roll-off of
 //! a given Song.
 
-use bliss_audio_aubio_rs::vec::CVec;
-use bliss_audio_aubio_rs::{bin_to_freq, PVoc, SpecDesc, SpecShape};
+use crate::aubio::{bin_to_freq, PVoc, SpecDesc, SpecShape};
 use ndarray::{arr1, Axis};
 
 use super::utils::{geometric_mean, mean, number_crossings, Normalize};
@@ -135,13 +134,7 @@ impl SpectralDesc {
                         "error while loading aubio rolloff object: {e}",
                     ))
                 })?,
-            phase_vocoder: PVoc::new(SpectralDesc::WINDOW_SIZE, SpectralDesc::HOP_SIZE).map_err(
-                |e| {
-                    BlissError::AnalysisError(
-                        format!("error while loading aubio pvoc object: {e}",),
-                    )
-                },
-            )?,
+            phase_vocoder: PVoc::new(SpectralDesc::WINDOW_SIZE, SpectralDesc::HOP_SIZE)?,
             values_centroid: Vec::new(),
             values_rolloff: Vec::new(),
             values_flatness: Vec::new(),
@@ -157,12 +150,9 @@ impl SpectralDesc {
      * descriptors' values.
      */
     pub fn do_(&mut self, chunk: &[f32]) -> BlissResult<()> {
+        // Use 512 elements (256 bins) to match the original BUGGY behavior
         let mut fftgrain: Vec<f32> = vec![0.0; SpectralDesc::WINDOW_SIZE];
-        self.phase_vocoder
-            .do_(chunk, fftgrain.as_mut_slice())
-            .map_err(|e| {
-                BlissError::AnalysisError(format!("error while processing aubio pv object: {e}"))
-            })?;
+        self.phase_vocoder.do_(chunk, fftgrain.as_mut_slice())?;
 
         let bin = self
             .centroid_aubio_desc
@@ -183,7 +173,11 @@ impl SpectralDesc {
         let mut bin = self
             .rolloff_aubio_desc
             .do_result(fftgrain.as_slice())
-            .unwrap();
+            .map_err(|e| {
+                BlissError::AnalysisError(format!(
+                    "error while processing aubio rolloff object: {e}",
+                ))
+            })?;
 
         // Until https://github.com/aubio/aubio/pull/318 is in
         if bin > SpectralDesc::WINDOW_SIZE as f32 / 2. {
@@ -197,13 +191,17 @@ impl SpectralDesc {
         );
         self.values_rolloff.push(freq);
 
-        let cvec: CVec = fftgrain.as_slice().into();
-        let geo_mean = geometric_mean(cvec.norm());
+        // Extract norm (magnitude) array from fftgrain for flatness calculation
+        // fftgrain format: [norm_0, ..., norm_255, phas_0, ..., phas_255]
+        let num_bins = SpectralDesc::WINDOW_SIZE / 2;
+        let norm = &fftgrain[..num_bins];
+
+        let geo_mean = geometric_mean(norm);
         if geo_mean == 0.0 {
             self.values_flatness.push(0.0);
             return Ok(());
         }
-        let flatness = geo_mean / mean(cvec.norm());
+        let flatness = geo_mean / mean(norm);
         self.values_flatness.push(flatness);
         Ok(())
     }
@@ -300,7 +298,7 @@ mod tests {
     #[cfg(feature = "ffmpeg")]
     fn test_spectral_flatness_boundaries() {
         let mut spectral_desc = SpectralDesc::new(10).unwrap();
-        let chunk = vec![0.; 1024];
+        let chunk = vec![0.; SpectralDesc::HOP_SIZE];
 
         let expected_values = vec![-1., -1.];
         spectral_desc.do_(&chunk).unwrap();
@@ -350,7 +348,7 @@ mod tests {
     #[cfg(feature = "ffmpeg")]
     fn test_spectral_roll_off_boundaries() {
         let mut spectral_desc = SpectralDesc::new(10).unwrap();
-        let chunk = vec![0.; 512];
+        let chunk = vec![0.; SpectralDesc::HOP_SIZE];
 
         let expected_values = vec![-1., -1.];
         spectral_desc.do_(&chunk).unwrap();
@@ -417,7 +415,7 @@ mod tests {
     #[cfg(feature = "ffmpeg")]
     fn test_spectral_centroid_boundaries() {
         let mut spectral_desc = SpectralDesc::new(10).unwrap();
-        let chunk = vec![0.; 512];
+        let chunk = vec![0.; SpectralDesc::HOP_SIZE];
 
         spectral_desc.do_(&chunk).unwrap();
         let expected_values = vec![-1., -1.];

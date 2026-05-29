@@ -3,9 +3,9 @@
 //! Contains functions to extract & summarize the temporal aspects
 //! of a given Song.
 
+use crate::aubio::Tempo;
 use crate::utils::Normalize;
-use crate::{BlissError, BlissResult};
-use bliss_audio_aubio_rs::{OnsetMode, Tempo};
+use crate::BlissResult;
 use log::warn;
 use ndarray::arr1;
 use ndarray_stats::interpolate::Midpoint;
@@ -30,7 +30,7 @@ use noisy_float::prelude::*;
  */
 #[doc(hidden)]
 pub struct BPMDesc {
-    aubio_obj: Tempo,
+    tempo: Tempo,
     bpms: Vec<f32>,
 }
 
@@ -42,26 +42,17 @@ impl BPMDesc {
 
     pub fn new(sample_rate: u32) -> BlissResult<Self> {
         Ok(BPMDesc {
-            aubio_obj: Tempo::new(
-                OnsetMode::SpecFlux,
-                BPMDesc::WINDOW_SIZE,
-                BPMDesc::HOP_SIZE,
-                sample_rate,
-            )
-            .map_err(|e| {
-                BlissError::AnalysisError(format!("error while loading aubio tempo object: {e}"))
-            })?,
+            tempo: Tempo::new(BPMDesc::WINDOW_SIZE, BPMDesc::HOP_SIZE, sample_rate)?,
             bpms: Vec::new(),
         })
     }
 
     pub fn do_(&mut self, chunk: &[f32]) -> BlissResult<()> {
-        let result = self.aubio_obj.do_result(chunk).map_err(|e| {
-            BlissError::AnalysisError(format!("aubio error while computing tempo {e}"))
-        })?;
+        let result = self.tempo.do_(chunk)?;
 
-        if result > 0. {
-            self.bpms.push(self.aubio_obj.get_bpm());
+        if result > 0.0 {
+            let bpm = self.tempo.get_bpm();
+            self.bpms.push(bpm);
         }
         Ok(())
     }
@@ -81,6 +72,7 @@ impl BPMDesc {
             .mapv(n32)
             .quantile_mut(n64(0.5), &Midpoint)
             .unwrap();
+
         self.normalize(median.into())
     }
 }
@@ -99,6 +91,7 @@ mod tests {
     use crate::song::decoder::ffmpeg::FFmpegDecoder as Decoder;
     #[cfg(feature = "ffmpeg")]
     use crate::song::decoder::Decoder as DecoderTrait;
+    use crate::BlissError;
     #[cfg(feature = "ffmpeg")]
     use crate::SAMPLE_RATE;
     #[cfg(feature = "ffmpeg")]

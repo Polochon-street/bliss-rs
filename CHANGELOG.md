@@ -1,5 +1,11 @@
 # Changelog
 
+## bliss 0.11.3
+* Add a variance-based Mahalanobis weight matrix utility, to make playlists
+  seeded by multiple songs smarter. (Thanks @chrober!)
+* Replace the aubio C dependency by a Rust transcription, removing the dependency
+  on the `aubio-rs` crate.
+
 ## bliss 0.11.2
 * Bump ffmpeg.
 

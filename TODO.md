@@ -56,6 +56,8 @@ ask questions if you want to tackle an item.
   A blissify in python?
 - Investigate what type SAMPLE_RATE is in Aubio - maybe u16 is enough.
 - Add a proper feature explanation page.
+- Make sure the descriptor warnings ("Set tempo value to zero because no beats were found")
+  are tied to a song. Otherwise, this signal gets lost while analyzing multiple songs.
 
 ## Done
 
