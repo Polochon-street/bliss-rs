@@ -2,18 +2,19 @@
 //!
 //! Upstreamed from the `mecomp-analysis` crate.
 
-use std::{f32::consts::SQRT_2, fs::File, time::Duration};
+use std::{f32::consts::SQRT_2, fs::File};
 
-use rubato::{FftFixedIn, Resampler};
+use audioadapter_buffers::direct::InterleavedSlice;
+use rubato::{Fft, FixedSync, Resampler};
 use symphonia::{
     core::{
-        audio::{AudioBufferRef, Layout, SampleBuffer, SignalSpec},
-        codecs::{DecoderOptions, CODEC_TYPE_NULL},
+        audio::{layouts::CHANNEL_LAYOUT_STEREO, AudioSpec, GenericAudioBufferRef},
+        codecs::audio::AudioDecoderOptions,
         errors::Error,
-        formats::{FormatOptions, FormatReader},
+        formats::probe::Hint,
+        formats::{FormatReader, TrackType},
         io::{MediaSourceStream, MediaSourceStreamOptions},
         meta::MetadataOptions,
-        probe::Hint,
         units,
     },
     default::get_probe,
@@ -87,16 +88,16 @@ const CHUNK_SIZE: usize = 4096;
 
 /// Struct used by the symphonia-based bliss decoders to decode audio files
 struct SymphoniaSource {
-    decoder: Box<dyn symphonia::core::codecs::Decoder>,
+    decoder: Box<dyn symphonia::core::codecs::audio::AudioDecoder>,
     current_span_offset: usize,
     format: Box<dyn FormatReader>,
-    total_duration: Option<Duration>,
-    buffer: SampleBuffer<f32>,
-    spec: SignalSpec,
+    total_duration: Option<units::Time>,
+    buffer: Vec<f32>,
+    spec: AudioSpec,
 }
 
 impl SymphoniaSource {
-    pub fn new(mss: MediaSourceStream) -> Result<Self, SymphoniaDecoderError> {
+    pub fn new(mss: MediaSourceStream<'static>) -> Result<Self, SymphoniaDecoderError> {
         match Self::init(mss) {
             Err(e) => match e {
                 Error::IoError(e) => Err(SymphoniaDecoderError::IoError(e.to_string())),
@@ -113,47 +114,57 @@ impl SymphoniaSource {
     /// A "substantial portion" of this implementation comes from the `rodio` crate,
     /// <https://github.com/RustAudio/rodio/blob/1c2cd2f6d99c005533b7a2b4c19ef41728f62116/src/decoder/symphonia.rs>
     /// and is licensed under the MIT License.
-    fn init(mss: MediaSourceStream) -> symphonia::core::errors::Result<Option<Self>> {
+    fn init(mss: MediaSourceStream<'static>) -> symphonia::core::errors::Result<Option<Self>> {
         let hint = Hint::new();
-        let format_opts = FormatOptions {
-            enable_gapless: true,
-            ..Default::default()
-        };
+        let format_opts = Default::default();
         let metadata_opts = MetadataOptions::default();
-        let mut probed = get_probe().format(&hint, mss, &format_opts, &metadata_opts)?;
+        let mut format = get_probe().probe(&hint, mss, format_opts, metadata_opts)?;
 
-        let Some(stream) = probed.format.default_track() else {
+        if format.default_track(TrackType::Audio).is_none() {
             return Ok(None);
         };
 
         // Select the first supported track
-        let track = probed
-            .format
-            .tracks()
-            .iter()
-            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        let track = format
+            .default_track(TrackType::Audio)
+            .or_else(|| {
+                format.tracks().iter().find(|t| {
+                    t.codec_params
+                        .as_ref()
+                        .and_then(|params| params.audio())
+                        .is_some()
+                })
+            })
             .ok_or(Error::Unsupported("No track with supported codec"))?;
 
         let track_id = track.id;
 
-        let mut decoder = symphonia::default::get_codecs()
-            .make(&track.codec_params, &DecoderOptions::default())?;
-        let total_duration = stream
-            .codec_params
-            .time_base
-            .zip(stream.codec_params.n_frames)
-            .map(|(base, spans)| base.calc_time(spans).into());
+        let mut decoder = symphonia::default::get_codecs().make_audio_decoder(
+            track
+                .codec_params
+                .as_ref()
+                .ok_or(Error::Unsupported(
+                    "Unable to determine the codec parameters",
+                ))?
+                .audio()
+                .ok_or(Error::Unsupported("The codec is not an audio codec"))?,
+            &AudioDecoderOptions::default(),
+        )?;
+        let total_duration = track.time_base.zip(track.duration).and_then(|(tb, dur)| {
+            let ts = units::Timestamp::ZERO.saturating_add(dur);
+            tb.calc_time(ts)
+        });
 
         let mut decode_errors: usize = 0;
         let decoded = loop {
-            let current_span = match probed.format.next_packet() {
-                Ok(packet) => packet,
-                Err(Error::IoError(_)) => break decoder.last_decoded(),
+            let current_span = match format.next_packet() {
+                Ok(Some(packet)) => packet,
+                Ok(None) => break decoder.last_decoded(),
                 Err(e) => return Err(e),
             };
 
             // If the packet does not belong to the selected track, skip over it
-            if current_span.track_id() != track_id {
+            if current_span.track_id != track_id {
                 continue;
             }
 
@@ -168,11 +179,11 @@ impl SymphoniaSource {
         };
 
         let spec = decoded.spec().to_owned();
-        let buffer = Self::get_buffer(decoded, spec);
+        let buffer = Self::get_buffer(decoded);
         Ok(Some(Self {
             decoder,
             current_span_offset: 0,
-            format: probed.format,
+            format,
             total_duration,
             buffer,
             spec,
@@ -180,10 +191,9 @@ impl SymphoniaSource {
     }
 
     #[inline]
-    fn get_buffer(decoded: AudioBufferRef, spec: SignalSpec) -> SampleBuffer<f32> {
-        let duration = units::Duration::from(decoded.capacity() as u64);
-        let mut buffer = SampleBuffer::<f32>::new(duration, spec);
-        buffer.copy_interleaved_ref(decoded);
+    fn get_buffer(decoded: GenericAudioBufferRef) -> Vec<f32> {
+        let mut buffer: Vec<f32> = vec![0.0; decoded.samples_interleaved()];
+        decoded.copy_to_slice_interleaved(&mut buffer);
         buffer
     }
 }
@@ -196,9 +206,11 @@ impl Iterator for SymphoniaSource {
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         (
-            self.buffer.samples().len(),
+            self.buffer.len(),
             self.total_duration.map(|dur| {
-                (dur.as_secs() + 1) as usize * self.spec.rate as usize * self.spec.channels.count()
+                (dur.as_secs() + 1) as usize
+                    * self.spec.rate() as usize
+                    * self.spec.channels().count()
             }),
         )
     }
@@ -207,7 +219,7 @@ impl Iterator for SymphoniaSource {
         if self.current_span_offset >= self.buffer.len() {
             let mut decode_errors = 0;
             let decoded = loop {
-                let packet = self.format.next_packet().ok()?;
+                let packet = self.format.next_packet().ok()??;
                 match self.decoder.decode(&packet) {
                     // Loop until we get a packet with audio frames. This is necessary because some
                     // formats can have packets with only metadata, particularly when rewinding, in
@@ -225,12 +237,12 @@ impl Iterator for SymphoniaSource {
             };
 
             decoded.spec().clone_into(&mut self.spec);
-            self.buffer = Self::get_buffer(decoded, self.spec);
+            self.buffer = Self::get_buffer(decoded);
             self.current_span_offset = 1;
-            return self.buffer.samples().first().copied();
+            return self.buffer.first().copied();
         }
 
-        let sample = self.buffer.samples().get(self.current_span_offset);
+        let sample = self.buffer.get(self.current_span_offset);
         self.current_span_offset += 1;
 
         sample.copied()
@@ -252,7 +264,7 @@ impl SymphoniaDecoder {
     /// TODO: Figure out how ffmpeg does it for 2.1 and 5.1 surround sound, and do it the same way
     #[inline]
     fn into_mono_samples(source: SymphoniaSource) -> Result<Vec<f32>, SymphoniaDecoderError> {
-        let num_channels = source.spec.channels.count();
+        let num_channels = source.spec.channels().count();
         if source.total_duration.is_none() {
             return Err(SymphoniaDecoderError::IndeterminantDuration);
         }
@@ -264,7 +276,7 @@ impl SymphoniaDecoder {
             1 => Ok(source.collect()),
             // stereo
             2 => {
-                assert!(source.spec.channels == Layout::Stereo.into_channels());
+                assert!(*source.spec.channels() == CHANNEL_LAYOUT_STEREO);
 
                 let mono_samples = source
                     .collect::<Vec<_>>()
@@ -294,58 +306,100 @@ impl SymphoniaDecoder {
     fn resample_mono_samples(
         mut samples: Vec<f32>,
         sample_rate: u32,
-        total_duration: Duration,
     ) -> Result<Vec<f32>, SymphoniaDecoderError> {
         if sample_rate == SAMPLE_RATE {
             samples.shrink_to_fit();
             return Ok(samples);
         }
 
-        let mut resampled =
-            Vec::with_capacity((total_duration.as_secs() as usize + 1) * SAMPLE_RATE as usize);
+        let mut resampler = Fft::new(
+            sample_rate as usize,
+            SAMPLE_RATE as usize,
+            CHUNK_SIZE,
+            4,
+            1,
+            FixedSync::Input,
+        )
+        .map_err(SymphoniaDecoderError::from)?;
 
-        let mut resampler =
-            FftFixedIn::new(sample_rate as usize, SAMPLE_RATE as usize, CHUNK_SIZE, 4, 1)
-                .map_err(SymphoniaDecoderError::from)?;
+        let capacity = resampler.process_all_needed_output_len(samples.len());
+        let mut resampled = Vec::with_capacity(capacity);
 
         let delay = resampler.output_delay();
 
-        let new_length = samples.len() * SAMPLE_RATE as usize / sample_rate as usize;
-        let mut output_buffer = resampler.output_buffer_allocate(true);
+        // Since this is mono
+        let output_chunk_size = resampler.output_frames_max();
+        let input_chunk_size = resampler.input_frames_next();
+        let mut output_buffer = vec![0.0; output_chunk_size];
 
         // chunks of frames, each being CHUNKSIZE long.
-        let sample_chunks = samples.chunks_exact(CHUNK_SIZE);
+        let sample_chunks = samples.chunks_exact(input_chunk_size);
         let remainder = sample_chunks.remainder();
 
         for chunk in sample_chunks {
-            debug_assert!(resampler.input_frames_next() == CHUNK_SIZE);
+            debug_assert!(resampler.input_frames_next() == input_chunk_size);
 
+            let input = InterleavedSlice::new(chunk, 1, input_chunk_size)
+                .map_err(|e| SymphoniaDecoderError::ResampleError(e.to_string()))?;
+
+            let mut output_adapter =
+                InterleavedSlice::new_mut(&mut output_buffer, 1, output_chunk_size)
+                    .map_err(|e| SymphoniaDecoderError::ResampleError(e.to_string()))?;
             let (_, output_written) =
-                resampler.process_into_buffer(&[chunk], output_buffer.as_mut_slice(), None)?;
-            resampled.extend_from_slice(&output_buffer[0][..output_written]);
+                resampler.process_into_buffer(&input, &mut output_adapter, None)?;
+            resampled.extend_from_slice(&output_buffer[..output_written]);
         }
 
         // process the remainder
         if !remainder.is_empty() {
-            let (_, output_written) = resampler.process_partial_into_buffer(
-                Some(&[remainder]),
-                output_buffer.as_mut_slice(),
-                None,
+            let remainder_indexing = rubato::Indexing {
+                input_offset: 0,
+                output_offset: 0,
+                partial_len: Some(remainder.len()),
+                active_channels_mask: None,
+            };
+            let input = InterleavedSlice::new(remainder, 1, remainder.len())
+                .map_err(|e| SymphoniaDecoderError::ResampleError(e.to_string()))?;
+            let mut output_adapter =
+                InterleavedSlice::new_mut(&mut output_buffer, 1, output_chunk_size)
+                    .map_err(|e| SymphoniaDecoderError::ResampleError(e.to_string()))?;
+
+            let (_, output_written) = resampler.process_into_buffer(
+                &input,
+                &mut output_adapter,
+                Some(&remainder_indexing),
             )?;
-            resampled.extend_from_slice(&output_buffer[0][..output_written]);
+            resampled.extend_from_slice(&output_buffer[..output_written]);
         }
 
-        // flush final samples from resampler
-        if resampled.len() < new_length + delay {
-            let (_, output_written) = resampler.process_partial_into_buffer(
-                Option::<&[&[f32]]>::None,
-                output_buffer.as_mut_slice(),
-                None,
+        let flush_indexing = rubato::Indexing {
+            input_offset: 0,
+            output_offset: 0,
+            partial_len: Some(0),
+            active_channels_mask: None,
+        };
+
+        let expected_output_len =
+            (resampler.resample_ratio() * samples.len() as f64).ceil() as usize;
+
+        // Flush the remaining samples
+        let padded_zeros = vec![0.0; input_chunk_size];
+        while resampled.len() < expected_output_len + delay {
+            let input = InterleavedSlice::new(&padded_zeros, 1, input_chunk_size)
+                .map_err(|e| SymphoniaDecoderError::ResampleError(e.to_string()))?;
+            let mut output_adapter =
+                InterleavedSlice::new_mut(&mut output_buffer, 1, output_chunk_size)
+                    .map_err(|e| SymphoniaDecoderError::ResampleError(e.to_string()))?;
+
+            let (_, output_written) = resampler.process_into_buffer(
+                &input,
+                &mut output_adapter,
+                Some(&flush_indexing),
             )?;
-            resampled.extend_from_slice(&output_buffer[0][..output_written]);
+            resampled.extend_from_slice(&output_buffer[..output_written]);
         }
 
-        Ok(resampled[delay..new_length + delay].to_vec())
+        Ok(resampled[delay..expected_output_len + delay].to_vec())
     }
 }
 
@@ -365,16 +419,15 @@ impl Decoder for SymphoniaDecoder {
         let source = SymphoniaSource::new(mss)?;
 
         // Convert the audio source into a mono channel
-        let sample_rate = source.spec.rate;
-        let Some(total_duration) = source.total_duration else {
+        let sample_rate = source.spec.rate();
+        if source.total_duration.is_none() {
             return Err(SymphoniaDecoderError::IndeterminantDuration.into());
         };
 
         let mono_sample_array = Self::into_mono_samples(source)?;
 
         // then we need to resample the audio source into 22050 Hz
-        let resampled_array =
-            Self::resample_mono_samples(mono_sample_array, sample_rate, total_duration)?;
+        let resampled_array = Self::resample_mono_samples(mono_sample_array, sample_rate)?;
 
         Ok(PreAnalyzedSong {
             path: path.to_owned(),
@@ -657,6 +710,7 @@ mod tests {
             ("data/s32_mono_44_1_kHz.flac", 1e-5),
             ("data/s32_stereo_44_1_kHz.flac", 1e-5),
             ("data/s32_stereo_44_1_kHz.mp3", 1e-5),
+            ("data/flush_test_52000.wav", 1e-4),
             // TODO those files are "special" files with e.g. sin waves tones,
             // which are very sensitive to resampling.
             ("data/special-tags.mp3", 0.03),
@@ -672,6 +726,12 @@ mod tests {
             let symphonia_decoded = Decoder::decode(&path).unwrap();
             let ffmpeg_decoded = crate::decoder::ffmpeg::FFmpegDecoder::decode(&path).unwrap();
 
+            assert_eq!(
+                symphonia_decoded.sample_array.len(),
+                ffmpeg_decoded.sample_array.len(),
+                "Different sample numbers between ffmpeg and symphonia for song: {}",
+                path.display(),
+            );
             // calculate the similarity between the two arrays
             let mut diff = 0.0;
             for (a, b) in symphonia_decoded

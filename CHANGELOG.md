@@ -1,5 +1,9 @@
 # Changelog
 
+## bliss 0.11.4
+* Bump dependencies, most notably updating the symphonia module after
+  breaking changes in both Symphonia and Rubato.
+
 ## bliss 0.11.3
 * Add a variance-based Mahalanobis weight matrix utility, to make playlists
   seeded by multiple songs smarter. (Thanks @chrober!)

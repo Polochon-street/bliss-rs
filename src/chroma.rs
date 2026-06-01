@@ -397,7 +397,7 @@ fn chroma_stft(
     n_chroma: u32,
     tuning: f64,
 ) -> Result<Array2<f64>, BlissError> {
-    spectrum.par_mapv_inplace(|x| x * x);
+    spectrum.mapv_inplace(|x| x * x);
     let mut raw_chroma = chroma_filter(sample_rate, n_fft, n_chroma, tuning)?;
 
     raw_chroma = raw_chroma.dot(spectrum);
