@@ -1592,7 +1592,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 values ((select id from song where path = ?1), ?2, ?3)
                 on conflict(song_id, feature_index) do update set feature=excluded.feature;
                 ",
-                params![song.path.to_str(), feature, index],
+                params![song.path.to_str(), feature, index as u8],
             )
             .map_err(|e| BlissError::ProviderError(e.to_string()))?;
         }
@@ -2172,7 +2172,7 @@ mod test {
                                 (2201, ?10, ?1);
                             ",
                         params![
-                            index,
+                            index as u8,
                             index as f32 / 10.,
                             index as f32 + 10.,
                             index as f32 / 10. + 1.,
@@ -2196,7 +2196,7 @@ mod test {
                                 (8001, ?2, ?1),
                                 (9001, ?3, ?1);
                             ",
-                        params![index, index as f32 / 20., index + 1],
+                        params![index as u8, index as f32 / 20., index as u8 + 1],
                     )
                     .unwrap();
             }
@@ -3167,7 +3167,7 @@ mod test {
                     where song.path = ?
                 ",
         )?;
-        stmt.query_row([path], |row| (row.get(0)))
+        stmt.query_row([path], |row| row.get(0))
     }
 
     #[test]

@@ -42,6 +42,7 @@ ask questions if you want to tackle an item.
 - Library: the database should maybe have errored_songs in a separate column (and remove
   the "analyzed" flag?)
 - Library: Add a command to dump the contents of the library?
+- Make the examples use either symphonia or ffmpeg depending on the feature flag.
 
 ### Maintenance tasks
 
@@ -58,6 +59,10 @@ ask questions if you want to tackle an item.
 - Add a proper feature explanation page.
 - Make sure the descriptor warnings ("Set tempo value to zero because no beats were found")
   are tied to a song. Otherwise, this signal gets lost while analyzing multiple songs.
+- Silence Symphonia's warnings. Example: 
+  ```
+  [2026-06-16T22:58:27Z WARN  symphonia_bundle_flac::parser] expected 7595784 frames but only read 7593984 before end of stream"
+  ```
 
 ## Done
 
