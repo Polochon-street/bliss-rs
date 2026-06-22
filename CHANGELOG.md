@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.12.0
+* Fix some old TODOs.
+
 ## bliss 0.11.4
 * Bump dependencies, most notably updating the symphonia module after
   breaking changes in both Symphonia and Rubato.

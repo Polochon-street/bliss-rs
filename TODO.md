@@ -13,6 +13,8 @@ ask questions if you want to tackle an item.
 - Optimize / lower RAM consumption: chroma features can be streamed with very
   little precision loss. Need to investigate the most lossless way to stream
   the tuning.
+- Add "statistics" to the library trait (proportion of
+  "happy" (major) songs, average speed of songs, etc).
 
 ### New features
 
@@ -43,6 +45,8 @@ ask questions if you want to tackle an item.
   the "analyzed" flag?)
 - Library: Add a command to dump the contents of the library?
 - Make the examples use either symphonia or ffmpeg depending on the feature flag.
+- Library example: be smarter when inputting a song so you don't have to type
+  the full path (maybe partial matching even?)
 
 ### Maintenance tasks
 
