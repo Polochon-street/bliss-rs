@@ -243,12 +243,11 @@ impl PVoc {
         fftgrain[0] = self.buffer[0].re.abs();
         fftgrain[num_bins] = if self.buffer[0].re < 0.0 { PI } else { 0.0 };
 
-        // Bins 1 to 254: compute magnitude and phase normally
-        for i in 1..num_bins - 1 {
+        // Bins 1 to 254: compute magnitude normally, skip phase (not used)
+        for (i, item) in fftgrain.iter_mut().enumerate().take(num_bins - 1).skip(1) {
             let re = self.buffer[i].re;
             let im = self.buffer[i].im;
-            fftgrain[i] = (re * re + im * im).sqrt(); // magnitude
-            fftgrain[num_bins + i] = im.atan2(re); // phase
+            *item = (re * re + im * im).sqrt(); // magnitude
         }
 
         // Bin 255: aubio puts the NYQUIST bin here (bin 256) due to the buffer overflow bug!
@@ -406,12 +405,11 @@ impl PVocTempo {
         fftgrain[0] = self.buffer[0].re.abs();
         fftgrain[num_bins] = if self.buffer[0].re < 0.0 { PI } else { 0.0 };
 
-        // Bins 1 to 255: compute magnitude and phase normally
-        for i in 1..num_bins - 1 {
+        // Bins 1 to 255: compute magnitude normally, skip phase (not used)
+        for (i, item) in fftgrain.iter_mut().enumerate().take(num_bins - 1).skip(1) {
             let re = self.buffer[i].re;
             let im = self.buffer[i].im;
-            fftgrain[i] = (re * re + im * im).sqrt(); // magnitude
-            fftgrain[num_bins + i] = im.atan2(re); // phase
+            *item = (re * re + im * im).sqrt(); // magnitude
         }
 
         // Bin 256 (Nyquist): always real, use abs

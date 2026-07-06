@@ -313,7 +313,7 @@ impl fmt::Debug for Analysis {
         }
 
         debug_struct.finish()?;
-        f.write_str(&format!(" /* {:?} */", &self.as_vec()))
+        f.write_str(&format!(" /* {:?} */", self.as_vec()))
     }
 }
 

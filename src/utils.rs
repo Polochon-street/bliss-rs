@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn test_mean() {
-        let numbers = vec![0.0, 1.0, 2.0, 3.0, 4.0];
+        let numbers: Vec<f32> = vec![0.0, 1.0, 2.0, 3.0, 4.0];
         assert_eq!(2.0, mean(&numbers));
     }
 

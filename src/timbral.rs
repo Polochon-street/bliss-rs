@@ -26,6 +26,7 @@ use crate::{BlissError, BlissResult, SAMPLE_RATE};
 #[doc(hidden)]
 pub struct SpectralDesc {
     phase_vocoder: PVoc,
+    fftgrain: Vec<f32>,
     sample_rate: u32,
 
     centroid_aubio_desc: SpecDesc,
@@ -135,6 +136,7 @@ impl SpectralDesc {
                     ))
                 })?,
             phase_vocoder: PVoc::new(SpectralDesc::WINDOW_SIZE, SpectralDesc::HOP_SIZE)?,
+            fftgrain: vec![0.0; SpectralDesc::WINDOW_SIZE],
             values_centroid: Vec::new(),
             values_rolloff: Vec::new(),
             values_flatness: Vec::new(),
@@ -150,13 +152,13 @@ impl SpectralDesc {
      * descriptors' values.
      */
     pub fn do_(&mut self, chunk: &[f32]) -> BlissResult<()> {
-        // Use 512 elements (256 bins) to match the original BUGGY behavior
-        let mut fftgrain: Vec<f32> = vec![0.0; SpectralDesc::WINDOW_SIZE];
-        self.phase_vocoder.do_(chunk, fftgrain.as_mut_slice())?;
+        self.fftgrain.fill(0.0);
+        self.phase_vocoder
+            .do_(chunk, self.fftgrain.as_mut_slice())?;
 
         let bin = self
             .centroid_aubio_desc
-            .do_result(fftgrain.as_slice())
+            .do_result(self.fftgrain.as_slice())
             .map_err(|e| {
                 BlissError::AnalysisError(format!(
                     "error while processing aubio centroid object: {e}",
@@ -172,7 +174,7 @@ impl SpectralDesc {
 
         let mut bin = self
             .rolloff_aubio_desc
-            .do_result(fftgrain.as_slice())
+            .do_result(self.fftgrain.as_slice())
             .map_err(|e| {
                 BlissError::AnalysisError(format!(
                     "error while processing aubio rolloff object: {e}",
@@ -194,7 +196,7 @@ impl SpectralDesc {
         // Extract norm (magnitude) array from fftgrain for flatness calculation
         // fftgrain format: [norm_0, ..., norm_255, phas_0, ..., phas_255]
         let num_bins = SpectralDesc::WINDOW_SIZE / 2;
-        let norm = &fftgrain[..num_bins];
+        let norm = &self.fftgrain[..num_bins];
 
         let geo_mean = geometric_mean(norm);
         if geo_mean == 0.0 {
