@@ -143,6 +143,10 @@ name = "decoder"
 harness = false
 required-features = ["bench"]
 
+[[bench]]
+name = "analysis_pipeline"
+harness = false
+required-features = ["bench"]
 
 [[example]]
 name = "library"

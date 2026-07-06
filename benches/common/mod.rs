@@ -8,7 +8,7 @@ use bliss_audio::decoder::ffmpeg::FFmpegDecoder;
 use bliss_audio::decoder::symphonia::SymphoniaDecoder;
 use bliss_audio::{
     decoder::{Decoder, PreAnalyzedSong},
-    BlissResult,
+    BlissResult, Song,
 };
 
 #[cfg(not(any(feature = "ffmpeg", feature = "symphonia")))]
@@ -25,21 +25,31 @@ pub struct DecoderVTable {
     /// The `decode` function for this decoder.
     #[allow(dead_code)]
     pub decode: &'static (dyn (Fn(&Path) -> BlissResult<PreAnalyzedSong>) + Send + Sync),
+    pub analyze: &'static (dyn (Fn(&Path) -> BlissResult<Song>) + Send + Sync),
 }
 
 #[cfg(feature = "ffmpeg")]
 const FFMPEG_VTABLE: DecoderVTable = DecoderVTable {
     name: "FFmpeg",
     decode: &|path| FFmpegDecoder::decode(path),
+    analyze: &|path| FFmpegDecoder::song_from_path(path),
 };
 
 #[cfg(feature = "symphonia")]
 const SYMPHONIA_VTABLE: DecoderVTable = DecoderVTable {
     name: "Symphonia",
     decode: &|path| SymphoniaDecoder::decode(path),
+    analyze: &|path| SymphoniaDecoder::song_from_path(path),
 };
 
+#[cfg(all(feature = "ffmpeg", feature = "symphonia"))]
 pub const DECODERS: &'static [DecoderVTable] = &[FFMPEG_VTABLE, SYMPHONIA_VTABLE];
+
+#[cfg(all(feature = "ffmpeg", not(feature = "symphonia")))]
+pub const DECODERS: &'static [DecoderVTable] = &[FFMPEG_VTABLE];
+
+#[cfg(all(not(feature = "ffmpeg"), feature = "symphonia"))]
+pub const DECODERS: &'static [DecoderVTable] = &[SYMPHONIA_VTABLE];
 
 /// Get the path to the given test file.
 pub fn test_file(name: &str) -> PathBuf {
