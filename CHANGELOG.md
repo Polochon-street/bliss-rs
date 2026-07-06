@@ -2,6 +2,7 @@
 
 ## bliss 0.12.0
 * Fix some old TODOs.
+* Add a full pipeline benchmark.
 
 ## bliss 0.11.4
 * Bump dependencies, most notably updating the symphonia module after

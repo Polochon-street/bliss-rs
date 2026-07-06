@@ -34,7 +34,7 @@ jobs:
     - name: Run tests
       run: cargo test --verbose
     - name: Build benches
-      run: cargo bench --verbose --features=bench,symphonia-all --no-run
+      run: cargo bench --verbose --features=bench,symphonia-all,ffmpeg --no-run
     - name: Run example tests
       run: cargo test --verbose --examples
     - name: Build examples with library
