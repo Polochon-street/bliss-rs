@@ -268,13 +268,41 @@ impl Default for AnalysisOptions {
     }
 }
 
+impl Analysis {
+    /// Safely get a feature value by index without panicking.
+    /// Returns None if the index is incompatible with this Analysis's features version.
+    pub fn get(&self, index: AnalysisIndex) -> Option<&f32> {
+        if self.features_version != AnalysisIndex::FEATURES_VERSION {
+            return None;
+        }
+        self.internal_analysis.get(index as usize)
+    }
+
+    /// Safely get a feature value by index (v1) without panicking.
+    /// Returns None if the index is incompatible with this Analysis's features version.
+    pub fn get_v1(&self, index: AnalysisIndexv1) -> Option<&f32> {
+        if self.features_version != AnalysisIndexv1::FEATURES_VERSION {
+            return None;
+        }
+        self.internal_analysis.get(index as usize)
+    }
+}
+
 // TODO: group these if this makes sense?
 impl Index<AnalysisIndex> for Analysis {
     type Output = f32;
 
+    /// # Panics
+    /// Panics if the Analysis's features_version doesn't match the index's FEATURES_VERSION.
+    /// For a non-panicking alternative, use [`Analysis::get`].
     fn index(&self, index: AnalysisIndex) -> &f32 {
         if self.features_version != AnalysisIndex::FEATURES_VERSION {
-            panic!("Tried to index features with incompatible indexes");
+            panic!(
+                "Tried to index Analysis with features version {:?} using AnalysisIndex (for {:?}). \
+                Use Analysis::get() for non-panicking access.",
+                self.features_version,
+                AnalysisIndex::FEATURES_VERSION
+            );
         }
         &self.internal_analysis[index as usize]
     }
@@ -283,9 +311,17 @@ impl Index<AnalysisIndex> for Analysis {
 impl Index<AnalysisIndexv1> for Analysis {
     type Output = f32;
 
+    /// # Panics
+    /// Panics if the Analysis's features_version doesn't match the index's FEATURES_VERSION.
+    /// For a non-panicking alternative, use [`Analysis::get_v1`].
     fn index(&self, index: AnalysisIndexv1) -> &f32 {
         if self.features_version != AnalysisIndexv1::FEATURES_VERSION {
-            panic!("Tried to index features with incompatible indexes");
+            panic!(
+                "Tried to index Analysis with features version {:?} using AnalysisIndexv1 (for {:?}). \
+                Use Analysis::get_v1() for non-panicking access.",
+                self.features_version,
+                AnalysisIndexv1::FEATURES_VERSION
+            );
         }
         &self.internal_analysis[index as usize]
     }
@@ -721,7 +757,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "incompatible indexes")]
+    #[should_panic(
+        expected = "Tried to index Analysis with features version Version1 using AnalysisIndex"
+    )]
     fn test_analysis_index_with_wrong_version() {
         let analysis = Analysis::new(
             vec![0.; FeaturesVersion::Version1.feature_count()],

@@ -251,11 +251,8 @@ fn chroma_filter(
     wts *= &freq_bins;
 
     // np.roll(), np bro
-    let mut uninit: Vec<f64> = vec![0.; (wts).len()];
-    unsafe {
-        uninit.set_len(wts.len());
-    }
-    let mut b = Array::from(uninit)
+    let init: Vec<f64> = vec![0.; (wts).len()];
+    let mut b = Array::from(init)
         .into_shape_with_order(wts.dim())
         .map_err(|e| BlissError::AnalysisError(format!("in chroma: {e}")))?;
     b.slice_mut(s![-3.., ..]).assign(&wts.slice(s![..3, ..]));

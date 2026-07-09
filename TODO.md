@@ -51,7 +51,6 @@ ask questions if you want to tackle an item.
 ### Maintenance tasks
 
 - Add a list of dependencies / installation guide for windows and mac
-- Maybe add playlist functions for single songs as convenience methods?
 - Regularly update the python bindings with the new code.
 - Freebsd support? (see https://github.com/Polochon-street/bliss-rs/issues/60)
 - Try to trim out the crates (it is a bit too big right now).
@@ -70,6 +69,7 @@ ask questions if you want to tackle an item.
 
 ## Done
 
+- Add playlist functions for single songs as convenience methods (`closest_to_song` and `song_to_song_from`)
 - Split out ffmpeg (see https://github.com/Polochon-street/bliss-rs/issues/63 and https://users.rust-lang.org/t/proper-way-to-abstract-a-third-party-provider/107076/8)
   - Make ffmpeg an optional (but default) feature 
   - The library trait must be Decoder-agnostic, and not depend on FFmpeg

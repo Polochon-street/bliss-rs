@@ -73,8 +73,18 @@ pub fn euclidean_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
 /// Return the [cosine
 /// distance](https://en.wikipedia.org/wiki/Cosine_similarity#Angular_distance_and_similarity)
 /// between two vectors.
+///
+/// Returns 1.0 (maximum distance) if either vector is a zero vector.
 pub fn cosine_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
-    let similarity = a.dot(b) / (a.dot(a).sqrt() * b.dot(b).sqrt());
+    let norm_a = a.dot(a).sqrt();
+    let norm_b = b.dot(b).sqrt();
+
+    // Avoid division by zero for zero vectors
+    if norm_a == 0.0 || norm_b == 0.0 {
+        return 1.0; // Maximum distance
+    }
+
+    let similarity = a.dot(b) / (norm_a * norm_b);
     1. - similarity
 }
 
@@ -237,9 +247,15 @@ impl DistanceMetricBuilder for ForestOptions {
         if self.sample_size > vectors.len() {
             let mut opts = self.clone();
             opts.sample_size = self.sample_size.min(vectors.len());
-            Box::new(Forest::from_slice(a, &opts).unwrap())
+            Box::new(Forest::from_slice(a, &opts).expect(
+                "Failed to create isolation forest for distance metric. \
+                This may indicate invalid forest options or insufficient data.",
+            ))
         } else {
-            Box::new(Forest::from_slice(a, self).unwrap())
+            Box::new(Forest::from_slice(a, self).expect(
+                "Failed to create isolation forest for distance metric. \
+                This may indicate invalid forest options or insufficient data.",
+            ))
         }
     }
 }
@@ -269,6 +285,39 @@ pub fn closest_to_songs<'a, T: AsRef<Song> + Clone + 'a>(
     candidate_songs.into_iter()
 }
 
+/// Convenience method: return a playlist made of songs as close as possible to a single
+/// `initial_song` from the pool of songs in `candidate_songs`.
+///
+/// This is equivalent to calling `closest_to_songs` with a single-element slice.
+///
+/// # Example
+/// ```no_run
+/// use bliss_audio::decoder::Decoder as DecoderTrait;
+/// use bliss_audio::decoder::ffmpeg::FFmpegDecoder as Decoder;
+/// use bliss_audio::playlist::{closest_to_song, euclidean_distance};
+/// use bliss_audio::BlissResult;
+///
+/// fn main() -> BlissResult<()> {
+///     let paths = vec!["/path/to/song1", "/path/to/song2", "/path/to/song3"];
+///     let songs = Decoder::analyze_paths(&paths)
+///         .filter_map(|(_, s)| s.ok())
+///         .collect::<Vec<_>>();
+///
+///     let first_song = &songs[0];
+///     let playlist: Vec<_> = closest_to_song(first_song, &songs, &euclidean_distance)
+///         .take(10)
+///         .collect();
+///     Ok(())
+/// }
+/// ```
+pub fn closest_to_song<'a, T: AsRef<Song> + Clone + 'a>(
+    initial_song: &T,
+    candidate_songs: &[T],
+    metric_builder: &'a dyn DistanceMetricBuilder,
+) -> impl Iterator<Item = T> + 'a {
+    closest_to_songs(&[initial_song.clone()], candidate_songs, metric_builder)
+}
+
 struct SongToSongIterator<'a, T: AsRef<Song> + Clone> {
     pool: Vec<T>,
     vectors: Vec<Array1<f32>>,
@@ -286,7 +335,10 @@ impl<T: AsRef<Song> + Clone> Iterator for SongToSongIterator<'_, T> {
         let distances: Array1<f32> = Array::from_shape_fn(self.pool.len(), |j| {
             metric.distance(&self.pool[j].as_ref().analysis.as_arr1())
         });
-        let idx = distances.argmin().unwrap();
+        // Safe: pool is guaranteed non-empty by the check above, so distances has at least one element
+        let idx = distances
+            .argmin()
+            .expect("BUG: distances array is empty despite non-empty pool");
         // TODO instead of having a vector that's of size n and then
         // size 1 all the time, find a clever solution on iterator init
         // or something
@@ -322,6 +374,39 @@ pub fn song_to_song<'a, T: AsRef<Song> + Clone + 'a>(
         pool,
     };
     iterator.into_iter()
+}
+
+/// Convenience method: return an iterator starting from a single `initial_song`,
+/// where each subsequent song is the closest to the previous one.
+///
+/// This is equivalent to calling `song_to_song` with a single-element slice.
+///
+/// # Example
+/// ```no_run
+/// use bliss_audio::decoder::Decoder as DecoderTrait;
+/// use bliss_audio::decoder::ffmpeg::FFmpegDecoder as Decoder;
+/// use bliss_audio::playlist::{song_to_song_from, euclidean_distance};
+/// use bliss_audio::BlissResult;
+///
+/// fn main() -> BlissResult<()> {
+///     let paths = vec!["/path/to/song1", "/path/to/song2", "/path/to/song3"];
+///     let songs = Decoder::analyze_paths(&paths)
+///         .filter_map(|(_, s)| s.ok())
+///         .collect::<Vec<_>>();
+///
+///     let first_song = &songs[0];
+///     let playlist: Vec<_> = song_to_song_from(first_song, &songs, &euclidean_distance)
+///         .take(10)
+///         .collect();
+///     Ok(())
+/// }
+/// ```
+pub fn song_to_song_from<'a, T: AsRef<Song> + Clone + 'a>(
+    initial_song: &T,
+    candidate_songs: &[T],
+    metric_builder: &'a dyn DistanceMetricBuilder,
+) -> impl Iterator<Item = T> + 'a {
+    song_to_song(&[initial_song.clone()], candidate_songs, metric_builder)
 }
 
 /// Remove duplicate songs from a playlist, in place.
