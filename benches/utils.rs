@@ -4,8 +4,9 @@ mod common;
 
 use bliss_audio::utils::bench::{convolve, geometric_mean, reflect_pad, stft};
 use common::test_file;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use ndarray::{Array, Array1};
+use std::hint::black_box;
 
 fn bench_convolve(c: &mut Criterion) {
     let input: Array1<f64> = Array::range(0., 1000., 0.5);
