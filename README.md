@@ -27,6 +27,11 @@ used by C-bliss, since it uses
 different, more accurate values, based on
 [actual literature](https://lelele.io/thesis.pdf). It is also faster.
 
+If you use it and like the playlists it produces, feel free to buy me a coffee!
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/B4X323NB3M)
+
+
 ## Dependencies
 
 To use bliss-rs, you'll need a few packages: a C linker, `ffmpeg`, and the associated
