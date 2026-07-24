@@ -61,7 +61,7 @@ impl<F: Fn(&Array1<f32>, &Array1<f32>) -> f32 + 'static> DistanceMetric
 
 /// Return the [euclidean
 /// distance](https://en.wikipedia.org/wiki/Euclidean_distance#Higher_dimensions)
-/// between two vectors.
+/// between two vectors. Simple, but does not necessarily result in the best playlists.
 pub fn euclidean_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
     // Could be any square symmetric positive semi-definite matrix;
     // just no metric learning has been done yet.
