@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.13.0
+* Add a better default distance metric.
+
 ## bliss 0.12.0
 * Fix some old TODOs.
 * Add a full pipeline benchmark.

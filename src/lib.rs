@@ -8,15 +8,15 @@
 //! Analyzing a song is as simple as running `Song::from_path("/path/to/song")`.
 //!
 //! The [analysis](Song::analysis) field of each song is an array of f32, which
-//! makes the comparison between songs easy, by just using e.g. euclidean
-//! distance (see [distance](playlist::euclidean_distance) for instance).
+//! makes the comparison between songs easy, either by simply calling [Song::distance]
+//! directly, or by using other distances on the analysis, e.g. [playlist::euclidean_distance].
 //!
 //! Once several songs have been analyzed, making a playlist from one Song
 //! is as easy as computing distances between that song and the rest, and ordering
 //! the songs by distance, ascending.
 //!
 //! If you want to implement a bliss plugin for an already existing audio
-//! player, the [library::Library] struct is a collection of goodies that should prove
+//! player, the [crate::library::Library] struct is a collection of goodies that should prove
 //! useful (it contains utilities to store analyzed songs in a self-contained
 //! database file, to make playlists directly from the database, etc).
 //! [blissify](https://github.com/Polochon-street/blissify-rs/) for both
@@ -120,12 +120,15 @@ pub mod utils;
 #[macro_use]
 extern crate serde;
 
+use ndarray::{arr1, Array1, Array2};
 use strum::EnumCount;
 use thiserror::Error;
 
 #[cfg(feature = "analysis")]
 pub use song::decoder;
 pub use song::{Analysis, AnalysisIndex, AnalysisOptions, Song, NUMBER_FEATURES};
+
+use crate::playlist::mahalanobis_distance_builder;
 
 #[allow(dead_code)]
 /// The number of channels the raw samples must have to be analyzed by bliss-rs
@@ -160,7 +163,20 @@ impl FeaturesVersion {
     /// use this one.
     pub const LATEST: FeaturesVersion = FeaturesVersion::Version2;
 
-    /// Number of features for this version (usable in const contexts).
+    /// Feature weights for the distance function that yields the best results.
+    pub fn feature_weights(self) -> Array2<f32> {
+        match self {
+            FeaturesVersion::Version2 => Array2::from_diag(&arr1(&VERSION2_WEIGHTS)),
+            FeaturesVersion::Version1 => Array2::eye(self.feature_count()),
+        }
+    }
+
+    /// Distance metric that yields the best result with this features' version.
+    pub fn distance_metric(self) -> impl Fn(&Array1<f32>, &Array1<f32>) -> f32 {
+        mahalanobis_distance_builder(self.feature_weights())
+    }
+
+    /// Number of features for this version.
     pub const fn feature_count(self) -> usize {
         match self {
             FeaturesVersion::Version2 => AnalysisIndex::COUNT,
@@ -189,6 +205,33 @@ impl TryFrom<u16> for FeaturesVersion {
     }
 }
 
+const VERSION2_WEIGHTS: [f32; 23] = [
+    0.25, // tempo: beat tracker unreliable on onset-poor music. Pending confidence use.
+    1.,   // values below: zcr, timbral, loudness
+    1.,
+    1.,
+    1.,
+    1.,
+    1.,
+    1.,
+    1.,
+    1.,
+    // values below: chroma: harmony gets ~3 dims of total weight instead of 13
+    3. / 13.,
+    3. / 13.,
+    3. / 13.,
+    3. / 13.,
+    3. / 13.,
+    3. / 13.,
+    3. / 13.,
+    3. / 13.,
+    3. / 13.,
+    3. / 13.,
+    3. / 13.,
+    3. / 13.,
+    3. / 13.,
+];
+
 #[derive(Error, Clone, Debug, PartialEq, Eq)]
 /// Umbrella type for bliss error types
 pub enum BlissError {
@@ -209,7 +252,42 @@ pub type BlissResult<T> = Result<T, BlissError>;
 
 #[cfg(test)]
 mod tests {
+    use ndarray::Array;
+
     use super::*;
+
+    #[test]
+    fn test_dimensions_weights() {
+        assert_eq!(
+            FeaturesVersion::Version1.feature_weights().shape(),
+            &[20, 20]
+        );
+        assert_eq!(
+            FeaturesVersion::Version2.feature_weights().shape(),
+            &[23, 23]
+        );
+    }
+
+    #[test]
+    fn test_distance_metric_features_version() {
+        let metric = FeaturesVersion::Version1.distance_metric();
+        assert_eq!(
+            metric(
+                &Array::from_vec(vec![0_f32; 20]),
+                &Array::from_vec(vec![1_f32; 20]),
+            ),
+            4.47213595
+        );
+
+        let metric = FeaturesVersion::Version2.distance_metric();
+        assert_eq!(
+            metric(
+                &Array::from_vec(vec![0_f32; 23]),
+                &Array::from_vec(vec![1_f32; 23]),
+            ),
+            3.4999998,
+        );
+    }
 
     #[test]
     fn test_send_song() {

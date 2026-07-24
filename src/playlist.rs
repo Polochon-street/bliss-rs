@@ -5,8 +5,7 @@
 //! or with e.g. [dedup_playlist_custom_distance].
 //!
 //! They will yield different styles of playlists, so don't hesitate to
-//! experiment with them if the default (euclidean distance for now) doesn't
-//! suit you.
+//! experiment with them if the [default][crate::FeaturesVersion::distance_metric] does not suit you.
 use crate::{BlissError, BlissResult, Song, NUMBER_FEATURES};
 use extended_isolation_forest::{Forest, ForestOptions};
 use ndarray::{Array, Array1, Array2, Axis};
@@ -61,7 +60,8 @@ impl<F: Fn(&Array1<f32>, &Array1<f32>) -> f32 + 'static> DistanceMetric
 
 /// Return the [euclidean
 /// distance](https://en.wikipedia.org/wiki/Euclidean_distance#Higher_dimensions)
-/// between two vectors.
+/// between two vectors. Simple, but does not necessarily result in the best playlists.
+/// See [crate::FeaturesVersion::distance_metric] for the recommended weighted alternative.
 pub fn euclidean_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
     // Could be any square symmetric positive semi-definite matrix;
     // just no metric learning has been done yet.

@@ -212,7 +212,7 @@ pub trait AppConfigTrait: Serialize + Sized + DeserializeOwned {
         self.write()
     }
 
-    /// Get the number of desired cores for analysis, and write it to the
+    /// Get the version used for the analysis, and write it to the
     /// configuration file.
     fn get_features_version(&self) -> FeaturesVersion {
         self.base_config().analysis_options.features_version
@@ -750,7 +750,9 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     }
 
     /// Build a playlist of `playlist_length` items from a set of already analyzed
-    /// songs in the library at `song_path`.
+    /// songs in the library at `song_path`, using [euclidean_distance]. Alternatively,
+    /// pass your songs' FeaturesVersion's `distance_metric` function to [Library::playlist_from_custom]
+    /// for the recommended metric.
     ///
     /// It uses the ExentedIsolationForest score as a distance between songs, and deduplicates
     /// songs that are too close.
@@ -1845,7 +1847,7 @@ mod test {
             LibrarySong<ExtraInfo>,
         ),
     ) {
-        let config_dir = TempDir::new("coucou").unwrap();
+        let config_dir = TempDir::new("bliss-tests").unwrap();
         let config_file = config_dir.path().join("config.json");
         let database_file = config_dir.path().join("bliss.db");
         let library = Library::<BaseConfig, Decoder>::new_from_base(
@@ -3631,8 +3633,16 @@ mod test {
         let os_str = OsStr::from_bytes(invalid_bytes);
         let invalid_path = PathBuf::from(os_str);
 
-        let mut library =
-            Library::<BaseConfig, DummyDecoder>::new_from_base(None, None, None).unwrap();
+        let config_dir = TempDir::new("bliss-test").unwrap();
+        let (mut library, _) = (
+            Library::<BaseConfig, DummyDecoder>::new_from_base(
+                Some(config_dir.path().join("config.json")),
+                Some(config_dir.path().join("songs.db")),
+                None,
+            )
+            .unwrap(),
+            config_dir, // keep alive
+        );
 
         let song = LibrarySong::<()> {
             bliss_song: Song {
@@ -3656,8 +3666,16 @@ mod test {
         let os_str = OsStr::from_bytes(invalid_bytes);
         let invalid_path = PathBuf::from(os_str);
 
-        let mut library =
-            Library::<BaseConfig, DummyDecoder>::new_from_base(None, None, None).unwrap();
+        let config_dir = TempDir::new("bliss-test").unwrap();
+        let (mut library, _) = (
+            Library::<BaseConfig, DummyDecoder>::new_from_base(
+                Some(config_dir.path().join("config.json")),
+                Some(config_dir.path().join("songs.db")),
+                None,
+            )
+            .unwrap(),
+            config_dir, // keep alive
+        );
 
         let err = library
             .delete_path(&invalid_path)
@@ -3673,8 +3691,16 @@ mod test {
         let invalid_bytes = b"/tmp/invalid\xFF\xFE.mp3";
         let os_str = OsStr::from_bytes(invalid_bytes);
         let invalid_path = PathBuf::from(os_str);
-
-        let library = Library::<BaseConfig, DummyDecoder>::new_from_base(None, None, None).unwrap();
+        let config_dir = TempDir::new("bliss-test").unwrap();
+        let (library, _) = (
+            Library::<BaseConfig, DummyDecoder>::new_from_base(
+                Some(config_dir.path().join("config.json")),
+                Some(config_dir.path().join("songs.db")),
+                None,
+            )
+            .unwrap(),
+            config_dir, // keep alive
+        );
 
         let err = library
             .song_from_path::<()>(&invalid_path)
@@ -4283,7 +4309,7 @@ mod test {
 
     #[test]
     fn test_config_serialize_deserialize() {
-        let config_dir = TempDir::new("coucou").unwrap();
+        let config_dir = TempDir::new("bliss-tests").unwrap();
         let config_file = config_dir.path().join("config.json");
         let database_file = config_dir.path().join("bliss.db");
 
@@ -4348,7 +4374,7 @@ mod test {
 
     #[test]
     fn test_config_number_cpus() {
-        let config_dir = TempDir::new("coucou").unwrap();
+        let config_dir = TempDir::new("bliss-tests").unwrap();
         let config_file = config_dir.path().join("config.json");
         let database_file = config_dir.path().join("bliss.db");
 
@@ -4391,7 +4417,7 @@ mod test {
 
     #[test]
     fn test_config_features_version() {
-        let config_dir = TempDir::new("coucou").unwrap();
+        let config_dir = TempDir::new("bliss-tests").unwrap();
         let config_file = config_dir.path().join("config.json");
         let database_file = config_dir.path().join("bliss.db");
 
@@ -4433,7 +4459,7 @@ mod test {
 
     #[test]
     fn test_library_create_all_dirs() {
-        let config_dir = TempDir::new("coucou")
+        let config_dir = TempDir::new("bliss-tests")
             .unwrap()
             .path()
             .join("path")
