@@ -251,7 +251,7 @@ pub struct Analysis {
 /// of a song.
 pub struct AnalysisOptions {
     /// The version of the features that should be used for analysis.
-    /// Should be kept as the default [FeaturesVersion::LATEST](bliss_audio::FeaturesVersion::LATEST).
+    /// Should be kept as the default [FeaturesVersion::LATEST](crate::FeaturesVersion::LATEST).
     pub features_version: FeaturesVersion,
     /// The number of computer cores that should be used when performing the
     /// analysis of multiple songs.
@@ -351,9 +351,25 @@ impl Analysis {
     pub fn as_vec(&self) -> Vec<f32> {
         self.internal_analysis.to_vec()
     }
+
+    /// Return the distance between the analysis and another analysis, using
+    /// the default distance for the FeaturesVersion.
+    ///
+    /// Will underperform if used over a large number of songs: for bulk
+    /// playlist generation, use [distance_metric](FeaturesVersion::distance_metric)
+    /// with a bulk-playlist generation function in the playlist module, such as
+    /// [closest_to_songs](crate::playlist::closest_to_songs).
+    ///
+    /// Panics if the analysis' features have mismatched versions.
+    pub fn distance(&self, other: &Analysis) -> f32 {
+        if self.features_version != other.features_version {
+            panic!("Mismatched features version between two songs or analysis");
+        }
+        let distance_metric = self.features_version.distance_metric();
+        distance_metric(&self.as_arr1(), &other.as_arr1())
+    }
 }
 
-#[cfg(feature = "analysis")]
 impl Song {
     /**
      * Analyze a song decoded in `sample_array`. This function should NOT
@@ -383,6 +399,7 @@ impl Song {
      * (Running `ffmpeg -i path_to_your_song.flac -ar 22050 -ac 1 -c:a pcm_f32le` will simply give
      * you the raw sample array as it should look like, if you're not into computing checksums)
      **/
+    #[cfg(feature = "analysis")]
     pub fn analyze(sample_array: &[f32]) -> BlissResult<Analysis> {
         Self::analyze_with_options(sample_array, &AnalysisOptions::default())
     }
@@ -392,6 +409,7 @@ impl Song {
      * analysis using old features_version. Do not use, unless for backwards
      * compatibility.
      **/
+    #[cfg(feature = "analysis")]
     pub fn analyze_with_options(
         sample_array: &[f32],
         analysis_options: &AnalysisOptions,
@@ -487,6 +505,19 @@ impl Song {
             };
             Analysis::new(result, analysis_options.features_version)
         })
+    }
+
+    /// Return the distance between the song and another song, using
+    /// the default distance for the FeaturesVersion.
+    ///
+    /// Will underperform if used over a large number of songs: for bulk
+    /// playlist generation, use [distance_metric](FeaturesVersion::distance_metric)
+    /// with a bulk-playlist generation function in the playlist module, such as
+    /// [closest_to_songs](crate::playlist::closest_to_songs).
+    ///
+    /// Panics if the songs' features have mismatched versions.
+    pub fn distance(&self, other: &Song) -> f32 {
+        self.analysis.distance(&other.analysis)
     }
 }
 
@@ -718,6 +749,85 @@ mod tests {
             "Analysis (Version ?) /* [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] */",
             format!("{:?}", analysis)
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "Mismatched features version")]
+    fn test_analysis_distance_mismatched_versions() {
+        let first_analysis = Analysis::new(
+            vec![0.; FeaturesVersion::Version1.feature_count()],
+            FeaturesVersion::Version1,
+        )
+        .unwrap();
+        let second_analysis = Analysis::new(
+            vec![0.; FeaturesVersion::Version2.feature_count()],
+            FeaturesVersion::Version2,
+        )
+        .unwrap();
+
+        first_analysis.distance(&second_analysis);
+    }
+
+    #[test]
+    fn test_analysis_distance() {
+        let first_analysis = Analysis::new(
+            vec![0.; FeaturesVersion::Version1.feature_count()],
+            FeaturesVersion::Version1,
+        )
+        .unwrap();
+        let second_analysis = Analysis::new(
+            vec![1.; FeaturesVersion::Version1.feature_count()],
+            FeaturesVersion::Version1,
+        )
+        .unwrap();
+
+        assert_eq!(4.472136, first_analysis.distance(&second_analysis));
+    }
+
+    #[test]
+    fn test_song_distance() {
+        let first_song = Song {
+            analysis: Analysis::new(
+                vec![0.; FeaturesVersion::Version1.feature_count()],
+                FeaturesVersion::Version1,
+            )
+            .unwrap(),
+            ..Default::default()
+        };
+        let second_song = Song {
+            analysis: Analysis::new(
+                vec![1.; FeaturesVersion::Version1.feature_count()],
+                FeaturesVersion::Version1,
+            )
+            .unwrap(),
+            ..Default::default()
+        };
+
+        assert_eq!(4.472136, first_song.distance(&second_song));
+    }
+
+    #[test]
+    #[should_panic(expected = "Mismatched features version")]
+    fn test_song_distance_mismatched_versions() {
+        let first_song = Song {
+            analysis: Analysis::new(
+                vec![0.; FeaturesVersion::Version1.feature_count()],
+                FeaturesVersion::Version1,
+            )
+            .unwrap(),
+            ..Default::default()
+        };
+
+        let second_song = Song {
+            analysis: Analysis::new(
+                vec![0.; FeaturesVersion::Version2.feature_count()],
+                FeaturesVersion::Version2,
+            )
+            .unwrap(),
+            ..Default::default()
+        };
+
+        first_song.distance(&second_song);
     }
 
     #[test]

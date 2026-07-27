@@ -2,4 +2,3 @@ target
 perf.data
 perf.data.old
 flamegraph.svg
-OPTIMIZE.md

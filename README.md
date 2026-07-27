@@ -91,15 +91,18 @@ Ready to use code examples:
 ### Compute the distance between two songs
 
 ```rust
-use bliss_audio::decoder::bliss_ffmpeg::FFmpegDecoder as Decoder;
+use bliss_audio::decoder::ffmpeg::FFmpegDecoder as Decoder;
 use bliss_audio::decoder::Decoder as DecoderTrait;
 use bliss_audio::BlissError;
 
 fn main() -> Result<(), BlissError> {
-    let song1 = Decoder::from_path("/path/to/song1")?;
-    let song2 = Decoder::from_path("/path/to/song2")?;
-        
-    println!("Distance between song1 and song2 is {}", song1.distance(&song2));
+    let song1 = Decoder::song_from_path("/path/to/song1")?;
+    let song2 = Decoder::song_from_path("/path/to/song2")?;
+
+    println!(
+        "Distance between song1 and song2 is {}",
+        song1.distance(&song2)
+    );
     Ok(())
 }
 ```
@@ -107,7 +110,9 @@ fn main() -> Result<(), BlissError> {
 ### Make a playlist from a song
 
 ```rust
-use bliss_audio::decoder::bliss_ffmpeg::FFmpegDecoder as Decoder;
+use std::path::PathBuf;
+
+use bliss_audio::decoder::ffmpeg::FFmpegDecoder as Decoder;
 use bliss_audio::decoder::Decoder as DecoderTrait;
 use bliss_audio::{BlissError, Song};
 use noisy_float::prelude::n32;
@@ -128,7 +133,7 @@ fn main() -> Result<(), BlissError> {
         songs
             .iter()
             .map(|song| &song.path)
-            .collect::<Vec<&String>>()
+            .collect::<Vec<&PathBuf>>()
     );
     Ok(())
 }
