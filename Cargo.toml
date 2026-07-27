@@ -26,12 +26,12 @@ analysis = ["dep:rustfft"]
 # It is only useful if you want to implement the decoding of the tracks yourself
 # and just feed them to bliss, so you don't depend on ffmpeg.
 # TODO make ffmpeg a test-dep
-ffmpeg = ["dep:ffmpeg-next", "dep:ffmpeg-sys-next"]
+ffmpeg = ["analysis", "_any_decoder", "dep:ffmpeg-next", "dep:ffmpeg-sys-next"]
 # Build ffmpeg instead of using the host's.
-build-ffmpeg = ["ffmpeg-next/build"]
-ffmpeg-static = ["ffmpeg-next/static"]
+build-ffmpeg = ["ffmpeg", "ffmpeg-next/build"]
+ffmpeg-static = ["ffmpeg", "ffmpeg-next/static"]
 # Build for raspberry pis
-rpi = ["ffmpeg-next/rpi"]
+rpi = ["ffmpeg", "ffmpeg-next/rpi"]
 # Use if you want to build python bindings with maturin.
 python-bindings = ["analysis"]
 # Enable the benchmarks with `cargo +nightly bench --features=bench`
@@ -51,7 +51,7 @@ library = [
 serde = ["dep:serde", "extended-isolation-forest/serde"]
 integration-tests = []
 # Use to access the Symphonia-based alternative decoder
-symphonia = ["dep:symphonia", "dep:rubato", "dep:audioadapter-buffers"]
+symphonia = ["analysis", "_any_decoder", "dep:symphonia", "dep:rubato", "dep:audioadapter-buffers"]
 symphonia-aac = ["symphonia", "symphonia/aac"]
 symphonia-all = [
     "symphonia",
@@ -76,6 +76,8 @@ symphonia-wav = [
 ]
 symphonia-alac = ["symphonia", "symphonia/isomp4", "symphonia/alac"]
 symphonia-aiff = ["symphonia", "symphonia/aiff", "symphonia/pcm"]
+# Meta feature, not intended for public use
+_any_decoder = []
 
 
 [dependencies]
@@ -154,20 +156,20 @@ required-features = ["bench"]
 
 [[example]]
 name = "library"
-required-features = ["library", "ffmpeg"]
+required-features = ["library", "_any_decoder"]
 
 [[example]]
 name = "library_extra_info"
-required-features = ["library", "ffmpeg"]
+required-features = ["library", "_any_decoder"]
 
 [[example]]
 name = "playlist"
-required-features = ["serde", "ffmpeg"]
+required-features = ["serde", "_any_decoder"]
 
 [[example]]
 name = "distance"
-required-features = ["ffmpeg"]
+required-features = ["_any_decoder"]
 
 [[example]]
 name = "analyze"
-required-features = ["ffmpeg"]
+required-features = ["_any_decoder"]
