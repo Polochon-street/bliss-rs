@@ -95,5 +95,7 @@ jobs:
         run: cargo fmt -- --check
       - name: Build
         run: cargo build --examples
+      - name: Build without ffmpeg
+        run: cargo build --examples --no-default-features --features=serde,symphonia-all
       - name: Test
         run: cargo test --examples --features=serde

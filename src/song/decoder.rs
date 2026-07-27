@@ -62,6 +62,15 @@ pub struct PreAnalyzedSong {
     pub sample_array: Vec<f32>,
 }
 
+#[cfg(feature = "ffmpeg")]
+/// Decoder that uses ffmpeg by default. Uses the `symphonia` feature
+/// without ffmpeg to use symphonia instead.
+pub type DefaultDecoder = ffmpeg::FFmpegDecoder;
+
+#[cfg(all(not(feature = "ffmpeg"), feature = "symphonia"))]
+/// Decoder that uses symphonia.
+pub type DefaultDecoder = symphonia::SymphoniaDecoder;
+
 impl TryFrom<PreAnalyzedSong> for Song {
     type Error = BlissError;
 

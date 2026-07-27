@@ -2,8 +2,7 @@
 //! provided by the user.
 //! How to use: ./playlist [-o file.m3u] [-a analysis.json] <folder> <file to start the playlist from>
 use anyhow::Result;
-use bliss_audio::decoder::ffmpeg::FFmpegDecoder as Decoder;
-use bliss_audio::decoder::Decoder as DecoderTrait;
+use bliss_audio::decoder::{Decoder as DecoderTrait, DefaultDecoder as Decoder};
 use bliss_audio::playlist::{closest_to_songs, dedup_playlist, euclidean_distance};
 use bliss_audio::Song;
 use clap::{Arg, Command};

@@ -75,13 +75,13 @@
 ```no_run
   use anyhow::{Error, Result};
   use bliss_audio::library::{BaseConfig, Library};
-  use bliss_audio::decoder::ffmpeg::FFmpegDecoder;
+  use bliss_audio::decoder::{DefaultDecoder as Decoder};
   use std::path::PathBuf;
 
   let config_path = Some(PathBuf::from("path/to/config/config.json"));
   let database_path = Some(PathBuf::from("path/to/config/bliss.db"));
   let config = BaseConfig::new(config_path, database_path, None)?;
-  let library: Library<BaseConfig, FFmpegDecoder> = Library::new(config)?;
+  let library: Library<BaseConfig, Decoder> = Library::new(config)?;
   # Ok::<(), Error>(())
 ```"##
 )]
@@ -749,16 +749,16 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         Self::new(config)
     }
 
-    /// Build a playlist of `playlist_length` items from a set of already analyzed
-    /// songs in the library at `song_path`, using [euclidean_distance]. Alternatively,
-    /// pass your songs' FeaturesVersion's `distance_metric` function to [Library::playlist_from_custom]
-    /// for the recommended metric.
-    ///
-    /// It uses the ExentedIsolationForest score as a distance between songs, and deduplicates
-    /// songs that are too close.
+    /// Build a playlist of [LibrarySongs](LibrarySong) from a
+    /// set of already analyzed songs in the library at `song_paths`,
+    /// using [euclidean_distance].
+    /// Alternatively, pass your songs' FeaturesVersion's `distance_metric`
+    /// function to [Library::playlist_from_custom] for the recommended metric.
     ///
     /// Generating a playlist from a single song is also possible, and is just the special case
     /// where song_paths is a slice of length 1.
+    ///
+    /// Returns an iterator over [LibrarySongs](LibrarySong), ordered by proximity.
     pub fn playlist_from<'a, T: Serialize + DeserializeOwned + Clone + 'a>(
         &self,
         song_paths: &[&str],
@@ -766,9 +766,9 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
         self.playlist_from_custom(song_paths, &euclidean_distance, closest_to_songs, true)
     }
 
-    /// Build a playlist of `playlist_length` items from a set of already analyzed
-    /// song(s) in the library `initial_song_paths`, using distance metric `distance`,
-    /// and sorting function `sort_by`.
+    /// Build a playlist of [LibrarySongs](LibrarySong) from a
+    /// set of already analyzed songs in the library at `initial_song_paths`,
+    /// using distance metric `distance` and sorting function `sort_by`.
     /// Note: The resulting playlist includes the songs specified in `initial_song_paths`
     /// at the beginning. Use [Iterator::skip] on the resulting iterator to avoid it.
     ///
@@ -799,6 +799,9 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     ///
     /// Generating a playlist from a single song is also possible, and is just the special case
     /// where song_paths is a slice with a single song.
+    ///
+    /// Returns an iterator over [LibrarySongs](LibrarySong), ordered by proximity defined by the
+    /// distance metric.
     pub fn playlist_from_custom<'a, T, F, I>(
         &self,
         initial_song_paths: &[&str],
@@ -1784,8 +1787,7 @@ mod test {
     use tempdir::TempDir;
 
     #[cfg(feature = "ffmpeg")]
-    use crate::song::decoder::ffmpeg::FFmpegDecoder as Decoder;
-    use crate::song::decoder::Decoder as DecoderTrait;
+    use crate::decoder::{Decoder as DecoderTrait, DefaultDecoder as Decoder};
 
     struct DummyDecoder;
 
