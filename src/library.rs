@@ -102,7 +102,7 @@
 //!   `extra_info` field, which can be any user-defined serialized struct.
 //!   For most use cases, it would just be the unit type `()` (which is no
 //!   extra info), that would be used like
-//!   `library.playlist_from<()>(song, path, playlist_length)`,
+//!   `library.playlist_from<()>(song_paths)`,
 //!   but functions such as [Library::analyze_paths_extra_info] and
 //!   [Library::analyze_paths_convert_extra_info] let you customize what
 //!   information you store for each song.
@@ -275,7 +275,7 @@ pub struct BaseConfig {
     /// Used to customize the distance metric beyond simple euclidean distance.
     /// Uses ndarray's `serde` feature for serialization / deserialization.
     /// Field would look like this:
-    /// "m": {"v": 1, "dim": [20, 20], "data": [1.0, 0.0, ..., 1.0]}
+    /// "m": {"v": 1, "dim": [NUMBER_FEATURES, NUMBER_FEATURES], "data": [1.0, 0.0, ..., 1.0]}
     #[serde(default = "default_m")]
     pub m: Array2<f32>,
 }

@@ -1,6 +1,5 @@
 //! The default decoder module. It uses [ffmpeg](https://ffmpeg.org/) in
-//! order to decode and resample songs. A very good choice for 99% of
-//! the users.
+//! order to decode and resample songs. A very good choice for most users.
 
 use crate::decoder::{Decoder, PreAnalyzedSong};
 use crate::{BlissError, BlissResult, CHANNELS, SAMPLE_RATE};

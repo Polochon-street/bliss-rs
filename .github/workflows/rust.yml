@@ -33,6 +33,8 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
+    - name: Build documentation, same as docs.rs
+      run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --no-default-features --features=library,ffmpeg,symphonia
     - name: Build benches
       run: cargo bench --verbose --features=bench,symphonia-all,ffmpeg --no-run
     - name: Run example tests

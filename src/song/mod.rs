@@ -122,22 +122,22 @@ pub enum AnalysisIndex {
     /// The standard deviation of the song's loudness.
     StdDeviationLoudness,
     /// The proportion of pitch class set 1 (IC1) compared to the 6 other pitch class sets,
-    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    /// per this paper <https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf>
     Chroma1,
     /// The proportion of pitch class set 2 (IC2) compared to the 6 other pitch class sets,
-    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    /// per this paper <https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf>
     Chroma2,
     /// The proportion of pitch class set 3 (IC3) compared to the 6 other pitch class sets,
-    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    /// per this paper <https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf>
     Chroma3,
     /// The proportion of pitch class set 4 (IC4) compared to the 6 other pitch class sets,
-    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    /// per this paper <https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf>
     Chroma4,
     /// The proportion of pitch class set 5 (IC5) compared to the 6 other pitch class sets,
-    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    /// per this paper <https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf>
     Chroma5,
     /// The proportion of pitch class set 6 (IC6) compared to the 6 other pitch class sets,
-    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    /// per this paper <https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf>
     Chroma6,
     /// The proportion of major triads in the song, compared to the other triads.
     Chroma7,
@@ -183,22 +183,22 @@ pub enum AnalysisIndexv1 {
     /// The standard deviation of the song's loudness.
     StdDeviationLoudness,
     /// The raw value of pitch class set 1 (IC1)
-    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    /// per this paper <https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf>
     Chroma1,
     /// The raw value of pitch class set 2 (IC2)
-    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    /// per this paper <https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf>
     Chroma2,
     /// The raw value of pitch class set 3 (IC3)
-    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    /// per this paper <https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf>
     Chroma3,
     /// The raw value of pitch class set 4 (IC4)
-    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    /// per this paper <https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf>
     Chroma4,
     /// The raw value of pitch class set 5 (IC5)
-    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    /// per this paper <https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf>
     Chroma5,
     /// The raw value of pitch class set 6 (IC6)
-    /// per this paper https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf
+    /// per this paper <https://speech.di.uoa.gr/ICMC-SMC-2014/images/VOL_2/1461.pdf>
     Chroma6,
     /// The proportion of major triads in the song, compared to all the other chroma features
     /// (stays between -0.98 and -0.99) - use the latest features version to avoid this)
