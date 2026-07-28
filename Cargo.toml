@@ -13,11 +13,11 @@ readme = "README.md"
 exclude = ["data/"]
 
 [package.metadata.docs.rs]
-features = ["library", "ffmpeg", "analysis"]
+features = ["library", "ffmpeg", "symphonia"]
 no-default-features = true
 
 [features]
-default = ["analysis", "ffmpeg"]
+default = ["ffmpeg"]
 # Enable audio analysis (requires rustfft). Disable this if you only need
 # the playlist/distance math (Song, Analysis, NUMBER_FEATURES, playlist module).
 analysis = ["dep:rustfft"]

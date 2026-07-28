@@ -1,13 +1,15 @@
 //! Module holding all the nitty-gritty decoding details.
 //!
-//! Contains the code that uses ffmpeg to decode songs in the [ffmpeg]
-//! submodule.
+//! Contains the generic code used to interface the decoding of songs. The [ffmpeg]
+//! submodule contains the code to decode songs with [FFmpeg](https://www.ffmpeg.org/),
+//! while [symphonia] contains the code to decode songs with
+//! [Symphonia](https://github.com/pdeljanov/symphonia).
 //!
 //! Also holds the `Decoder` trait, that you can use to decode songs
-//! with the ffmpeg struct that implements that trait, or implement it for
-//! other decoders if you do not wish to use ffmpeg, but something else
-//! (GStreamer, symphonia...). Using the [ffmpeg] struct as a reference
-//! to implement other decoders is probably a good starting point.
+//! with the ffmpeg or symphonia struct that implements that trait,
+//! or implement it for other decoders (GStreamer...).
+//! Using the [ffmpeg] or [symphonia] structs as references
+//! to implement other decoders is a good starting point.
 use log::info;
 
 use crate::{cue::BlissCue, song::AnalysisOptions, BlissError, BlissResult, Song};

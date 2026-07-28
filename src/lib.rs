@@ -5,7 +5,8 @@
 //! The core of the library is the [Song] object, which relates to a
 //! specific analyzed song and contains its path, title, analysis, and
 //! other metadata fields (album, genre...).
-//! Analyzing a song is as simple as running `Song::from_path("/path/to/song")`.
+//! Analyzing a song is as simple as running
+//! [Decoder::song_from_path("/path/to/song")](crate::decoder::Decoder::song_from_path).
 //!
 //! The [analysis](Song::analysis) field of each song is an array of f32, which
 //! makes the comparison between songs easy, either by simply calling [Song::distance]

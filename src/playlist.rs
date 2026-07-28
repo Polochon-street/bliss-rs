@@ -135,7 +135,7 @@ pub fn mahalanobis_distance_builder(m: Array2<f32>) -> impl Fn(&Array1<f32>, &Ar
 /// distance matrix m.
 /// In most cases, building a Mahalanobis distance function using
 /// [mahalanobis_distance_builder] and using it makes more sense, since it
-/// makes it usable with the other provided functions such as [closest_to_songs]2
+/// makes it usable with the other provided functions such as [closest_to_songs]
 /// and [song_to_song].
 pub fn mahalanobis_distance(a: &Array1<f32>, b: &Array1<f32>, m: &Array2<f32>) -> f32 {
     (a - b).dot(m).dot(&(a - b)).sqrt()
@@ -250,9 +250,9 @@ impl DistanceMetric for Forest<f32, NUMBER_FEATURES> {
     }
 }
 
-/// Return a playlist made of songs as close as possible to `selected_songs` from
-/// the pool of songs in `candidate_songs`, using the `distance` metric to quantify
-/// the distance between songs.
+/// Return a playlist made of songs as close as possible to `initial_songs` from
+/// the pool of songs in `candidate_songs`, using `metric_builder` to build a metric
+/// to quantify the distance between songs.
 pub fn closest_to_songs<'a, T: AsRef<Song> + Clone + 'a>(
     initial_songs: &[T],
     candidate_songs: &[T],
@@ -298,7 +298,8 @@ impl<T: AsRef<Song> + Clone> Iterator for SongToSongIterator<'_, T> {
 }
 
 /// Return an iterator of sorted songs from `candidate_songs` using
-/// the `distance` metric and ordering by the smallest distance between each song.
+/// `metric_builder` to build a metric to quantify the distance between songs,
+/// ordering by the smallest distance between each song.
 ///
 /// If the generated playlist is `[song1, song2, song3, song4]`, it means
 /// song2 is closest to song1, song3 is closest to song2, and song4 is closest
@@ -324,7 +325,7 @@ pub fn song_to_song<'a, T: AsRef<Song> + Clone + 'a>(
     iterator.into_iter()
 }
 
-/// Remove duplicate songs from a playlist, in place.
+/// Remove duplicate songs from a playlist.
 ///
 /// Two songs are considered duplicates if they either have the same,
 /// non-empty title and artist name, or if they are close enough in terms
@@ -332,9 +333,13 @@ pub fn song_to_song<'a, T: AsRef<Song> + Clone + 'a>(
 ///
 /// # Arguments
 ///
-/// * `songs`: The playlist to remove duplicates from.
+/// * `playlist`: The playlist to remove duplicates from.
 /// * `distance_threshold`: The distance threshold under which two songs are
 ///   considered identical. If `None`, a default value of 0.05 will be used.
+///
+/// # Returns
+///
+/// An Iterator over the deduplicated songs.
 pub fn dedup_playlist<'a, T: AsRef<Song>>(
     playlist: impl Iterator<Item = T> + 'a,
     distance_threshold: Option<f32>,
@@ -342,7 +347,7 @@ pub fn dedup_playlist<'a, T: AsRef<Song>>(
     dedup_playlist_custom_distance(playlist, distance_threshold, &euclidean_distance)
 }
 
-/// Remove duplicate songs from a playlist, in place, using a custom distance
+/// Remove duplicate songs from a playlist, using a custom distance
 /// metric.
 ///
 /// Two songs are considered duplicates if they either have the same,
@@ -351,10 +356,14 @@ pub fn dedup_playlist<'a, T: AsRef<Song>>(
 ///
 /// # Arguments
 ///
-/// * `songs`: The playlist to remove duplicates from.
+/// * `playlist`: The playlist to remove duplicates from.
 /// * `distance_threshold`: The distance threshold under which two songs are
 ///   considered identical. If `None`, a default value of 0.05 will be used.
 /// * `distance`: A custom distance metric.
+///
+/// # Returns
+///
+/// An Iterator over the deduplicated songs.
 pub fn dedup_playlist_custom_distance<'a, T: AsRef<Song>>(
     playlist: impl Iterator<Item = T> + 'a,
     distance_threshold: Option<f32>,
@@ -411,7 +420,7 @@ pub fn dedup_playlist_custom_distance<'a, T: AsRef<Song>>(
 ///
 /// A vector of songs, including `group` at the beginning, that you
 /// most likely want to plug in your audio player by using something like
-/// `ret.map(|song| song.path.to_owned()).collect::<Vec<String>>()`.
+/// `ret.map(|song| song.path.to_owned()).collect::<Vec<PathBuf>>()`.
 pub fn closest_album_to_group<T: AsRef<Song> + Clone>(
     group: Vec<T>,
     pool: Vec<T>,
