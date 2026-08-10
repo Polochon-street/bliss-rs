@@ -59,14 +59,10 @@ pub struct Song {
     pub disc_number: Option<i32>,
     /// Song's genre, read from the metadata
     pub genre: Option<String>,
-    /// bliss analysis results
+    /// bliss analysis results.
     pub analysis: Analysis,
     /// The song's duration
     pub duration: Duration,
-    /// Version of the features the song was analyzed with.
-    /// A simple integer that is bumped every time a breaking change
-    /// is introduced in the features.
-    pub features_version: FeaturesVersion,
     /// Populated only if the song was extracted from a larger audio file,
     /// through the use of a CUE sheet.
     /// By default, such a song's path would be
@@ -519,6 +515,11 @@ impl Song {
     pub fn distance(&self, other: &Song) -> f32 {
         self.analysis.distance(&other.analysis)
     }
+
+    /// Return the [FeaturesVersion] of the song's analysis.
+    pub fn features_version(&self) -> FeaturesVersion {
+        self.analysis.features_version
+    }
 }
 
 #[cfg(test)]
@@ -587,7 +588,7 @@ mod tests {
         for (x, y) in song.analysis.as_vec().iter().zip(expected_analysis) {
             assert!(1e-5 > (x - y).abs());
         }
-        assert_eq!(FeaturesVersion::LATEST, song.features_version);
+        assert_eq!(FeaturesVersion::LATEST, song.features_version());
     }
 
     #[test]
@@ -629,7 +630,7 @@ mod tests {
         for (x, y) in song.analysis.as_vec().iter().zip(expected_analysis) {
             assert!(1e-5 > (x - y).abs());
         }
-        assert_eq!(FeaturesVersion::Version1, song.features_version);
+        assert_eq!(FeaturesVersion::Version1, song.features_version());
     }
 
     #[test]
@@ -643,7 +644,7 @@ mod tests {
         for (x, y) in song.analysis.as_vec().iter().zip(expected_analysis) {
             assert!(1e-5 > (x - y).abs(), "{}", (x - y).abs());
         }
-        assert_eq!(FeaturesVersion::LATEST, song.features_version);
+        assert_eq!(FeaturesVersion::LATEST, song.features_version());
     }
 
     #[test]
@@ -685,7 +686,7 @@ mod tests {
         for (x, y) in song.analysis.as_vec().iter().zip(expected_analysis) {
             assert!(0.1 > (x - y).abs(), "{}", (x - y).abs());
         }
-        assert_eq!(FeaturesVersion::LATEST, song.features_version);
+        assert_eq!(FeaturesVersion::LATEST, song.features_version());
     }
 
     #[test]

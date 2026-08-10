@@ -117,7 +117,9 @@ impl FFmpegDecoder {
             false,
         );
         let f32_frame: Vec<f32> = frame.data(0)[..actual_size]
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|x| {
                 let mut a: [u8; 4] = [0; 4];
                 a.copy_from_slice(x);

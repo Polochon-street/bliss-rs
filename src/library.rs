@@ -119,9 +119,11 @@ use crate::cue::CueInfo;
 use crate::playlist::closest_album_to_group;
 use crate::playlist::closest_to_songs;
 use crate::playlist::dedup_playlist_custom_distance;
-use crate::playlist::euclidean_distance;
-use crate::playlist::DistanceMetricBuilder;
+use crate::playlist::Analyzed;
+use crate::playlist::BuiltinMetric;
+use crate::playlist::Metric;
 use crate::song::AnalysisOptions;
+use crate::BlissResult;
 use crate::FeaturesVersion;
 use anyhow::{bail, Context, Result};
 #[cfg(all(not(test), not(feature = "integration-tests")))]
@@ -468,6 +470,12 @@ pub struct LibrarySong<T: Serialize + DeserializeOwned + Clone> {
     pub extra_info: T,
 }
 
+impl<T: Serialize + DeserializeOwned + Clone> Analyzed for LibrarySong<T> {
+    fn analysis(&self) -> &Analysis {
+        self.bliss_song.analysis()
+    }
+}
+
 impl<T: Serialize + DeserializeOwned + Clone> AsRef<Song> for LibrarySong<T> {
     fn as_ref(&self) -> &Song {
         &self.bliss_song
@@ -751,7 +759,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
 
     /// Build a playlist of [LibrarySongs](LibrarySong) from a
     /// set of already analyzed songs in the library at `song_paths`,
-    /// using [euclidean_distance].
+    /// using [euclidean_distance](crate::playlist::euclidean_distance).
     /// Alternatively, pass your songs' FeaturesVersion's `distance_metric`
     /// function to [Library::playlist_from_custom] for the recommended metric.
     ///
@@ -759,11 +767,11 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     /// where song_paths is a slice of length 1.
     ///
     /// Returns an iterator over [LibrarySongs](LibrarySong), ordered by proximity.
-    pub fn playlist_from<'a, T: Serialize + DeserializeOwned + Clone + 'a>(
+    pub fn playlist_from<T: Serialize + DeserializeOwned + Clone + 'static>(
         &self,
         song_paths: &[&str],
-    ) -> Result<impl Iterator<Item = LibrarySong<T>> + 'a> {
-        self.playlist_from_custom(song_paths, &euclidean_distance, closest_to_songs, true)
+    ) -> Result<impl Iterator<Item = LibrarySong<T>>> {
+        self.playlist_from_custom(song_paths, BuiltinMetric::Euclidean, closest_to_songs, true)
     }
 
     /// Build a playlist of [LibrarySongs](LibrarySong) from a
@@ -773,7 +781,8 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     /// at the beginning. Use [Iterator::skip] on the resulting iterator to avoid it.
     ///
     /// You can use ready-to-use distance metrics such as
-    /// [ExtendedIsolationForest](extended_isolation_forest::Forest) or [euclidean_distance],
+    /// [ExtendedIsolationForest](extended_isolation_forest::Forest) or
+    /// [euclidean_distance](crate::playlist::euclidean_distance),
     /// and ready-to-use sorting functions like [closest_to_songs] or
     /// [crate::playlist::song_to_song].
     ///
@@ -781,38 +790,40 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
     /// this:
     /// ```
     /// use bliss_audio::library::LibrarySong;
-    /// use bliss_audio::playlist::{closest_to_songs, song_to_song};
+    /// use bliss_audio::playlist::{closest_to_songs, song_to_song, BuiltinMetric};
+    /// use bliss_audio::BlissResult;
     ///
     /// // The user would be choosing this
     /// let use_closest_to_songs = true;
     /// let sort = |x: &[LibrarySong<()>],
     ///             y: &[LibrarySong<()>],
-    ///             z|
-    ///  -> Box<dyn Iterator<Item = LibrarySong<()>>> {
+    ///             z: BuiltinMetric|
+    ///  -> BlissResult<Box<dyn Iterator<Item = LibrarySong<()>>>> {
     ///     match use_closest_to_songs {
-    ///         false => Box::new(closest_to_songs(x, y, z)),
-    ///         true => Box::new(song_to_song(x, y, z)),
+    ///         false => Ok(Box::new(closest_to_songs(x, y, z)?)),
+    ///         true => Ok(Box::new(song_to_song(x, y, z)?)),
     ///     }
     /// };
     /// ```
-    /// and use `playlist_from_custom` with that sort as `sort_by`.
+    /// and use [Library::playlist_from_custom] with that sort as `sort_by`.
     ///
     /// Generating a playlist from a single song is also possible, and is just the special case
     /// where song_paths is a slice with a single song.
     ///
     /// Returns an iterator over [LibrarySongs](LibrarySong), ordered by proximity defined by the
     /// distance metric.
-    pub fn playlist_from_custom<'a, T, F, I>(
+    pub fn playlist_from_custom<T, F, I, G>(
         &self,
         initial_song_paths: &[&str],
-        distance: &'a dyn DistanceMetricBuilder,
+        metric: G,
         sort_by: F,
         deduplicate: bool,
-    ) -> Result<impl Iterator<Item = LibrarySong<T>> + 'a>
+    ) -> Result<impl Iterator<Item = LibrarySong<T>>>
     where
-        T: Serialize + DeserializeOwned + Clone + 'a,
-        F: Fn(&[LibrarySong<T>], &[LibrarySong<T>], &'a dyn DistanceMetricBuilder) -> I,
-        I: Iterator<Item = LibrarySong<T>> + 'a,
+        T: Serialize + DeserializeOwned + Clone + 'static,
+        G: Metric + Clone + 'static,
+        F: Fn(&[LibrarySong<T>], &[LibrarySong<T>], G) -> BlissResult<I>,
+        I: Iterator<Item = LibrarySong<T>> + 'static,
     {
         let initial_songs: Vec<LibrarySong<T>> = initial_song_paths
             .iter()
@@ -832,12 +843,13 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
             })
             .collect::<Vec<_>>();
 
-        let iterator = sort_by(&initial_songs, &songs, distance);
+        let iterator = sort_by(&initial_songs, &songs, metric.clone())?;
         let mut iterator: Box<dyn Iterator<Item = LibrarySong<T>>> =
             Box::new(initial_songs.into_iter().chain(iterator));
         if deduplicate {
-            iterator = Box::new(dedup_playlist_custom_distance(iterator, None, distance));
+            iterator = Box::new(dedup_playlist_custom_distance(iterator, None, metric)?);
         }
+
         Ok(iterator)
     }
 
@@ -1330,7 +1342,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 };
             }
             let mut song = row.unwrap().1;
-            song.bliss_song.analysis = Analysis::new(chunk, song.bliss_song.features_version)
+            song.bliss_song.analysis = Analysis::new(chunk, song.bliss_song.features_version())
                 .map_err(|_| {
                     BlissError::ProviderError(format!(
                         "Song with ID {} and path {} has a different feature \
@@ -1451,7 +1463,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 .unwrap()
                 .map(|x| x.unwrap())
                 .collect::<Vec<f32>>(),
-            song.bliss_song.features_version,
+            song.bliss_song.features_version(),
         )
         .map_err(|_| {
             BlissError::ProviderError(format!(
@@ -1526,7 +1538,6 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 features_version: row.get(9).unwrap(),
             },
             duration: Duration::from_secs_f64(row.get(8).unwrap()),
-            features_version: row.get(9).unwrap(),
             cue_info,
         };
 
@@ -1600,7 +1611,7 @@ impl<Config: AppConfigTrait, D: ?Sized + DecoderTrait> Library<Config, D> {
                 song.disc_number,
                 song.genre,
                 true,
-                song.features_version,
+                song.features_version(),
                 serde_json::to_string(&library_song.extra_info)
                     .map_err(|e| BlissError::ProviderError(e.to_string()))?,
                 cue_path,
@@ -1774,6 +1785,8 @@ fn config_local_dir() -> Option<PathBuf> {
 // TODO the tests should really open a songs.db
 mod test {
     use super::*;
+    #[cfg(feature = "ffmpeg")]
+    use crate::playlist::BuiltinMetric;
     use crate::{decoder::PreAnalyzedSong, Analysis, NUMBER_FEATURES};
     use ndarray::Array1;
     use pretty_assertions::assert_eq;
@@ -1877,7 +1890,6 @@ mod test {
                 features_version: FeaturesVersion::LATEST,
             },
             duration: Duration::from_secs(310),
-            features_version: FeaturesVersion::LATEST,
             cue_info: None,
         };
         let first_song = LibrarySong {
@@ -1906,7 +1918,6 @@ mod test {
                 features_version: FeaturesVersion::LATEST,
             },
             duration: Duration::from_secs(410),
-            features_version: FeaturesVersion::LATEST,
             cue_info: None,
         };
         let second_song = LibrarySong {
@@ -1935,7 +1946,6 @@ mod test {
                 features_version: FeaturesVersion::LATEST,
             },
             duration: Duration::from_secs(410),
-            features_version: FeaturesVersion::LATEST,
             cue_info: None,
         };
         let second_song_dupe = LibrarySong {
@@ -1964,7 +1974,6 @@ mod test {
                 features_version: FeaturesVersion::LATEST,
             },
             duration: Duration::from_secs(610),
-            features_version: FeaturesVersion::LATEST,
             cue_info: None,
         };
         let third_song = LibrarySong {
@@ -1993,7 +2002,6 @@ mod test {
                 features_version: FeaturesVersion::LATEST,
             },
             duration: Duration::from_secs(710),
-            features_version: FeaturesVersion::LATEST,
             cue_info: None,
         };
         let fourth_song = LibrarySong {
@@ -2022,7 +2030,6 @@ mod test {
                 features_version: FeaturesVersion::LATEST,
             },
             duration: Duration::from_secs(810),
-            features_version: FeaturesVersion::LATEST,
             cue_info: None,
         };
         let fifth_song = LibrarySong {
@@ -2051,7 +2058,6 @@ mod test {
                 features_version: FeaturesVersion::LATEST,
             },
             duration: Duration::from_secs(810),
-            features_version: FeaturesVersion::LATEST,
             cue_info: Some(CueInfo {
                 cue_path: PathBuf::from("/path/to/cuetrack.cue"),
                 audio_file_path: PathBuf::from("/path/to/cuetrack.flac"),
@@ -2083,7 +2089,6 @@ mod test {
                 features_version: FeaturesVersion::LATEST,
             },
             duration: Duration::from_secs(910),
-            features_version: FeaturesVersion::LATEST,
             cue_info: Some(CueInfo {
                 cue_path: PathBuf::from("/path/to/cuetrack.cue"),
                 audio_file_path: PathBuf::from("/path/to/cuetrack.flac"),
@@ -2300,7 +2305,6 @@ mod test {
                             features_version: features_version,
                         },
                         duration: Duration::from_secs_f64(row.get(8).unwrap()),
-                        features_version: features_version,
                         cue_info,
                     };
 
@@ -2331,7 +2335,7 @@ mod test {
                 .collect::<Vec<f32>>()
                 .try_into()
                 .unwrap(),
-            features_version: song.bliss_song.analysis.features_version,
+            features_version: song.bliss_song.features_version(),
         };
         song.bliss_song.analysis = analysis_vector;
         song
@@ -2363,7 +2367,6 @@ mod test {
                             features_version: FeaturesVersion::Version2,
                         },
                         duration: Duration::from_secs_f64(row.get(8).unwrap()),
-                        features_version: row.get(9).unwrap(),
                         cue_info: None,
                     })
                 },
@@ -2416,7 +2419,6 @@ mod test {
                 features_version: FeaturesVersion::Version2,
             },
             duration: Duration::from_secs(80),
-            features_version: FeaturesVersion::LATEST,
             cue_info: None,
         }
     }
@@ -2478,7 +2480,7 @@ mod test {
         let songs: Vec<LibrarySong<ExtraInfo>> = library
             .playlist_from_custom(
                 &["/path/to/song2201"],
-                &euclidean_distance,
+                BuiltinMetric::Euclidean,
                 closest_to_songs,
                 false,
             )
@@ -2510,6 +2512,7 @@ mod test {
     #[cfg(feature = "ffmpeg")]
     fn test_library_playlist_deduplication() {
         let (library, _temp_dir, _) = setup_test_library();
+
         let songs: Vec<LibrarySong<ExtraInfo>> = library
             .playlist_from_custom(
                 &["/path/to/song2001"],
@@ -2611,14 +2614,17 @@ mod test {
         )
     }
 
-    fn custom_sort(
+    fn custom_sort<G>(
         _: &[LibrarySong<ExtraInfo>],
         songs: &[LibrarySong<ExtraInfo>],
-        _distance: &dyn DistanceMetricBuilder,
-    ) -> impl Iterator<Item = LibrarySong<ExtraInfo>> {
+        _distance: G,
+    ) -> BlissResult<impl Iterator<Item = LibrarySong<ExtraInfo>>>
+    where
+        G: Metric + Clone + 'static,
+    {
         let mut songs = songs.to_vec();
         songs.sort_by(|s1, s2| s1.bliss_song.path.cmp(&s2.bliss_song.path));
-        songs.to_vec().into_iter()
+        Ok(songs.to_vec().into_iter())
     }
 
     #[test]
@@ -2628,7 +2634,7 @@ mod test {
         let songs: Vec<LibrarySong<ExtraInfo>> = library
             .playlist_from_custom(
                 &["/path/to/song2001"],
-                &euclidean_distance,
+                BuiltinMetric::Euclidean,
                 custom_sort,
                 false,
             )
@@ -3611,7 +3617,6 @@ mod test {
                 features_version: FeaturesVersion::Version2,
             },
             duration: Duration::from_secs(410),
-            features_version: FeaturesVersion::Version2,
             cue_info: None,
         };
         let expected_song = LibrarySong {
