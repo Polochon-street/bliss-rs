@@ -90,20 +90,17 @@ impl FFmpegDecoder {
         }
         // TODO when ffmpeg-next will be active again: shouldn't we allocate
         // `resampled` again?
-        loop {
-            match resample_context.flush(&mut resampled).map_err(|e| {
+        while resample_context
+            .flush(&mut resampled)
+            .map_err(|e| {
                 BlissError::DecodingError(format!("while trying to resample song: {e:?}"))
-            })? {
-                Some(_) => {
-                    FFmpegDecoder::push_to_sample_array(&resampled, &mut sample_array);
-                }
-                None => {
-                    if resampled.samples() == 0 {
-                        break;
-                    }
-                    FFmpegDecoder::push_to_sample_array(&resampled, &mut sample_array);
-                }
-            };
+            })?
+            .is_some()
+        {
+            if resampled.samples() == 0 {
+                break;
+            }
+            FFmpegDecoder::push_to_sample_array(&resampled, &mut sample_array);
         }
         Ok(sample_array)
     }
