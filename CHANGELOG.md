@@ -1,5 +1,8 @@
 # Changelog
 
+## bliss 0.13.1
+* Bump FFmpeg version.
+
 ## bliss 0.13.0
 * Add a better default distance metric.
 
