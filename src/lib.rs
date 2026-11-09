@@ -54,7 +54,7 @@ fn main() -> BlissResult<()> {
 use bliss_audio::decoder::Decoder as DecoderTrait;
 use bliss_audio::decoder::ffmpeg::FFmpegDecoder as Decoder;
 use bliss_audio::{
-    playlist::{closest_to_songs, euclidean_distance},
+    playlist::{closest_to_songs, BuiltinMetric},
     BlissResult, Song,
 };
 
@@ -66,7 +66,7 @@ fn main() -> BlissResult<()> {
     // Assuming there is a first song
     let first_song = songs.first().unwrap().to_owned();
 
-    closest_to_songs(&[first_song], &mut songs, &euclidean_distance);
+    closest_to_songs(&[first_song], &mut songs, BuiltinMetric::Euclidean);
 
     println!("Playlist is:");
     for song in songs {
@@ -173,7 +173,7 @@ impl FeaturesVersion {
     }
 
     /// Distance metric that yields the best result with this features' version.
-    pub fn distance_metric(self) -> impl Fn(&Array1<f32>, &Array1<f32>) -> f32 {
+    pub fn distance_metric(self) -> impl Fn(&Array1<f32>, &Array1<f32>) -> f32 + Clone {
         mahalanobis_distance_builder(self.feature_weights())
     }
 

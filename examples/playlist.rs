@@ -3,7 +3,7 @@
 //! How to use: ./playlist [-o file.m3u] [-a analysis.json] <folder> <file to start the playlist from>
 use anyhow::Result;
 use bliss_audio::decoder::{Decoder as DecoderTrait, DefaultDecoder as Decoder};
-use bliss_audio::playlist::{closest_to_songs, dedup_playlist, euclidean_distance};
+use bliss_audio::playlist::{closest_to_songs, dedup_playlist};
 use bliss_audio::Song;
 use clap::{Arg, Command};
 use glob::glob;
@@ -82,10 +82,11 @@ fn main() -> Result<()> {
         .into_iter()
         .filter(|x| x == &first_song || paths.contains(&x.path.to_string_lossy().to_string()))
         .collect();
+    let distance_metric = first_song.features_version().distance_metric();
     let playlist = dedup_playlist(
-        closest_to_songs(&[first_song], &songs_to_chose_from, &euclidean_distance),
+        closest_to_songs(&[first_song], &songs_to_chose_from, distance_metric)?,
         None,
-    )
+    )?
     .map(|s| s.path.to_string_lossy().to_string())
     .collect::<Vec<String>>()
     .join("\n");

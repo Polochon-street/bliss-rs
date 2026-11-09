@@ -191,7 +191,6 @@ impl BlissCueFile {
                 title: current_track.title.to_owned(),
                 track_number: current_track.no.parse::<i32>().ok(),
                 disc_number: self.disc_number,
-                features_version: a.features_version,
                 cue_info: Some(CueInfo {
                     cue_path: self.cue_path.to_owned(),
                     audio_file_path: self.audio_file_path.to_owned(),
@@ -306,7 +305,6 @@ mod tests {
                 title: Some(String::from("Renaissance")),
                 genre: Some(String::from("Random")),
                 track_number: Some(1),
-                features_version: FeaturesVersion::LATEST,
                 album_artist: Some(String::from("Polochon_street")),
                 duration: Duration::from_secs_f32(11.066666603),
                 disc_number: Some(1),
@@ -346,7 +344,6 @@ mod tests {
                     ],
                     features_version: FeaturesVersion::LATEST,
                 },
-                features_version: FeaturesVersion::LATEST,
                 album: Some(String::from("Album for CUE test")),
                 artist: Some(String::from("Polochon_street")),
                 title: Some(String::from("Piano")),
@@ -396,7 +393,6 @@ mod tests {
                 title: Some(String::from("Tone")),
                 genre: Some(String::from("Random")),
                 track_number: Some(3),
-                features_version: FeaturesVersion::LATEST,
                 album_artist: Some(String::from("Polochon_street")),
                 disc_number: Some(1),
                 duration: Duration::from_secs_f32(5.586666584),
@@ -520,7 +516,7 @@ mod tests {
             let song = song.unwrap();
             assert_eq!(path, song.path);
             assert_eq!(analysis, song.analysis);
-            assert_eq!(features_version, song.features_version);
+            assert_eq!(features_version, song.features_version());
         }
     }
 
@@ -564,7 +560,6 @@ mod tests {
                 title: Some(String::from("Renaissance")),
                 genre: None,
                 track_number: Some(1),
-                features_version: FeaturesVersion::LATEST,
                 album_artist: None,
                 duration: Duration::from_secs_f32(11.066666603),
                 disc_number: None,
@@ -604,7 +599,6 @@ mod tests {
                     ],
                     features_version: FeaturesVersion::LATEST,
                 },
-                features_version: FeaturesVersion::LATEST,
                 album: None,
                 artist: Some(String::from("Polochon_street")),
                 title: Some(String::from("Piano")),
@@ -654,7 +648,6 @@ mod tests {
                 title: Some(String::from("Tone")),
                 genre: None,
                 track_number: Some(3),
-                features_version: FeaturesVersion::LATEST,
                 album_artist: None,
                 disc_number: None,
                 duration: Duration::from_secs_f32(5.586666584),

@@ -94,7 +94,6 @@ impl PreAnalyzedSong {
             genre: self.genre.clone(),
             duration: self.duration,
             analysis: Song::analyze_with_options(&self.sample_array, &analysis_options)?,
-            features_version: analysis_options.features_version,
             cue_info: None,
         })
     }

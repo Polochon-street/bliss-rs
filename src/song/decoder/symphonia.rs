@@ -280,7 +280,9 @@ impl SymphoniaDecoder {
 
                 let mono_samples = source
                     .collect::<Vec<_>>()
-                    .chunks_exact(2)
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
                     .map(|chunk| (chunk[0] + chunk[1]) * SQRT_2 / 2.)
                     .collect();
 

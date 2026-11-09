@@ -6,52 +6,254 @@
 //!
 //! They will yield different styles of playlists, so don't hesitate to
 //! experiment with them if the [default][crate::FeaturesVersion::distance_metric] does not suit you.
-use crate::{BlissError, BlissResult, Song, NUMBER_FEATURES};
+use crate::{Analysis, BlissError, BlissResult, FeaturesVersion, Song, NUMBER_FEATURES};
 use extended_isolation_forest::{Forest, ForestOptions};
 use ndarray::{Array, Array1, Array2, Axis};
 use ndarray_stats::QuantileExt;
 use noisy_float::prelude::*;
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
+
+#[derive(Clone)]
+/// A structure holding a distance metric for a specific [FeaturesVersion],
+/// already fitted with initial seeds.
+pub struct FittedMetric {
+    features_version: FeaturesVersion,
+    /// Internal distance function, computed against the initial pool
+    distance: Arc<dyn Fn(&Analysis) -> f32 + Send + Sync>,
+}
+
+impl FittedMetric {
+    /// Return the [FeaturesVersion] of the scorer.
+    pub fn get_features_version(&self) -> FeaturesVersion {
+        self.features_version
+    }
+
+    /// Create a [FittedMetric] from a specific [FeaturesVersion] and
+    /// a distance metric.
+    pub fn new(
+        features_version: FeaturesVersion,
+        distance: Arc<dyn Fn(&Analysis) -> f32 + Send + Sync>,
+    ) -> Self {
+        FittedMetric {
+            features_version,
+            distance,
+        }
+    }
+
+    /// Helper method returning the features_version of a list of [Analysis].
+    ///
+    /// Return an error if the seeds do not have the same [FeaturesVersion].
+    fn features_version_of(seeds: &[&Analysis]) -> BlissResult<FeaturesVersion> {
+        let features_version = seeds
+            .first()
+            .ok_or_else(|| {
+                BlissError::ProviderError(String::from("no songs to make a playlist from"))
+            })?
+            .features_version;
+
+        match seeds
+            .iter()
+            .find(|s| s.features_version != features_version)
+        {
+            Some(other) => Err(BlissError::ProviderError(format!(
+                "cannot compare songs with different features version: {:?} and {:?}",
+                other.features_version, features_version,
+            ))),
+            None => Ok(features_version),
+        }
+    }
+
+    /// Given a set of [Analyzed] items, check if the underlying distance is compatible
+    /// with the FittedMetric's [FeaturesVersion].
+    pub fn check_compatible<T: Analyzed>(&self, seeds: &[T]) -> BlissResult<()> {
+        let features_version = self.get_features_version();
+        match seeds
+            .iter()
+            .find(|s| s.analysis().features_version != features_version)
+        {
+            Some(other) => Err(BlissError::ProviderError(format!(
+                "cannot compare songs with different features version: {:?} and {:?}",
+                other.analysis().features_version,
+                self.features_version,
+            ))),
+            None => Ok(()),
+        }
+    }
+
+    /// Given a set of initial seeds, and a distance function of the type
+    /// d(x, y) -> f32, create a FittedMetric that stores those seeds.
+    pub fn from_seeds_pairwise(
+        seeds: &[&Analysis],
+        distance: impl Fn(&Analysis, &Analysis) -> f32 + Send + Sync + 'static,
+    ) -> BlissResult<Self> {
+        let features_version = seeds
+            .first()
+            .ok_or_else(|| {
+                BlissError::ProviderError(String::from("no songs to make a playlist from"))
+            })?
+            .features_version;
+        let seeds: Vec<Analysis> = seeds
+            .iter()
+            .map(|s| {
+                if s.features_version == features_version {
+                    Ok((*s).to_owned())
+                } else {
+                    Err(BlissError::ProviderError(format!(
+                        "cannot compare songs with different features version: {:?} and {:?}",
+                        s, features_version,
+                    )))
+                }
+            })
+            .collect::<BlissResult<Vec<Analysis>>>()?;
+        let distance = Arc::new(move |a: &Analysis| seeds.iter().map(|s| distance(s, a)).sum());
+
+        Ok(FittedMetric {
+            features_version,
+            distance,
+        })
+    }
+}
+
+/// A metric, holding the logic to both process seeds and computing
+/// the distance between seeds.
+pub trait Metric {
+    /// Return a [FittedMetric] using a provided set of initial seeds.
+    ///
+    /// Can be used to store the seeds, as well as handling a training step.
+    fn get_scorer(&self, seeds: &[&Analysis]) -> BlissResult<FittedMetric>;
+}
+
+#[derive(Clone, Default)]
+/// Pre-implemented distance metrics.
+pub enum BuiltinMetric {
+    /// The default distance metric, that should give the best results on most libraries.
+    /// Use if in doubt.
+    #[default]
+    Tuned,
+    /// A simple Euclidean distance metric.
+    Euclidean,
+    /// A simple cosine distance metric.
+    Cosine,
+    /// A custom, weighted distance metric. Use if you want to customize
+    /// the impact each song's component (timbre, rhythm, etc) has.
+    Weighted(Array2<f32>),
+    /// An extended isolation Forest algorithm, trained on seeds. Works only
+    /// for multiple initial songs.
+    Forest(ForestOptions),
+}
+
+impl Metric for BuiltinMetric {
+    fn get_scorer(&self, seeds: &[&Analysis]) -> BlissResult<FittedMetric> {
+        match self {
+            BuiltinMetric::Euclidean => FittedMetric::from_seeds_pairwise(seeds, |a, b| {
+                euclidean_distance(&a.as_arr1(), &b.as_arr1())
+            }),
+            BuiltinMetric::Cosine => FittedMetric::from_seeds_pairwise(seeds, |a, b| {
+                cosine_distance(&a.as_arr1(), &b.as_arr1())
+            }),
+            BuiltinMetric::Tuned => {
+                let version = FittedMetric::features_version_of(seeds)?;
+                let m = version.feature_weights();
+                FittedMetric::from_seeds_pairwise(seeds, move |a, b| {
+                    mahalanobis_distance(&a.as_arr1(), &b.as_arr1(), &m)
+                })
+            }
+            BuiltinMetric::Weighted(m) => {
+                let m = m.to_owned();
+                FittedMetric::from_seeds_pairwise(seeds, move |a, b| {
+                    mahalanobis_distance(&a.as_arr1(), &b.as_arr1(), &m)
+                })
+            }
+            BuiltinMetric::Forest(options) => {
+                let version = FittedMetric::features_version_of(seeds)?;
+                let training_data = &*seeds
+                    .iter()
+                    .map(|s| feature_array1_to_array(&s.as_arr1()))
+                    .collect::<Vec<_>>();
+
+                let mut opts = options.clone();
+                if options.sample_size > seeds.len() {
+                    opts.sample_size = options.sample_size.min(seeds.len());
+                }
+                let forest = Forest::from_slice(training_data, &opts).unwrap();
+                let distance = Arc::new(move |a: &Analysis| {
+                    forest.score(&feature_array1_to_array(&a.as_arr1())) as f32
+                });
+                Ok(FittedMetric::new(version, distance))
+            }
+        }
+    }
+}
+
+/// A component that has an [Analysis] attached to it (usually a song).
+pub trait Analyzed {
+    /// Returns the item's analysis.
+    fn analysis(&self) -> &Analysis;
+}
+
+impl Analyzed for Song {
+    fn analysis(&self) -> &Analysis {
+        &self.analysis
+    }
+}
+
+impl<T: Analyzed + ?Sized> Analyzed for &T {
+    fn analysis(&self) -> &Analysis {
+        (**self).analysis()
+    }
+}
 
 /// Trait for creating a distance metric, measuring the distance to a set of vectors. If this
 /// metric requires any kind of training, this should be done in the build function so that the
-/// returned DistanceMetric instance is already trained and ready to use.
+/// returned DistanceBuiltinMetric instance is already trained and ready to use.
 ///
 /// Currently, the best metric for measuring the distance to a set of songs is the extended
 /// isolation forest (implemented on [ForestOptions]). For measuring the distance to a single song,
 /// extended isolation forest doesn't work and [euclidean_distance] or [cosine_distance] are good
 /// options.
-pub trait DistanceMetricBuilder {
+pub trait DistanceBuiltinMetricBuilder {
     /// Build a distance metric that measures the distance to vectors.
-    fn build<'a>(&'a self, vectors: &[Array1<f32>]) -> Box<dyn DistanceMetric + 'a>;
+    fn build<'a>(&'a self, vectors: &[Array1<f32>]) -> Box<dyn DistanceBuiltinMetric + 'a>;
 }
 
 /// Measure the distance to a vector, from the vector(s) in the internal state of this metric.
-pub trait DistanceMetric {
+pub trait DistanceBuiltinMetric {
     /// Return the distance from the set of vectors that this metric was built from.
     fn distance(&self, vector: &Array1<f32>) -> f32;
 }
 
-/// Convenience struct used for implementing DistanceMetric for plain functions.
-pub struct FunctionDistanceMetric<'a, F: Fn(&Array1<f32>, &Array1<f32>) -> f32> {
+/// Convenience struct used for implementing DistanceBuiltinMetric for plain functions.
+pub struct FunctionDistanceBuiltinMetric<'a, F: Fn(&Array1<f32>, &Array1<f32>) -> f32> {
     func: &'a F,
     state: Vec<Array1<f32>>,
 }
 
-impl<F> DistanceMetricBuilder for F
+impl<F> DistanceBuiltinMetricBuilder for F
 where
     F: Fn(&Array1<f32>, &Array1<f32>) -> f32 + 'static,
 {
-    fn build<'a>(&'a self, vectors: &[Array1<f32>]) -> Box<dyn DistanceMetric + 'a> {
-        Box::new(FunctionDistanceMetric {
+    fn build<'a>(&'a self, vectors: &[Array1<f32>]) -> Box<dyn DistanceBuiltinMetric + 'a> {
+        Box::new(FunctionDistanceBuiltinMetric {
             func: self,
             state: vectors.iter().map(|s| s.to_owned()).collect(),
         })
     }
 }
 
-impl<F: Fn(&Array1<f32>, &Array1<f32>) -> f32 + 'static> DistanceMetric
-    for FunctionDistanceMetric<'_, F>
+impl<F> Metric for F
+where
+    F: Fn(&Array1<f32>, &Array1<f32>) -> f32 + Send + Sync + Clone + 'static,
+{
+    fn get_scorer(&self, seeds: &[&Analysis]) -> BlissResult<FittedMetric> {
+        let distance_function = self.clone();
+        FittedMetric::from_seeds_pairwise(seeds, move |a, b| {
+            distance_function(&a.as_arr1(), &b.as_arr1())
+        })
+    }
+}
+
+impl<F: Fn(&Array1<f32>, &Array1<f32>) -> f32 + 'static> DistanceBuiltinMetric
+    for FunctionDistanceBuiltinMetric<'_, F>
 {
     fn distance(&self, vector: &Array1<f32>) -> f32 {
         self.state.iter().map(|v| (self.func)(v, vector)).sum()
@@ -89,8 +291,9 @@ pub fn cosine_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
 /// # Usage
 ///
 /// ```
+/// # fn main() -> bliss_audio::BlissResult<()> {
 /// use bliss_audio::{Song, Analysis, NUMBER_FEATURES, FeaturesVersion};
-/// use bliss_audio::playlist::{closest_to_songs, mahalanobis_distance_builder};
+/// use bliss_audio::playlist::{closest_to_songs, BuiltinMetric};
 /// use ndarray::Array2;
 ///
 /// // Songs here for the example; in reality, they would be analyzed or
@@ -123,10 +326,13 @@ pub fn cosine_distance(a: &Array1<f32>, b: &Array1<f32>) -> f32 {
 /// // The weights of the features, here, equal to the identity matrix, i.e.,
 /// // it represents the euclidean distance.
 /// let m = Array2::eye(NUMBER_FEATURES);
-/// let distance = mahalanobis_distance_builder(m);
-/// let playlist = closest_to_songs(&[first_song], &[second_song, third_song], &distance).collect::<Vec<_>>();
+/// let playlist = closest_to_songs(&[first_song], &[second_song, third_song], BuiltinMetric::Weighted(m))?.collect::<Vec<_>>();
+/// # Ok(())
+/// # }
 /// ```
-pub fn mahalanobis_distance_builder(m: Array2<f32>) -> impl Fn(&Array1<f32>, &Array1<f32>) -> f32 {
+pub fn mahalanobis_distance_builder(
+    m: Array2<f32>,
+) -> impl Fn(&Array1<f32>, &Array1<f32>) -> f32 + Clone {
     move |a: &Array1<f32>, b: &Array1<f32>| mahalanobis_distance(a, b, &m)
 }
 
@@ -227,64 +433,45 @@ fn feature_array1_to_array(f: &Array1<f32>) -> [f32; NUMBER_FEATURES] {
         .expect("Couldn't convert slice to array")
 }
 
-impl DistanceMetricBuilder for ForestOptions {
-    fn build(&self, vectors: &[Array1<f32>]) -> Box<dyn DistanceMetric> {
-        let a = &*vectors
-            .iter()
-            .map(feature_array1_to_array)
-            .collect::<Vec<_>>();
-
-        if self.sample_size > vectors.len() {
-            let mut opts = self.clone();
-            opts.sample_size = self.sample_size.min(vectors.len());
-            Box::new(Forest::from_slice(a, &opts).unwrap())
-        } else {
-            Box::new(Forest::from_slice(a, self).unwrap())
-        }
-    }
-}
-
-impl DistanceMetric for Forest<f32, NUMBER_FEATURES> {
-    fn distance(&self, vector: &Array1<f32>) -> f32 {
-        self.score(&feature_array1_to_array(vector)) as f32
-    }
-}
-
 /// Return a playlist made of songs as close as possible to `initial_songs` from
 /// the pool of songs in `candidate_songs`, using `metric_builder` to build a metric
 /// to quantify the distance between songs.
-pub fn closest_to_songs<'a, T: AsRef<Song> + Clone + 'a>(
+pub fn closest_to_songs<T: Analyzed + Clone, G>(
     initial_songs: &[T],
     candidate_songs: &[T],
-    metric_builder: &'a dyn DistanceMetricBuilder,
-) -> impl Iterator<Item = T> + 'a {
+    metric: G,
+) -> BlissResult<impl Iterator<Item = T>>
+where
+    G: Metric + Clone,
+{
     let initial_songs = initial_songs
         .iter()
-        .map(|c| c.as_ref().analysis.as_arr1())
+        .map(|c| c.analysis())
         .collect::<Vec<_>>();
-    let metric = metric_builder.build(&initial_songs);
+    let scorer = metric.get_scorer(initial_songs.as_slice())?;
+    scorer.check_compatible(candidate_songs)?;
     let mut candidate_songs = candidate_songs.to_vec();
-    candidate_songs
-        .sort_by_cached_key(|song| n32(metric.distance(&song.as_ref().analysis.as_arr1())));
-    candidate_songs.into_iter()
+    candidate_songs.sort_by_cached_key(|song| n32((scorer.distance)(song.analysis())));
+    Ok(candidate_songs.into_iter())
 }
 
-struct SongToSongIterator<'a, T: AsRef<Song> + Clone> {
+struct SongToSongIterator<T: Analyzed + Clone, M: Metric> {
     pool: Vec<T>,
-    vectors: Vec<Array1<f32>>,
-    metric_builder: &'a dyn DistanceMetricBuilder,
+    vectors: Vec<Analysis>,
+    metric: M,
 }
 
-impl<T: AsRef<Song> + Clone> Iterator for SongToSongIterator<'_, T> {
+impl<T: Analyzed + Clone, M: Metric> Iterator for SongToSongIterator<T, M> {
     type Item = T;
 
     fn next(&mut self) -> Option<T> {
         if self.pool.is_empty() {
             return None;
         }
-        let metric = self.metric_builder.build(&self.vectors);
+        let seeds: Vec<&Analysis> = self.vectors.iter().collect();
+        let scorer = self.metric.get_scorer(&seeds).unwrap();
         let distances: Array1<f32> = Array::from_shape_fn(self.pool.len(), |j| {
-            metric.distance(&self.pool[j].as_ref().analysis.as_arr1())
+            (scorer.distance)(self.pool[j].analysis())
         });
         let idx = distances.argmin().unwrap();
         // TODO instead of having a vector that's of size n and then
@@ -292,7 +479,7 @@ impl<T: AsRef<Song> + Clone> Iterator for SongToSongIterator<'_, T> {
         // or something
         self.vectors.clear();
         let song = self.pool.remove(idx);
-        self.vectors.push(song.as_ref().analysis.as_arr1());
+        self.vectors.push(song.analysis().to_owned());
         Some(song)
     }
 }
@@ -307,22 +494,27 @@ impl<T: AsRef<Song> + Clone> Iterator for SongToSongIterator<'_, T> {
 ///
 /// Note that this has a tendency to go from one style to the other very fast,
 /// and it can be slow on big libraries.
-pub fn song_to_song<'a, T: AsRef<Song> + Clone + 'a>(
+pub fn song_to_song<T: Analyzed + Clone>(
     initial_songs: &[T],
     candidate_songs: &[T],
-    metric_builder: &'a dyn DistanceMetricBuilder,
-) -> impl Iterator<Item = T> + 'a {
+    metric: impl Metric,
+) -> BlissResult<impl Iterator<Item = T>> {
     let vectors = initial_songs
         .iter()
-        .map(|s| s.as_ref().analysis.as_arr1())
+        .map(|s| s.analysis())
         .collect::<Vec<_>>();
-    let pool = candidate_songs.to_vec();
+
+    let scorer = metric.get_scorer(&vectors)?;
+    scorer.check_compatible(candidate_songs)?;
     let iterator = SongToSongIterator {
-        vectors,
-        metric_builder,
-        pool,
+        vectors: initial_songs
+            .iter()
+            .map(|s| s.analysis().to_owned())
+            .collect(),
+        metric,
+        pool: candidate_songs.to_vec(),
     };
-    iterator.into_iter()
+    Ok(iterator.into_iter())
 }
 
 /// Remove duplicate songs from a playlist.
@@ -340,11 +532,11 @@ pub fn song_to_song<'a, T: AsRef<Song> + Clone + 'a>(
 /// # Returns
 ///
 /// An Iterator over the deduplicated songs.
-pub fn dedup_playlist<'a, T: AsRef<Song>>(
-    playlist: impl Iterator<Item = T> + 'a,
+pub fn dedup_playlist<T: AsRef<Song>>(
+    playlist: impl Iterator<Item = T>,
     distance_threshold: Option<f32>,
-) -> impl Iterator<Item = T> + 'a {
-    dedup_playlist_custom_distance(playlist, distance_threshold, &euclidean_distance)
+) -> BlissResult<impl Iterator<Item = T>> {
+    dedup_playlist_custom_distance(playlist, distance_threshold, BuiltinMetric::Euclidean)
 }
 
 /// Remove duplicate songs from a playlist, using a custom distance
@@ -364,11 +556,11 @@ pub fn dedup_playlist<'a, T: AsRef<Song>>(
 /// # Returns
 ///
 /// An Iterator over the deduplicated songs.
-pub fn dedup_playlist_custom_distance<'a, T: AsRef<Song>>(
-    playlist: impl Iterator<Item = T> + 'a,
+pub fn dedup_playlist_custom_distance<T: AsRef<Song>>(
+    playlist: impl Iterator<Item = T>,
     distance_threshold: Option<f32>,
-    metric_builder: &'a dyn DistanceMetricBuilder,
-) -> impl Iterator<Item = T> + 'a {
+    metric: impl Metric,
+) -> BlissResult<impl Iterator<Item = T>> {
     let mut peekable = playlist.peekable();
     let final_iterator = std::iter::from_fn(move || {
         if let Some(s1) = peekable.next() {
@@ -376,9 +568,10 @@ pub fn dedup_playlist_custom_distance<'a, T: AsRef<Song>>(
                 if let Some(s2) = peekable.peek() {
                     let s1_ref = s1.as_ref();
                     let s2_ref = s2.as_ref();
-                    let vector = [s1_ref.analysis.as_arr1()];
-                    let metric = metric_builder.build(&vector);
-                    let is_same = n32(metric.distance(&s2_ref.analysis.as_arr1()))
+                    let vector = [&s1_ref.analysis];
+                    // TODO remove unwrap
+                    let scorer = metric.get_scorer(&vector).unwrap();
+                    let is_same = n32((scorer.distance)(&s2_ref.analysis))
                         < distance_threshold.unwrap_or(0.05)
                         || (s1_ref.title.is_some()
                             && s2_ref.title.is_some()
@@ -398,7 +591,7 @@ pub fn dedup_playlist_custom_distance<'a, T: AsRef<Song>>(
         }
         None
     });
-    final_iterator
+    Ok(final_iterator)
 }
 
 /// Return a list of albums in a `pool` of songs that are similar to
@@ -503,6 +696,12 @@ mod test {
         }
     }
 
+    impl Analyzed for CustomSong {
+        fn analysis(&self) -> &Analysis {
+            &self.bliss_song.analysis()
+        }
+    }
+
     #[test]
     fn test_dedup_playlist_custom_distance() {
         let first_song = Song {
@@ -594,7 +793,8 @@ mod test {
             fifth_song.to_owned(),
         ];
         let playlist =
-            dedup_playlist_custom_distance(playlist.into_iter(), None, &euclidean_distance)
+            dedup_playlist_custom_distance(playlist.into_iter(), None, BuiltinMetric::Euclidean)
+                .unwrap()
                 .collect::<Vec<_>>();
         assert_eq!(
             playlist,
@@ -612,9 +812,13 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        let playlist =
-            dedup_playlist_custom_distance(playlist.into_iter(), Some(20.), &euclidean_distance)
-                .collect::<Vec<_>>();
+        let playlist = dedup_playlist_custom_distance(
+            playlist.into_iter(),
+            Some(20.),
+            BuiltinMetric::Euclidean,
+        )
+        .unwrap()
+        .collect::<Vec<_>>();
         assert_eq!(playlist, vec![first_song.to_owned()]);
         let playlist = vec![
             first_song.to_owned(),
@@ -624,7 +828,9 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        let playlist = dedup_playlist(playlist.into_iter(), Some(20.)).collect::<Vec<_>>();
+        let playlist = dedup_playlist(playlist.into_iter(), Some(20.))
+            .unwrap()
+            .collect::<Vec<_>>();
         assert_eq!(playlist, vec![first_song.to_owned()]);
         let playlist = vec![
             first_song.to_owned(),
@@ -634,7 +840,9 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        let playlist = dedup_playlist(playlist.into_iter(), None).collect::<Vec<_>>();
+        let playlist = dedup_playlist(playlist.into_iter(), None)
+            .unwrap()
+            .collect::<Vec<_>>();
         assert_eq!(
             playlist,
             vec![
@@ -679,7 +887,8 @@ mod test {
             fifth_song.to_owned(),
         ];
         let playlist =
-            dedup_playlist_custom_distance(playlist.into_iter(), None, &euclidean_distance)
+            dedup_playlist_custom_distance(playlist.into_iter(), None, BuiltinMetric::Euclidean)
+                .unwrap()
                 .collect::<Vec<_>>();
         assert_eq!(
             playlist,
@@ -697,9 +906,13 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        let playlist =
-            dedup_playlist_custom_distance(playlist.into_iter(), Some(20.), &cosine_distance)
-                .collect::<Vec<_>>();
+        let playlist = dedup_playlist_custom_distance(
+            playlist.into_iter(),
+            Some(20.),
+            BuiltinMetric::Euclidean,
+        )
+        .unwrap()
+        .collect::<Vec<_>>();
         assert_eq!(playlist, vec![first_song.to_owned()]);
         let playlist = vec![
             first_song.to_owned(),
@@ -709,7 +922,9 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        let playlist = dedup_playlist(playlist.into_iter(), Some(20.)).collect::<Vec<_>>();
+        let playlist = dedup_playlist(playlist.into_iter(), Some(20.))
+            .unwrap()
+            .collect::<Vec<_>>();
         assert_eq!(playlist, vec![first_song.to_owned()]);
         let playlist = vec![
             first_song.to_owned(),
@@ -719,7 +934,9 @@ mod test {
             fourth_song.to_owned(),
             fifth_song.to_owned(),
         ];
-        let playlist = dedup_playlist(playlist.into_iter(), None).collect::<Vec<_>>();
+        let playlist = dedup_playlist(playlist.into_iter(), None)
+            .unwrap()
+            .collect::<Vec<_>>();
         assert_eq!(
             playlist,
             vec![
@@ -800,8 +1017,9 @@ mod test {
             &second_song,
             &fourth_song,
         ];
-        let songs =
-            song_to_song(&[&first_song], &mut songs, &euclidean_distance).collect::<Vec<_>>();
+        let songs = song_to_song(&[&first_song], &mut songs, BuiltinMetric::Euclidean)
+            .unwrap()
+            .collect::<Vec<_>>();
         assert_eq!(
             songs,
             vec![
@@ -842,8 +1060,9 @@ mod test {
             &second_song,
         ];
 
-        let songs =
-            song_to_song(&[&first_song], &mut songs, &euclidean_distance).collect::<Vec<_>>();
+        let songs = song_to_song(&[&first_song], &mut songs, BuiltinMetric::Euclidean)
+            .unwrap()
+            .collect::<Vec<_>>();
 
         assert_eq!(
             songs,
@@ -941,8 +1160,9 @@ mod test {
             &second_song,
             &third_song,
         ];
-        let playlist: Vec<_> =
-            closest_to_songs(&[&first_song], &songs, &euclidean_distance).collect();
+        let playlist: Vec<_> = closest_to_songs(&[&first_song], &songs, BuiltinMetric::Euclidean)
+            .unwrap()
+            .collect();
         assert_eq!(
             playlist,
             [
@@ -991,7 +1211,9 @@ mod test {
         ];
 
         let playlist: Vec<_> =
-            closest_to_songs(&[&first_song], &mut songs, &euclidean_distance).collect();
+            closest_to_songs(&[&first_song], &mut songs, BuiltinMetric::Euclidean)
+                .unwrap()
+                .collect();
 
         assert_eq!(
             playlist,
@@ -1066,13 +1288,13 @@ mod test {
                 1.0, 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.,
                 0., 0., 0.,
             ]);
-        let distance = mahalanobis_distance_builder(m);
 
         let playlist = closest_to_songs(
             &[first_song.clone()],
             &[third_song.clone(), second_song.clone()],
-            &distance,
+            BuiltinMetric::Weighted(m),
         )
+        .unwrap()
         .collect::<Vec<_>>();
         assert_eq!(playlist, vec![second_song, third_song,]);
     }
@@ -1652,8 +1874,9 @@ mod test {
         let playlist: Vec<_> = closest_to_songs(
             &mozart_piano_19.iter().collect::<Vec<&Song>>(),
             &mut songs,
-            &opts,
+            BuiltinMetric::Forest(opts),
         )
+        .unwrap()
         .collect();
         for e in &kind_of_blue {
             assert!(playlist[playlist.len() - 5..].contains(&e));
